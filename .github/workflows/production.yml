@@ -1,0 +1,63 @@
+name: Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
+
+  deploy:
+    name: Deploy Cloudflare Pages
+    if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://mirai-web-cad.mirai-dx-platform.com
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Deploy production branch
+        run: >-
+          npx wrangler pages deploy dist
+          --project-name mirai-web-cad
+          --branch main
+          --commit-hash "$GITHUB_SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify public boundary
+        run: |
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.pages.dev/)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.pages.dev/api/health)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.pages.dev/api/drawings/demo)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' -X POST https://mirai-web-cad.pages.dev/api/drawings)" = "401"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.mirai-dx-platform.com/)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.mirai-dx-platform.com/api/health)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' https://mirai-web-cad.mirai-dx-platform.com/api/drawings/demo)" = "200"
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' -X POST https://mirai-web-cad.mirai-dx-platform.com/api/drawings)" = "401"

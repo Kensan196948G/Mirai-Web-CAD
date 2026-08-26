@@ -27,7 +27,7 @@
 | テスト | Unit/API 33件、Playwright E2E、axe、型検査、Lint、空DB Migration、復旧ドリル |
 | 未確認 | OpenDesign正本、GitHub Issue/PRの全過去議論、実ユーザー受入、契約・法務、DWG実案件互換、負荷100k/1m図形、RTO実測 |
 
-主なコード証拠は`src/cad-core.js`、`src/api-handler.js`、`src/data-store.js`、`tests/`、`migrations/`、`.github/workflows/mirai-web-cad*.yml`。要求根拠はリポジトリ内の要件定義書・詳細仕様設計書を用いた。
+主なコード証拠は`src/cad-core.js`、`src/api-handler.js`、`src/data-store.js`、`tests/`、`migrations/`、`.github/workflows/ci.yml`、`.github/workflows/production.yml`。要求根拠はリポジトリ内の要件定義書・詳細仕様設計書を用いた。
 
 ## 3. 18項目評価
 

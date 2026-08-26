@@ -2,6 +2,8 @@
 
 Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図向けWeb CADのMVPです。
 
+GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-Enterprise-OS/Mirai-Web-CAD`から履歴を保持して移行しました。
+
 現在のMVPは、ブラウザ単体で次の主要フローを実操作できます。
 
 | 領域 | 状態 | 内容 |
@@ -24,7 +26,7 @@ Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図�
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
-| Cloudflare Pages Preview | `https://mvp-round-5.mirai-web-cad.pages.dev/` | 新規作成/CLI/Undo/Redo/Import/UI/API/Responsive/A11y E2E確認済み |
+| Cloudflare Pages | `https://mirai-web-cad.pages.dev/` | Production branchの配信先 |
 | Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | SPAと公開デモは匿名閲覧可。任意図面と全更新APIはAccess JWT必須 |
 
 ## 起動
@@ -87,7 +89,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 - 本番の`AUTH_MODE=access`ではAccess JWTの署名、issuer、audienceを検証し、ロールはサーバー設定から決定する
 - Custom DomainのSPA、health、`visibility=public`のデモ図面は一般公開し、任意図面取得と全更新は未認証401で拒否する
 - 図面、版、最新command event、監査、Idempotency、AI承認状態を単一DB文で確定する
-- 既定branchへのmerge後、`.github/workflows/mirai-web-cad-production.yml`が全検証成功時のみPages productionへ配信する
+- `main`へのmerge後、`.github/workflows/production.yml`が全検証成功時のみPages productionへ配信する
 
 ## CAD互換範囲
 
@@ -102,3 +104,4 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 - [要件・設計トレーサビリティ](docs/mvp-traceability.md)
 - [本番運用適合性評価書](docs/production-readiness-assessment.md)
 - [改善台帳](docs/improvement-register.md)
+- [独立リポジトリ移行Manifest](docs/migration-manifest.md)

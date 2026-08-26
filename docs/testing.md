@@ -12,7 +12,7 @@
 | E2E | `npm run test:e2e` | desktop/mobile UI、新規作成、CLI、Undo/Redo、Import、Canvas、API同期、AI承認、Keyboard、axe |
 | DB | `npm run db:verify` | 空PostgreSQLへMigration/Seedを2回適用 |
 | Recovery | `npm run db:backup` / `db:restore` | custom archive検証、空DB復元、主要件数確認 |
-| Secret | GitHub Actions | Gitleaksで`Mirai-Web-CAD`を走査 |
+| Secret | GitHub Actions | Gitleaksで独立リポジトリ全体を走査 |
 
 `npm run verify`はDB以外のローカルGateを一括実行します。DB検証は`DATABASE_URL`を明示した隔離DB、CIではPostgreSQL service containerを使用します。
 
