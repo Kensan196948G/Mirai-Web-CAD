@@ -142,4 +142,16 @@
 | Preview/DB | `https://mvp-round-4.mirai-web-cad.pages.dev/`でdesktop/mobile 10 E2E成功。実Neonでrevision 3から4への更新は200、同一Idempotency-Keyとrevision 3の再更新は409を確認 |
 | Migration | 空検証DBとPreview DBの両方で全migration/Seedを2回適用し、8テーブル、Seed 1件、revision列を確認 |
 | Production準備 | Neon primary branchに専用DB`mirai_web_cad_production`を作成して全migration/Seedを2回検証。GitHub/Pages production branchを`fix/auth-guard-fail-closed`へ統一し、merge後のみ全検証、Deploy、公開境界smoke testを行うworkflowを追加 |
-| 残存課題 | GitHub Checks/再Review、OpenDesign外部正本照合、本番Merge/Deploy後確認 |
+| 残存課題 | OpenDesign外部正本照合 |
+
+## Round 4 Release / 2026-08-26
+
+| Gate | 状態 | 根拠 |
+| --- | --- | --- |
+| PR/Review | PASS | PR #15を全Check成功後にSquash Merge。merge commit `043b706` |
+| Production CI/CD | PASS | GitHub Actions `Mirai Web CAD Production` run `32926675813`でVerify Release、Pages Deploy、公開境界smoke test成功 |
+| Production Deploy | PASS | Pages deployment `bfaa1aae-272b-4700-aa50-48c4e108929b`、branch`fix/auth-guard-fail-closed`、stage`success` |
+| Domain/Access | PASS | `mirai-web-cad.mirai-dx-platform.com`はstatus/verification/validationすべてactive。未認証302 |
+| API fail-closed | PASS | Pages直URLはSPA 200、`/api/health`未認証401。runtime tailはoutcome`ok`、例外0 |
+| Production DB | PASS | Neon専用DB`mirai_web_cad_production`は8テーブル、図面1件、revision列あり。全migration/Seedを2回適用済み |
+| OpenDesign | CONTINUE | 外部プロジェクトID/URLまたは接続ツールが現環境にないため、リポジトリ内仕様HTMLを正本として照合 |

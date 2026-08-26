@@ -22,7 +22,7 @@ Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図�
 | 用途 | URL | 状態 |
 | --- | --- | --- |
 | Cloudflare Pages Preview | `https://mvp-round-4.mirai-web-cad.pages.dev/` | UI/API/Neon/AI承認/権限/Responsive/A11y E2E確認済み |
-| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Access保護済み。本番DeployはMerge Gate後に実施 |
+| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | 本番Deploy済み。Cloudflare Access保護、未認証302、Worker API未認証401を確認済み |
 
 ## 起動
 
