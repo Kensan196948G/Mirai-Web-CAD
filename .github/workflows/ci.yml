@@ -18,7 +18,7 @@ jobs:
     name: Lint, Test, Build, E2E, A11y
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -54,7 +54,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: npm run db:verify
 
   recovery:
@@ -80,7 +80,7 @@ jobs:
       BACKUP_FILE: artifacts/mirai-web-cad.dump
       ALLOW_DATABASE_RESTORE: "yes"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: npm run db:verify
       - name: Create empty recovery database
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "create database mirai_web_cad_recovery"
@@ -99,7 +99,7 @@ jobs:
     name: Secret Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Scan repository
         run: >-
           docker run --rm
@@ -119,7 +119,7 @@ jobs:
       name: preview
       url: https://pr-${{ github.event.number }}.mirai-web-cad.pages.dev
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "22"

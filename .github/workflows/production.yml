@@ -17,7 +17,7 @@ jobs:
     name: Verify Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -35,7 +35,7 @@ jobs:
       name: production
       url: https://mirai-web-cad.mirai-dx-platform.com
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
