@@ -189,6 +189,12 @@ test("狭い画面でも主要操作領域が表示範囲を破綻させない",
   await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
   await expect(page.getByLabel("作図キャンバス")).toBeVisible();
   await expect(page.getByRole("button", { name: "システム設定" })).toBeVisible();
+  const railBox = await page.getByLabel("作図ツール").boundingBox();
+  const toolBox = await page.getByRole("button", { name: "新規図面" }).boundingBox();
+  expect(railBox.width).toBeGreaterThanOrEqual(70);
+  expect(toolBox.width).toBeGreaterThanOrEqual(40);
+  expect(toolBox.x).toBeGreaterThanOrEqual(railBox.x);
+  expect(toolBox.x + toolBox.width).toBeLessThanOrEqual(railBox.x + railBox.width + 1);
   expect((await page.getByLabel("コマンドライン").boundingBox()).height).toBeLessThanOrEqual(110);
 });
 

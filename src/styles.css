@@ -146,7 +146,7 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 56px minmax(420px, 1fr) 330px;
+  grid-template-columns: 76px minmax(420px, 1fr) 330px;
   gap: 10px;
   min-height: 0;
   overflow: hidden;
@@ -165,8 +165,10 @@ h2 {
   padding: 8px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .section-title {
@@ -178,8 +180,9 @@ h2 {
 }
 
 .icon-button {
-  width: 38px;
-  min-height: 38px;
+  width: 44px;
+  min-height: 40px;
+  flex: 0 0 40px;
   display: grid;
   place-items: center;
   border-radius: 4px;
@@ -616,7 +619,7 @@ dialog label {
   }
 
   .workspace {
-    grid-template-columns: 52px 1fr;
+    grid-template-columns: 72px 1fr;
     overflow: visible;
   }
 
@@ -649,7 +652,10 @@ dialog label {
 
   .rail {
     flex-direction: row;
+    align-items: center;
     overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-gutter: auto;
   }
 
   .section-title {
