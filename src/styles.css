@@ -57,7 +57,15 @@ canvas:focus-visible {
   height: 100vh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  padding-bottom: 138px;
+  padding-bottom: 88px;
+}
+
+.app-shell.command-log-1 {
+  padding-bottom: 70px;
+}
+
+.app-shell.command-log-3 {
+  padding-bottom: 106px;
 }
 
 .topbar {
@@ -97,6 +105,31 @@ h2 {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.topbar-command {
+  min-width: 72px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-color: #ffffff66;
+  background: #ffffff12;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.topbar-command:hover {
+  background: #ffffff22;
 }
 
 .drawing-meta span,
@@ -376,8 +409,8 @@ dd {
 }
 
 .command-line {
-  min-height: 138px;
-  max-height: 138px;
+  min-height: 88px;
+  max-height: 88px;
   overflow: hidden;
   padding: 7px 10px;
   background: #0d2136;
@@ -394,8 +427,19 @@ dd {
   left: 0;
 }
 
+.command-line.command-log-1 {
+  min-height: 70px;
+  max-height: 70px;
+}
+
+.command-line.command-log-3 {
+  min-height: 106px;
+  max-height: 106px;
+}
+
 .command-history {
   overflow: auto;
+  line-height: 18px;
 }
 
 .command-form {
@@ -474,6 +518,41 @@ dialog label {
   gap: 8px;
 }
 
+.settings-group {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+.settings-group legend {
+  padding: 0 5px;
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.toggle-row {
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.system-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #f8fbfd;
+}
+
+.settings-actions span {
+  flex: 1;
+}
+
 .primary {
   border-color: var(--blue);
   background: var(--blue);
@@ -505,6 +584,15 @@ dialog label {
     flex-direction: column;
   }
 
+  .topbar-actions {
+    width: 100%;
+    align-items: flex-end;
+  }
+
+  .drawing-meta {
+    flex: 1;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -526,12 +614,4 @@ dialog label {
     height: min(40vh, 360px);
   }
 
-  .app-shell {
-    padding-bottom: 150px;
-  }
-
-  .command-line {
-    min-height: 150px;
-    max-height: 150px;
-  }
 }

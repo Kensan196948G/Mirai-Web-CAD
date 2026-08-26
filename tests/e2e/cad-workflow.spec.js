@@ -147,6 +147,30 @@ test("URLと保存図面の文字列をHTMLとして実行しない", async ({ p
   await expect(page.locator(".swatch").first()).toHaveValue("#5b6b7a");
 });
 
+test("上部設定から作図補助とコマンドライン表示を保存できる", async ({ page }) => {
+  const commandLine = page.getByLabel("コマンドライン");
+  expect((await commandLine.boundingBox()).height).toBeLessThanOrEqual(90);
+
+  await page.getByRole("button", { name: "システム設定" }).click();
+  const dialog = page.getByRole("dialog", { name: "システム設定" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel("グリッド表示")).toBeChecked();
+  await page.getByLabel("グリッドスナップ").check();
+  await page.getByLabel("グリッド間隔").selectOption("250");
+  await page.getByLabel("ログ表示行数").selectOption("1");
+  await page.getByRole("button", { name: "適用", exact: true }).click();
+
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText("SNAP: 250 mm", { exact: true })).toBeVisible();
+  expect((await commandLine.boundingBox()).height).toBeLessThanOrEqual(72);
+
+  await page.reload();
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await expect(page.getByLabel("グリッドスナップ")).toBeChecked();
+  await expect(page.getByLabel("グリッド間隔")).toHaveValue("250");
+  await expect(page.getByLabel("ログ表示行数")).toHaveValue("1");
+});
+
 test("狭い画面でも主要操作領域が表示範囲を破綻させない", async ({ page }) => {
   const metrics = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -155,4 +179,6 @@ test("狭い画面でも主要操作領域が表示範囲を破綻させない",
   expect(metrics.content).toBeLessThanOrEqual(metrics.viewport + 1);
   await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
   await expect(page.getByLabel("作図キャンバス")).toBeVisible();
+  await expect(page.getByRole("button", { name: "システム設定" })).toBeVisible();
+  expect((await page.getByLabel("コマンドライン").boundingBox()).height).toBeLessThanOrEqual(110);
 });
