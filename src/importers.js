@@ -1,5 +1,6 @@
 import DxfParserPackage from "dxf-parser";
 import { circle, line, polyline, rect, text } from "./cad-core.js";
+import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -122,6 +123,22 @@ function normalizeJsonEntity(entity, layerId, index) {
     return text(layerId, coordinate(entity.at), String(entity.value ?? ""), {
       ...options,
       size: positive(entity.size, 180)
+    });
+  }
+  if (entity.type === "dimension") {
+    return dimensionEntity(layerId, pair(entity.points, 2), pair(entity.points, 2, 1), {
+      ...options, offset: finite(entity.offset ?? 350, "offset"), precision: Number(entity.precision ?? 0), suffix: entity.suffix ?? ""
+    });
+  }
+  if (entity.type === "hatch") {
+    if (!Array.isArray(entity.points) || entity.points.length < 3) throw new Error("hatchには3点以上必要です。");
+    return hatchEntity(layerId, entity.points.map(coordinate), { ...options, pattern: entity.pattern, spacing: entity.spacing, angle: entity.angle });
+  }
+  if (entity.type === "block") {
+    if (!Array.isArray(entity.children) || entity.children.length === 0) throw new Error("blockにchildrenがありません。");
+    const children = entity.children.map((child, childIndex) => normalizeJsonEntity(child, layerId, index * 100 + childIndex));
+    return blockEntity(layerId, entity.name, coordinate(entity.insertion), children, entity.attributes, {
+      ...options, rotation: entity.rotation, scale: entity.scale
     });
   }
   throw new Error(`未対応typeです: ${entity.type}`);

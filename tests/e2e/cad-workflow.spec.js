@@ -191,3 +191,36 @@ test("狭い画面でも主要操作領域が表示範囲を破綻させない",
   await expect(page.getByRole("button", { name: "システム設定" })).toBeVisible();
   expect((await page.getByLabel("コマンドライン").boundingBox()).height).toBeLessThanOrEqual(110);
 });
+
+test("高度CAD編集、レイヤー、レイアウトを一連操作できる", async ({ page }) => {
+  const command = page.getByLabel("コマンド入力");
+  const quantity = page.getByText("図形数").locator("xpath=following-sibling::dd[1]");
+  const before = Number(await quantity.textContent());
+
+  for (const value of ["DIM 1000,1000 2500,1000", "HATCH 3000,1000 4000,1000 4000,1800 3000,1800", "SELECT e_box_1", "OFFSET 150", "ROTATE 15", "SCALE 1.05"]) {
+    await command.fill(value);
+    await command.press("Enter");
+  }
+  await expect(quantity).toHaveText(String(before + 3));
+  await expect(page.getByRole("heading", { name: "CAD Operations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Properties" })).toBeVisible();
+
+  await page.getByLabel("図形操作").selectOption("block");
+  await page.getByLabel("操作値").fill("構造物記号");
+  await page.getByRole("button", { name: "選択図形へ適用" }).click();
+  await page.locator("#propertyForm input[name=blockAttributes]").fill("番号=B-01;種別=構造物");
+  await page.getByRole("button", { name: "プロパティ更新" }).click();
+  await expect(page.locator("#propertyForm input[name=blockAttributes]")).toHaveValue("番号=B-01;種別=構造物");
+
+  await page.getByLabel("新規レイヤー名").fill("測量");
+  await page.getByRole("button", { name: "レイヤー追加" }).click();
+  await expect(page.getByLabel("現在レイヤー")).toContainText("測量");
+
+  await page.locator("#layoutForm select[name=paper]").selectOption("A1");
+  await page.locator("#layoutForm input[name=scale]").fill("200");
+  await page.getByRole("button", { name: "設定保存" }).click();
+  await expect(page.locator("#layoutForm select[name=paper]")).toHaveValue("A1");
+  await page.evaluate(() => { window.print = () => localStorage.setItem("print-invoked", "yes"); });
+  await page.getByRole("button", { name: "PDF / 印刷" }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("print-invoked"))).toBe("yes");
+});

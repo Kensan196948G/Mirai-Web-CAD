@@ -231,6 +231,57 @@ h2 {
   padding: 12px;
 }
 
+.compact-form,
+.layer-create-form {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-form label {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compact-form dl {
+  grid-template-columns: 54px 1fr;
+  padding: 7px;
+  background: #f8fbfd;
+  border: 1px solid var(--line);
+}
+
+.inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.layer-create-form {
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  margin-bottom: 8px;
+}
+
+.layer-create-form input[type="color"] {
+  min-height: 34px;
+  padding: 2px;
+}
+
+.layer-create-form button {
+  padding: 3px;
+}
+
+.measure-result,
+.empty-note {
+  margin: 8px 0 0;
+  padding: 7px;
+  border: 1px solid var(--line);
+  background: #f8fbfd;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 textarea,
 input,
 select {
@@ -337,7 +388,6 @@ select {
   border: 1px solid #ffffff;
   box-shadow: 0 0 0 1px var(--line);
   opacity: 1;
-  pointer-events: none;
 }
 
 .swatch::-webkit-color-swatch-wrapper {
@@ -614,4 +664,38 @@ dialog label {
     height: min(40vh, 360px);
   }
 
+}
+
+@media print {
+  @page {
+    size: A3 landscape;
+    margin: 10mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .topbar,
+  .rail,
+  .inspector,
+  .canvas-toolbar,
+  .command-line {
+    display: none !important;
+  }
+
+  .app-shell,
+  .workspace,
+  .canvas-panel {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  #cadCanvas {
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
 }

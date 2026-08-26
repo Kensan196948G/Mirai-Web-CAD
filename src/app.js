@@ -21,6 +21,7 @@ import {
 import { parseCadCommand } from "./cad-command.js";
 import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
+import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
@@ -30,7 +31,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   showGrid: true,
   snapEnabled: false,
   gridInterval: 500,
-  commandLogLines: 2
+  commandLogLines: 2,
+  dimensionOffset: 350,
+  dimensionPrecision: 0,
+  dimensionSuffix: ""
 });
 
 const state = {
@@ -49,6 +53,8 @@ const state = {
   redoStack: [],
   focusTarget: null,
   drag: null,
+  panStart: null,
+  measurement: null,
   viewMode: VIEW_MODES.has(requestedViewMode) ? requestedViewMode : "normal",
   apiStatus: { state: "idle", message: "未確認", connected: false, roleLocked: false },
   settings: loadUserSettings()
@@ -58,6 +64,7 @@ const app = document.querySelector("#app");
 
 function render() {
   const drawing = activeDrawing();
+  const selected = drawing.entities.find((entity) => entity.id === state.selectedId);
   const commandLogClass = `command-log-${state.settings.commandLogLines}`;
   app.className = `app-shell ${commandLogClass}`;
   app.innerHTML = `
@@ -102,11 +109,17 @@ function render() {
         ${toolButton("circle", "○", "円")}
         ${toolButton("polyline", "⌁", "ポリライン")}
         ${toolButton("text", "T", "文字")}
+        ${toolButton("dimension", "↔", "寸法線")}
+        ${toolButton("hatch", "▧", "ハッチング")}
+        ${toolButton("measure", "⌖", "計測")}
+        ${toolButton("pan", "✥", "パン")}
         <div class="section-title">Edit</div>
         <button id="undoBtn" class="icon-button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>↶</button>
         <button id="redoBtn" class="icon-button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>↷</button>
         <button id="deleteBtn" class="icon-button" title="削除" aria-label="選択図形を削除">⌫</button>
         <button id="fitBtn" class="icon-button" title="図面範囲表示" aria-label="図面範囲表示">⛶</button>
+        <button id="zoomInBtn" class="icon-button" title="拡大" aria-label="拡大">＋</button>
+        <button id="zoomOutBtn" class="icon-button" title="縮小" aria-label="縮小">−</button>
         <button id="exportBtn" class="icon-button" title="JSON出力" aria-label="JSON出力">⇩</button>
         <button id="resetBtn" class="icon-button danger" title="デモ初期化" aria-label="デモ初期化">↺</button>
       </aside>
@@ -130,6 +143,7 @@ function render() {
           <span>${state.selectedId ? `選択: ${escapeHtml(state.selectedId)}` : "未選択"}</span>
           <span>表示状態: ${escapeHtml(viewModeLabel(state.viewMode))}</span>
           <span>SNAP: ${state.settings.snapEnabled ? `${state.settings.gridInterval} ${drawing.unit}` : "OFF"}</span>
+          <span>ZOOM: ${Math.round(state.camera.scale * 1000)}%</span>
         </div>
         <canvas id="cadCanvas" width="1180" height="760" tabindex="0" aria-label="作図キャンバス"></canvas>
       </section>
@@ -161,14 +175,48 @@ function render() {
         </section>
 
         <section>
+          <h2>CAD Operations</h2>
+          <form id="operationForm" class="compact-form">
+            <label>操作
+              <select name="operation" aria-label="図形操作">
+                <option value="move">移動</option><option value="copy">複写</option>
+                <option value="rotate">回転</option><option value="scale">尺度変更</option>
+                <option value="offset">オフセット</option><option value="trim">トリム</option>
+                <option value="extend">延長</option><option value="block">ブロック化</option>
+              </select>
+            </label>
+            <label>値<input name="value" aria-label="操作値" placeholder="例: 500,0 / 45 / 1.5" /></label>
+            <button type="submit" ${selected ? "" : "disabled"}>選択図形へ適用</button>
+          </form>
+          <p class="measure-result">${state.measurement ? `距離 ${formatNumber(state.measurement.distance)} / ΔX ${formatNumber(state.measurement.dx)} / ΔY ${formatNumber(state.measurement.dy)} / ${formatNumber(state.measurement.angle)}°` : "計測結果なし"}</p>
+        </section>
+
+        <section>
+          <h2>Properties</h2>
+          ${selected ? `
+            <form id="propertyForm" class="compact-form">
+              <dl><dt>ID</dt><dd>${escapeHtml(selected.id)}</dd><dt>種類</dt><dd>${escapeHtml(selected.type)}</dd></dl>
+              <label>レイヤー<select name="layerId">${drawing.layers.map((layer) => `<option value="${escapeHtml(layer.id)}" ${selected.layerId === layer.id ? "selected" : ""}>${escapeHtml(layer.name)}</option>`).join("")}</select></label>
+              <label>線幅<input name="strokeWidth" type="number" min="0.5" max="20" step="0.5" value="${escapeHtml(selected.style?.strokeWidth ?? 2)}" /></label>
+              ${selected.type === "block" ? `<label>ブロック属性<input name="blockAttributes" value="${escapeHtml(Object.entries(selected.attributes ?? {}).map(([key, value]) => `${key}=${value}`).join(";"))}" placeholder="番号=1;種別=桝" /></label>` : ""}
+              <button type="submit">プロパティ更新</button>
+            </form>` : `<p class="empty-note">図形を選択してください。</p>`}
+        </section>
+
+        <section>
           <h2>Layers</h2>
+          <form id="layerForm" class="layer-create-form">
+            <input name="name" maxlength="80" placeholder="新規レイヤー名" aria-label="新規レイヤー名" required />
+            <input name="color" type="color" value="#246b9f" aria-label="新規レイヤー色" />
+            <button type="submit" title="レイヤー追加" aria-label="レイヤー追加">＋</button>
+          </form>
           <div class="layer-list">
             ${drawing.layers
               .map(
                 (layer) => `
                   <label class="layer-row">
                     <input type="checkbox" data-layer-visible="${escapeHtml(layer.id)}" ${layer.visible ? "checked" : ""} />
-                    <input class="swatch" type="color" value="${safeColor(layer.color)}" disabled aria-label="${escapeHtml(layer.name)}の色" />
+                    <input class="swatch" data-layer-color="${escapeHtml(layer.id)}" type="color" value="${safeColor(layer.color)}" aria-label="${escapeHtml(layer.name)}の色" />
                     <span>${escapeHtml(layer.name)}</span>
                     <button data-layer-lock="${escapeHtml(layer.id)}" class="mini ${
                       layer.locked ? "locked" : ""
@@ -180,6 +228,22 @@ function render() {
               )
               .join("")}
           </div>
+        </section>
+
+        <section>
+          <h2>Layout / Print</h2>
+          <form id="layoutForm" class="compact-form">
+            <div class="inline-fields">
+              <label>用紙<select name="paper">${["A4", "A3", "A2", "A1"].map((paper) => `<option ${drawing.layout?.paper === paper ? "selected" : ""}>${paper}</option>`).join("")}</select></label>
+              <label>方向<select name="orientation"><option value="landscape" ${drawing.layout?.orientation !== "portrait" ? "selected" : ""}>横</option><option value="portrait" ${drawing.layout?.orientation === "portrait" ? "selected" : ""}>縦</option></select></label>
+            </div>
+            <div class="inline-fields">
+              <label>縮尺 1:<input name="scale" type="number" min="1" value="${escapeHtml(drawing.layout?.scale ?? 100)}" /></label>
+              <label>余白 mm<input name="margin" type="number" min="0" value="${escapeHtml(drawing.layout?.margin ?? 10)}" /></label>
+            </div>
+            <label>表題<input name="title" maxlength="100" value="${escapeHtml(drawing.layout?.title ?? drawing.name)}" /></label>
+            <div class="button-row"><button type="submit">設定保存</button><button id="printBtn" type="button">PDF / 印刷</button></div>
+          </form>
         </section>
 
         <section>
@@ -258,6 +322,12 @@ function render() {
                 .join("")}
             </select>
           </label>
+        </fieldset>
+        <fieldset class="settings-group">
+          <legend>寸法スタイル</legend>
+          <label>寸法線オフセット<input name="dimensionOffset" type="number" min="0" value="${escapeHtml(state.settings.dimensionOffset)}" /></label>
+          <label>小数桁<select name="dimensionPrecision">${[0, 1, 2, 3].map((value) => `<option value="${value}" ${state.settings.dimensionPrecision === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+          <label>接尾辞<input name="dimensionSuffix" maxlength="12" value="${escapeHtml(state.settings.dimensionSuffix)}" placeholder="例: mm" /></label>
         </fieldset>
         <fieldset class="settings-group">
           <legend>画面</legend>
@@ -354,6 +424,8 @@ function bindEvents() {
   document.querySelector("#undoBtn").addEventListener("click", undoLastTransaction);
   document.querySelector("#redoBtn").addEventListener("click", redoLastTransaction);
   document.querySelector("#fitBtn").addEventListener("click", fitToDrawing);
+  document.querySelector("#zoomInBtn").addEventListener("click", () => zoomAtCenter(1.25));
+  document.querySelector("#zoomOutBtn").addEventListener("click", () => zoomAtCenter(0.8));
   document.querySelector("#exportBtn").addEventListener("click", () => exportDrawingFile(state.drawing));
   document.querySelector("#resetBtn").addEventListener("click", () => {
     clearDrawing();
@@ -366,6 +438,11 @@ function bindEvents() {
 
   document.querySelector("#planAiBtn").addEventListener("click", planAiProposal);
   document.querySelector("#applyAiBtn").addEventListener("click", applyAiProposal);
+  document.querySelector("#operationForm").addEventListener("submit", applyOperationForm);
+  document.querySelector("#propertyForm")?.addEventListener("submit", updateSelectedProperties);
+  document.querySelector("#layerForm").addEventListener("submit", createLayerFromForm);
+  document.querySelector("#layoutForm").addEventListener("submit", updateLayoutFromForm);
+  document.querySelector("#printBtn").addEventListener("click", printDrawing);
 
   /** @type {NodeListOf<HTMLInputElement>} */
   const layerVisibilityInputs = document.querySelectorAll("[data-layer-visible]");
@@ -388,6 +465,12 @@ function bindEvents() {
         { op: "update_layer", id: layer.id, patch: { locked: !layer.locked } }
       ]);
     });
+  });
+  document.querySelectorAll("[data-layer-color]").forEach((input) => {
+    const colorInput = /** @type {HTMLInputElement} */ (input);
+    colorInput.addEventListener("change", () => commitCommands("レイヤー色変更", [
+      { op: "update_layer", id: colorInput.dataset.layerColor, patch: { color: colorInput.value } }
+    ]));
   });
 
   document.querySelector("#reviewBtn").addEventListener("click", () => changeReviewState("submit"));
@@ -421,11 +504,16 @@ function saveSettingsFromForm(event) {
   const data = new FormData(form);
   const gridInterval = Number(data.get("gridInterval"));
   const commandLogLines = Number(data.get("commandLogLines"));
+  const dimensionOffset = Number(data.get("dimensionOffset"));
+  const dimensionPrecision = Number(data.get("dimensionPrecision"));
   state.settings = {
     showGrid: data.get("showGrid") === "on",
     snapEnabled: data.get("snapEnabled") === "on",
     gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
-    commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines
+    commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
+    dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
+    dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
+    dimensionSuffix: String(data.get("dimensionSuffix") ?? "").slice(0, 12)
   };
   saveUserSettings();
   log("システム設定を更新");
@@ -544,6 +632,15 @@ async function executeUiCommand(command) {
     log(`現在レイヤー: ${layerName(command.layerId)}`);
   }
   if (command.action === "fit") fitCameraToDrawing();
+  if (command.action === "pan") {
+    state.camera.x += command.offset.x * state.camera.scale;
+    state.camera.y += command.offset.y * state.camera.scale;
+    log(`パン: ${command.offset.x},${command.offset.y}`);
+  }
+  if (command.action === "plot") {
+    printDrawing();
+    return false;
+  }
   if (command.action === "select") {
     state.selectedId = command.entityId;
     log(`選択: ${command.entityId}`);
@@ -613,6 +710,101 @@ function resetAuthoringState() {
   state.viewMode = "normal";
   state.undoStack = [];
   state.redoStack = [];
+  state.measurement = null;
+}
+
+async function applyOperationForm(event) {
+  event.preventDefault();
+  const selected = state.drawing.entities.find((entity) => entity.id === state.selectedId);
+  if (!selected) return;
+  const data = new FormData(event.currentTarget);
+  const operation = String(data.get("operation"));
+  const value = String(data.get("value") ?? "").trim();
+  try {
+    let next;
+    if (["move", "copy"].includes(operation)) {
+      const offset = parsePointValue(value, "dx,dy");
+      next = transformEntity(selected, { dx: offset.x, dy: offset.y });
+    }
+    if (operation === "rotate") next = transformEntity(selected, { angle: parseNumberValue(value, "角度"), base: entityAnchor(selected) });
+    if (operation === "scale") {
+      const scale = parseNumberValue(value, "尺度");
+      if (scale <= 0) throw new Error("尺度は0より大きい値を指定してください。");
+      next = transformEntity(selected, { scale, base: entityAnchor(selected) });
+    }
+    if (operation === "offset") next = offsetEntity(selected, parseNumberValue(value, "距離"));
+    if (["trim", "extend"].includes(operation)) next = editLineEndpoint(selected, parsePointValue(value, "x,y"), operation.toUpperCase());
+    if (operation === "block") {
+      const name = value || `BLOCK_${selected.id}`;
+      const child = transformEntity(selected);
+      child.id = `child_${Date.now().toString(36)}`;
+      const block = blockEntity(selected.layerId, name, [0, 0], [child]);
+      state.selectedId = block.id;
+      await commitCommands("ブロック化", [{ op: "delete", id: selected.id }, { op: "add", entity: block }]);
+      return;
+    }
+    if (!next) throw new Error("操作を選択してください。");
+    if (["copy", "offset"].includes(operation)) {
+      next.id = `e_${operation}_${Date.now().toString(36)}`;
+      next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
+      state.selectedId = next.id;
+      await commitCommands(operation === "copy" ? "図形複写" : "オフセット", [{ op: "add", entity: next }]);
+    } else {
+      await commitCommands(operation.toUpperCase(), [{ op: "update", id: selected.id, patch: withoutIdentity(next) }]);
+    }
+  } catch (error) {
+    log(`操作失敗: ${errorMessage(error)}`);
+    render();
+  }
+}
+
+async function updateSelectedProperties(event) {
+  event.preventDefault();
+  const selected = state.drawing.entities.find((entity) => entity.id === state.selectedId);
+  if (!selected) return;
+  const data = new FormData(event.currentTarget);
+  const strokeWidth = Number(data.get("strokeWidth"));
+  await commitCommands("プロパティ更新", [{
+    op: "update", id: selected.id,
+    patch: {
+      layerId: String(data.get("layerId")),
+      style: { ...selected.style, strokeWidth },
+      ...(selected.type === "block" ? { attributes: parseAttributes(String(data.get("blockAttributes") ?? "")) } : {})
+    }
+  }]);
+}
+
+async function createLayerFromForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const name = String(data.get("name") ?? "").trim();
+  const id = `layer_${globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Date.now().toString(36)}`;
+  const succeeded = await commitCommands(`レイヤー追加: ${name}`, [{ op: "add_layer", layer: { id, name, color: String(data.get("color")) } }]);
+  if (succeeded) state.currentLayerId = id;
+}
+
+async function updateLayoutFromForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+}
+
+function printDrawing() {
+  document.body.dataset.printPaper = state.drawing.layout?.paper ?? "A3";
+  log("印刷プレビューを開きます。送信先でPDF保存を選択できます。");
+  render();
+  setTimeout(() => window.print(), 0);
+}
+
+function zoomAtCenter(factor) {
+  const canvas = /** @type {HTMLCanvasElement} */ (document.querySelector("#cadCanvas"));
+  const before = screenToWorld(canvas.width / 2, canvas.height / 2);
+  state.camera.scale = Math.min(2, Math.max(0.005, state.camera.scale * factor));
+  const after = screenToWorld(canvas.width / 2, canvas.height / 2);
+  state.camera.x += (after.x - before.x) * state.camera.scale;
+  state.camera.y += (after.y - before.y) * state.camera.scale;
+  log(`ズーム: ${Math.round(state.camera.scale * 1000)}%`);
+  render();
 }
 
 async function changeReviewState(action) {
@@ -679,6 +871,23 @@ function onPointerDown(event) {
   const world = state.tool === "select" ? rawWorld : snapPoint(rawWorld);
   const policy = ROLE_POLICIES[state.drawing.currentRole] ?? ROLE_POLICIES.viewer;
 
+  if (state.tool === "pan" || event.button === 1) {
+    state.panStart = { x: event.clientX, y: event.clientY, camera: { ...state.camera } };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    return;
+  }
+
+  if (state.tool === "measure") {
+    state.draftPoints.push(world);
+    if (state.draftPoints.length === 2) {
+      state.measurement = measurePoints(state.draftPoints[0], state.draftPoints[1]);
+      log(`計測: 距離=${formatNumber(state.measurement.distance)} ${state.drawing.unit} / 角度=${formatNumber(state.measurement.angle)}°`);
+      state.draftPoints = [];
+      render();
+    } else drawCanvas(world);
+    return;
+  }
+
   if (state.tool === "select") {
     const hit = hitTest(activeDrawing(), world);
     state.selectedId = hit?.id ?? null;
@@ -695,7 +904,7 @@ function onPointerDown(event) {
     return;
   }
 
-  if (state.tool === "line" || state.tool === "rect" || state.tool === "circle") {
+  if (state.tool === "line" || state.tool === "rect" || state.tool === "circle" || state.tool === "dimension") {
     state.draftPoints.push(world);
     if (state.draftPoints.length === 2) {
       commitTwoPointTool();
@@ -709,6 +918,11 @@ function onPointerDown(event) {
     drawCanvas(world);
   }
 
+  if (state.tool === "hatch") {
+    state.draftPoints.push(world);
+    drawCanvas(world);
+  }
+
   if (state.tool === "text") {
     const value = prompt("配置する文字を入力", "施工注記");
     if (value) {
@@ -718,6 +932,12 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  if (state.panStart) {
+    state.camera.x = state.panStart.camera.x + event.clientX - state.panStart.x;
+    state.camera.y = state.panStart.camera.y + event.clientY - state.panStart.y;
+    drawCanvas();
+    return;
+  }
   const rawWorld = screenToWorld(event.offsetX, event.offsetY);
   const world = state.drag ? rawWorld : snapPoint(rawWorld);
   if (state.drag) {
@@ -735,6 +955,12 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+  if (state.panStart) {
+    state.panStart = null;
+    log("パン表示を更新");
+    render();
+    return;
+  }
   if (!state.drag) return;
   const entity = state.drawing.entities.find((item) => item.id === state.drag.id);
   state.drawing.entities = state.drawing.entities.map((item) => (item.id === state.drag.id ? state.drag.original : item));
@@ -744,6 +970,12 @@ function onPointerUp() {
 }
 
 function cancelDrag() {
+  if (state.panStart) {
+    state.camera = state.panStart.camera;
+    state.panStart = null;
+    render();
+    return;
+  }
   if (!state.drag) return;
   state.drawing.entities = state.drawing.entities.map((item) =>
     item.id === state.drag.id ? state.drag.original : item
@@ -757,7 +989,7 @@ function onWheel(event) {
   event.preventDefault();
   const factor = event.deltaY < 0 ? 1.12 : 0.9;
   const before = screenToWorld(event.offsetX, event.offsetY);
-  state.camera.scale = Math.min(0.5, Math.max(0.025, state.camera.scale * factor));
+  state.camera.scale = Math.min(2, Math.max(0.005, state.camera.scale * factor));
   const after = screenToWorld(event.offsetX, event.offsetY);
   state.camera.x += (after.x - before.x) * state.camera.scale;
   state.camera.y += (after.y - before.y) * state.camera.scale;
@@ -777,6 +1009,13 @@ function onCanvasKeyDown(event) {
     ]);
     state.draftPoints = [];
   }
+  if (event.key === "Enter" && state.tool === "hatch" && state.draftPoints.length >= 3) {
+    commitCommands("ハッチング作成", [{ op: "add", entity: hatchEntity(state.currentLayerId, state.draftPoints) }]);
+    state.draftPoints = [];
+  }
+  if (event.key === "0") fitToDrawing();
+  if (event.key === "+" || event.key === "=") zoomAtCenter(1.25);
+  if (event.key === "-") zoomAtCenter(0.8);
   if ((event.key === "Delete" || event.key === "Backspace") && state.selectedId) {
     deleteSelected();
   }
@@ -793,6 +1032,11 @@ function commitTwoPointTool() {
   }
   if (state.tool === "circle") {
     commands.push({ op: "add", entity: circle(state.currentLayerId, [a.x, a.y], Math.hypot(b.x - a.x, b.y - a.y)) });
+  }
+  if (state.tool === "dimension") {
+    commands.push({ op: "add", entity: dimensionEntity(state.currentLayerId, a, b, {
+      offset: state.settings.dimensionOffset, precision: state.settings.dimensionPrecision, suffix: state.settings.dimensionSuffix
+    }) });
   }
   commitCommands(`${state.tool}作成`, commands);
   state.draftPoints = [];
@@ -862,14 +1106,15 @@ function snapshotCommands(current, target) {
   for (const layer of target.layers) {
     const existing = current.layers.find((item) => item.id === layer.id);
     if (!existing) commands.unshift({ op: "add_layer", layer: structuredClone(layer) });
-    else if (existing.visible !== layer.visible || existing.locked !== layer.locked) {
+    else if (JSON.stringify(existing) !== JSON.stringify(layer)) {
       commands.push({
         op: "update_layer",
         id: layer.id,
-        patch: { visible: layer.visible, locked: layer.locked }
+        patch: { visible: layer.visible, locked: layer.locked, printable: layer.printable, name: layer.name, color: layer.color }
       });
     }
   }
+  if (JSON.stringify(current.layout) !== JSON.stringify(target.layout)) commands.push({ op: "update_layout", patch: target.layout });
   return commands;
 }
 
@@ -1096,16 +1341,55 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     ctx.font = `${Math.max(11, entity.size * state.camera.scale)}px sans-serif`;
     ctx.fillText(entity.value, at.x, at.y);
   }
+  if (entity.type === "dimension") {
+    const [start, end] = entity.points;
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const normal = length ? { x: (-(end.y - start.y) / length) * entity.offset, y: ((end.x - start.x) / length) * entity.offset } : { x: 0, y: 0 };
+    const a = worldToScreen(start);
+    const b = worldToScreen(end);
+    const da = worldToScreen({ x: start.x + normal.x, y: start.y + normal.y });
+    const db = worldToScreen({ x: end.x + normal.x, y: end.y + normal.y });
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(da.x, da.y); ctx.moveTo(b.x, b.y); ctx.lineTo(db.x, db.y); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
+    const arrow = 7;
+    ctx.fillStyle = overrideColor ?? layer.color;
+    for (const arrowhead of [{ tip: da, direction: 1 }, { tip: db, direction: -1 }]) {
+      const { tip, direction } = arrowhead;
+      const angle = Math.atan2(db.y - da.y, db.x - da.x);
+      ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(tip.x + Math.cos(angle + 0.45) * arrow * direction, tip.y + Math.sin(angle + 0.45) * arrow * direction); ctx.lineTo(tip.x + Math.cos(angle - 0.45) * arrow * direction, tip.y + Math.sin(angle - 0.45) * arrow * direction); ctx.closePath(); ctx.fill();
+    }
+    const label = `${length.toFixed(entity.precision ?? 0)}${entity.suffix ?? ""}`;
+    ctx.font = `${Math.max(11, 180 * state.camera.scale)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(label, (da.x + db.x) / 2, (da.y + db.y) / 2 - 5);
+  }
+  if (entity.type === "hatch") {
+    const points = entity.points.map(worldToScreen);
+    ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+    for (const pointValue of points.slice(1)) ctx.lineTo(pointValue.x, pointValue.y);
+    ctx.closePath(); ctx.stroke(); ctx.clip();
+    const bounds = entityBounds(entity);
+    const a = worldToScreen({ x: bounds.minX, y: bounds.minY });
+    const b = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+    const spacing = Math.max(5, entity.spacing * state.camera.scale);
+    for (let x = a.x - Math.abs(b.y - a.y); x < b.x + Math.abs(b.y - a.y); x += spacing) {
+      ctx.beginPath(); ctx.moveTo(x, b.y); ctx.lineTo(x + (b.y - a.y), a.y); ctx.stroke();
+    }
+  }
+  if (entity.type === "block") {
+    for (const child of entity.children ?? []) {
+      const transformed = transformEntity(child, { dx: entity.insertion?.x ?? 0, dy: entity.insertion?.y ?? 0, angle: entity.rotation ?? 0, scale: entity.scale ?? 1 });
+      drawEntity(ctx, { ...transformed, layerId: entity.layerId }, overrideColor, preview);
+    }
+    const at = worldToScreen(entity.insertion ?? { x: 0, y: 0 });
+    ctx.fillStyle = overrideColor ?? layer.color;
+    ctx.font = "11px sans-serif";
+    ctx.fillText(`${entity.name}${Object.keys(entity.attributes ?? {}).length ? ` [${Object.values(entity.attributes).join(" / ")}]` : ""}`, at.x + 5, at.y - 5);
+  }
   ctx.restore();
 }
 
 function moveEntity(entity, dx, dy) {
-  const next = structuredClone(entity);
-  if (next.points) next.points = next.points.map((pointValue) => ({ x: pointValue.x + dx, y: pointValue.y + dy }));
-  if (next.origin) next.origin = { x: next.origin.x + dx, y: next.origin.y + dy };
-  if (next.center) next.center = { x: next.center.x + dx, y: next.center.y + dy };
-  if (next.at) next.at = { x: next.at.x + dx, y: next.at.y + dy };
-  return next;
+  return transformEntity(entity, { dx, dy });
 }
 
 function worldToScreen(point) {
@@ -1316,16 +1600,45 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function parsePointValue(value, label) {
+  const parts = String(value).split(",").map(Number);
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) throw new Error(`${label}形式で入力してください。`);
+  return { x: parts[0], y: parts[1] };
+}
+
+function parseNumberValue(value, label) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}を数値で入力してください。`);
+  return parsed;
+}
+
+function entityAnchor(entity) {
+  return entity.center ?? entity.origin ?? entity.at ?? entity.insertion ?? entity.points?.[0] ?? { x: 0, y: 0 };
+}
+
+function formatNumber(value) {
+  return Math.round(Number(value) * 1000) / 1000;
+}
+
+function parseAttributes(value) {
+  return Object.fromEntries(String(value).split(";").map((pair) => pair.split("=")).filter(([key, item]) => key?.trim() && item !== undefined).map(([key, item]) => [key.trim().slice(0, 40), item.trim().slice(0, 200)]));
+}
+
 function loadUserSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(USER_SETTINGS_KEY) ?? "null");
     const gridInterval = Number(stored?.gridInterval);
     const commandLogLines = Number(stored?.commandLogLines);
+    const dimensionOffset = Number(stored?.dimensionOffset);
+    const dimensionPrecision = Number(stored?.dimensionPrecision);
     return {
       showGrid: typeof stored?.showGrid === "boolean" ? stored.showGrid : DEFAULT_USER_SETTINGS.showGrid,
       snapEnabled: typeof stored?.snapEnabled === "boolean" ? stored.snapEnabled : DEFAULT_USER_SETTINGS.snapEnabled,
       gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
-      commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines
+      commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
+      dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
+      dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
+      dimensionSuffix: typeof stored?.dimensionSuffix === "string" ? stored.dimensionSuffix.slice(0, 12) : DEFAULT_USER_SETTINGS.dimensionSuffix
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };

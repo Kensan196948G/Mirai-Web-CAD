@@ -9,10 +9,12 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | 領域 | 状態 | 内容 |
 | --- | --- | --- |
 | 図面作成 | 実装済み | 空図面/デモ図面の新規作成、図面名、単位（mm/m） |
-| 作図 | 実装済み | 選択、線、矩形、円、ポリライン、文字、移動、複写、削除、Undo/Redo |
-| コマンドライン | 実装済み | `LINE`、`RECT`、`CIRCLE`、`PLINE`、`TEXT`、`ERASE`、`MOVE`、`COPY`、`UNDO`、`REDO`、`SELECT`、`LAYER`、`ZOOM`、`NEW`、`IMPORT` |
+| 作図 | 実装済み | 基本図形、パン・ズーム、寸法、ハッチ、移動、複写、回転、尺度、オフセット、トリム、延長、計測、ブロック、Undo/Redo |
+| コマンドライン | 実装済み | 基本作図に加え`DIM`、`HATCH`、`ROTATE`、`SCALE`、`OFFSET`、`TRIM`、`EXTEND`、`DIST`、`AREA`、`ID`、`BLOCK`、`PAN`、`PLOT` |
 | Import | 実装済み | Mirai JSON、ASCII DXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTをCAD Transactionとして読込 |
-| レイヤー | 実装済み | 表示切替、ロック、現在レイヤー指定、ロック時の変更拒否 |
+| レイヤー | 実装済み | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更 |
+| プロパティ | 実装済み | 選択図形の種類・ID確認、レイヤー・線幅編集 |
+| レイアウト | 実装済み | A4～A1、縦横、縮尺、余白、表題、ブラウザ印刷/PDF保存 |
 | AI提案 | 実装済み | Promptから構造化コマンドを生成し、Canvasへプレビュー後、人の承認で適用 |
 | 検査 | 実装済み | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出 |
 | 版/承認 | 実装済み | 下書き、レビュー提出、承認、承認済み版の直接変更禁止、新版作成 |
@@ -94,7 +96,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 
 ## CAD互換範囲
 
-現段階はAutoCAD/Ares Standardの完全互換ではありません。2D基本作図、主要編集、コマンドライン、JSON/ASCII DXF読込を優先実装しています。DWG、DXF書出し、寸法、ハッチ、ブロック、外部参照、レイアウト/印刷は今後の対象です。
+現段階はAutoCAD/Ares Standardの完全互換ではありません。土木施工図向け2D作図、主要幾何編集、寸法、ハッチ、ブロック、レイヤー、レイアウト/PDF印刷を実装しています。DWG、DXF書出し、外部参照、3D、業界固有アドオンは対象外です。
 
 ## 関連文書
 
