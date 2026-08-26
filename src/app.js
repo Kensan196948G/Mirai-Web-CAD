@@ -99,7 +99,7 @@ function render() {
       </div>
     </header>
 
-    <main class="workspace" style="--rail-width: ${state.settings.railWidth}px">
+    <main class="workspace">
       <aside class="rail" aria-label="作図ツール">
         <div class="section-title">File</div>
         <button id="newDrawingBtn" class="icon-button" title="新規図面" aria-label="新規図面">＋</button>
@@ -372,6 +372,7 @@ function render() {
     </dialog>
   `;
 
+  /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--rail-width", `${state.settings.railWidth}px`);
   bindEvents();
   drawCanvas();
 }
