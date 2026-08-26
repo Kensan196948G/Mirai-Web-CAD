@@ -198,6 +198,32 @@ test("狭い画面でも主要操作領域が表示範囲を破綻させない",
   expect((await page.getByLabel("コマンドライン").boundingBox()).height).toBeLessThanOrEqual(110);
 });
 
+test("左サイドメニュー幅をドラッグ・キーボードで調整して保存できる", async ({ page }, testInfo) => {
+  const handle = page.getByRole("separator", { name: "左サイドメニュー幅を調整" });
+  if (testInfo.project.name === "mobile-chromium") {
+    await expect(handle).toBeHidden();
+    return;
+  }
+
+  const rail = page.getByLabel("作図ツール");
+  const initialWidth = (await rail.boundingBox()).width;
+  await handle.focus();
+  await handle.press("ArrowRight");
+  expect((await rail.boundingBox()).width).toBe(initialWidth + 8);
+
+  const handleBox = await handle.boundingBox();
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width / 2 + 32, handleBox.y + 80);
+  await page.mouse.up();
+  const resizedWidth = (await rail.boundingBox()).width;
+  expect(resizedWidth).toBe(initialWidth + 40);
+
+  await page.reload();
+  await expect(page.getByRole("separator", { name: "左サイドメニュー幅を調整" })).toHaveAttribute("aria-valuenow", String(resizedWidth));
+  expect((await page.getByLabel("作図ツール").boundingBox()).width).toBe(resizedWidth);
+});
+
 test("高度CAD編集、レイヤー、レイアウトを一連操作できる", async ({ page }) => {
   const command = page.getByLabel("コマンド入力");
   const quantity = page.getByText("図形数").locator("xpath=following-sibling::dd[1]");
