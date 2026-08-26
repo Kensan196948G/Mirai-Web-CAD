@@ -38,9 +38,9 @@ DATABASE_URL="postgresql://..." npm run db:verify
 
 ## Rollback
 
-Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。DB migrationは破壊的変更を含めていないため、rollback時も既存テーブルを削除しません。Access障害時も認証を迂回せず、Pages側を直前Versionへ戻して原因を調査します。
+Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。DB migrationは破壊的変更を含めていないため、rollback時も既存テーブルを削除しません。静的SPAの公開設定とWorker APIの認証境界は別々に確認します。
 
-本番DeployはGitHub Actionsの`Mirai Web CAD Production`だけから実行します。GitHub既定branchとPages production branchは`fix/auth-guard-fail-closed`に統一し、全検証後にDeploy、Pages公開面200、API未認証401、Custom Domain未認証302を確認します。
+本番DeployはGitHub Actionsの`Mirai Web CAD Production`だけから実行します。GitHub既定branchとPages production branchは`fix/auth-guard-fail-closed`に統一し、全検証後にDeploy、Pages/Custom Domain公開面200、API未認証401を確認します。
 
 ## 監視観点
 
@@ -54,10 +54,10 @@ Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。D
 
 ## 既知制約
 
-- DWG/DXF/PDF実変換は未実装
+- Mirai JSONとASCII DXFの2D Importに対応。DWG、DXF書出し、PDF、寸法、ブロック、ハッチは未実装
 - AIは外部LLMではなくルールベースのMVP提案
-- Previewは`https://mvp-round-4.mirai-web-cad.pages.dev/`
-- 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。Access未認証時302を確認済み
+- Previewは`https://mvp-round-5.mirai-web-cad.pages.dev/`
+- 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。静的SPAはログイン不要で200、Worker APIは未認証401
 - Production環境は`AUTH_MODE=access`、Preview環境は`AUTH_MODE=demo`として分離
 - Production DBはNeon primary branchの専用DB`mirai_web_cad_production`を使用
 - OpenDesign外部正本へ接続する手段は現環境にないため、リポジトリ内仕様HTMLとの整合を正本として確認中

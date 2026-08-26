@@ -4,6 +4,7 @@ import path from "node:path";
 import { handleApiRequest } from "../src/api-handler.js";
 
 const root = process.cwd();
+const staticRoot = path.join(root, "dist");
 const port = Number(process.env.PORT ?? 4174);
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -56,8 +57,8 @@ async function resolveStaticFile(pathname) {
     .replace(/^[/\\]+/, "");
   const candidates = [safePath || "index.html", path.join(safePath, "index.html"), "index.html"];
   for (const candidate of candidates) {
-    const full = path.join(root, candidate);
-    if (!full.startsWith(root)) continue;
+    const full = path.join(staticRoot, candidate);
+    if (!full.startsWith(staticRoot)) continue;
     try {
       const info = await stat(full);
       if (info.isFile()) return full;

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `GET` | `/api/health` | 実装済み。API/Auth/DB modeを返す |
 | `GET` | `/api/drawings/demo` | 実装済み。デモ図面取得 |
-| `POST` | `/api/drawings` | 実装済み。図面作成 |
+| `POST` | `/api/drawings` | 実装済み。空/デモテンプレート、図面名、mm/mを指定して重複実行なしで作成 |
 | `GET` | `/api/drawings/:drawingId` | 実装済み。図面取得 |
 | `POST` | `/api/drawings/:drawingId/transactions` | 実装済み。CAD Coreコマンド一括適用 |
 | `POST` | `/api/drawings/:drawingId/agent-runs` | 実装済み。AI提案作成 |
@@ -28,6 +28,7 @@
 
 - Cloudflare Access JWTをJWKS、issuer、audienceで検証し、Worker境界でfail-closed
 - Accessロールは`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`から決定し、クライアント指定を信頼しない
+- Custom Domainの静的SPAは一般公開し、署名済みAccess JWTがないAPI要求は401で拒否する
 - `Idempotency-Key`と`expectedVersion`を更新APIへ要求
 - Tool CallはJSON Schema検証後、サーバー側で再認可
 - 図面内文字列はPrompt命令ではなく非信頼データとして扱う

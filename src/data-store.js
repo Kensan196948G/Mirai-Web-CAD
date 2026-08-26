@@ -45,6 +45,16 @@ class MemoryDataStore {
     return drawing;
   }
 
+  async createDrawingAtomically(drawing, auditEntry, idempotencyKey) {
+    if (memory.idempotencyKeys.has(idempotencyKey) || memory.drawings.has(drawing.id)) return false;
+    const storedDrawing = clone(drawing);
+    const storedAudit = clone(auditEntry);
+    memory.drawings.set(drawing.id, storedDrawing);
+    memory.auditLogs.push(storedAudit);
+    memory.idempotencyKeys.add(idempotencyKey);
+    return true;
+  }
+
   async saveAgentRun(run) {
     memory.agentRuns.set(run.id, clone(run));
     return run;
@@ -167,6 +177,50 @@ class NeonDataStore {
     `;
     if (rows.length === 0) throw conflictError(null, expectedRevision);
     return drawing;
+  }
+
+  async createDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route) {
+    const content = JSON.stringify(drawing);
+    const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
+    const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
+    const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
+    try {
+      await this.sql.transaction((transaction) => [
+        transaction`
+          insert into idempotency_keys (key, actor_id, route)
+          values (${idempotencyKey}, ${actorId}, ${route})
+        `,
+        transaction`
+          insert into drawings (id, project_id, name, unit, current_version, revision, state)
+          values (
+            ${drawing.id}, 'prj_demo_road_001', ${drawing.name}, ${drawing.unit},
+            ${drawing.version}, ${drawing.revision}, ${drawing.state}
+          )
+        `,
+        transaction`
+          insert into drawing_versions (
+            id, drawing_id, version_no, state, content, content_hash, created_by
+          )
+          values (
+            ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
+            ${content}::jsonb, ${contentHash}, ${actor}
+          )
+        `,
+        transaction`
+          insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
+          values (
+            ${auditEntry.id}, ${auditEntry.actorId}, ${auditEntry.action},
+            ${auditEntry.targetType}, ${auditEntry.targetId},
+            ${JSON.stringify({ role: auditEntry.role, ...auditEntry.detail })}::jsonb,
+            ${auditEntry.createdAt}
+          )
+        `
+      ]);
+      return true;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "23505") return false;
+      throw error;
+    }
   }
 
   async saveAgentRun(run) {

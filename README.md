@@ -6,13 +6,16 @@ Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図�
 
 | 領域 | 状態 | 内容 |
 | --- | --- | --- |
-| 作図 | 実装済み | 選択、線、矩形、円、ポリライン、文字、移動、削除 |
+| 図面作成 | 実装済み | 空図面/デモ図面の新規作成、図面名、単位（mm/m） |
+| 作図 | 実装済み | 選択、線、矩形、円、ポリライン、文字、移動、複写、削除、Undo/Redo |
+| コマンドライン | 実装済み | `LINE`、`RECT`、`CIRCLE`、`PLINE`、`TEXT`、`ERASE`、`MOVE`、`COPY`、`UNDO`、`REDO`、`SELECT`、`LAYER`、`ZOOM`、`NEW`、`IMPORT` |
+| Import | 実装済み | Mirai JSON、ASCII DXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTをCAD Transactionとして読込 |
 | レイヤー | 実装済み | 表示切替、ロック、現在レイヤー指定、ロック時の変更拒否 |
 | AI提案 | 実装済み | Promptから構造化コマンドを生成し、Canvasへプレビュー後、人の承認で適用 |
 | 検査 | 実装済み | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出 |
 | 版/承認 | 実装済み | 下書き、レビュー提出、承認、承認済み版の直接変更禁止、新版作成 |
 | 権限 | 実装済み | 閲覧者、作図者、レビュアー、承認者、CAD管理者の主要操作制御 |
-| 保存 | 実装済み | LocalStorage自動保存、JSON出力、デモ初期化。API接続後はNeonへ同期 |
+| 保存 | 実装済み | LocalStorage自動保存、JSON出力、デモ初期化。認証済みAPI接続時はNeonへ同期 |
 | API | 実装済み | Cloudflare Pages Functionsの`/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否 |
 | 状態確認 | 実装済み | 正常、空、Loading、Errorを画面内のState Reviewで切替 |
 | DB | 実装済み | Neon PostgreSQLへ接続し、図面、AI Run、監査、Idempotencyを永続化 |
@@ -21,8 +24,8 @@ Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図�
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
-| Cloudflare Pages Preview | `https://mvp-round-4.mirai-web-cad.pages.dev/` | UI/API/Neon/AI承認/権限/Responsive/A11y E2E確認済み |
-| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | 本番Deploy済み。Cloudflare Access保護、未認証302、Worker API未認証401を確認済み |
+| Cloudflare Pages Preview | `https://mvp-round-5.mirai-web-cad.pages.dev/` | 新規作成/CLI/Undo/Redo/Import/UI/API/Responsive/A11y E2E確認済み |
+| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | 本番Deploy済み。SPAはログイン不要で公開200、Worker APIは未認証401 |
 
 ## 起動
 
@@ -51,9 +54,9 @@ npm run verify
 - `npm run lint`: 必須ファイル存在、JS構文、未解決マーカーを検査
 - `npm run typecheck`: TypeScriptの`checkJs`でブラウザ/Core/API/DB層を型検査
 - `npm run a11y`: lang、viewport、aria、focus-visible、Responsive CSS等を静的検査
-- `npm test`: CAD Core、API認証/権限、JWT fail-closed、Idempotency、AI承認を検査
+- `npm test`: CAD Core、コマンド解析、JSON/DXF Import、API認証/権限、JWT fail-closed、Idempotency、AI承認を検査
 - `npm run build`: `dist/`へ静的配信物を生成
-- `npm run test:e2e`: desktop/mobile ChromiumでUI、API同期、Neon経由作図/AI承認、Keyboard、axeを検査
+- `npm run test:e2e`: desktop/mobile Chromiumで新規作成、コマンドライン、Undo/Redo、Import、API同期、AI承認、Keyboard、axeを検査
 
 ## DB初期化
 
@@ -75,7 +78,12 @@ npm run db:verify
 - API更新は`Idempotency-Key`と`expected-version`がない場合に拒否する
 - 同じ`Idempotency-Key`の再送は409で拒否し、二重変更を防ぐ
 - 本番の`AUTH_MODE=access`ではAccess JWTの署名、issuer、audienceを検証し、ロールはサーバー設定から決定する
+- Custom DomainのSPAは一般公開し、未認証ユーザーによるWorker API/Neon更新は401で拒否する
 - 既定branchへのmerge後、`.github/workflows/mirai-web-cad-production.yml`が全検証成功時のみPages productionへ配信する
+
+## CAD互換範囲
+
+現段階はAutoCAD/Ares Standardの完全互換ではありません。2D基本作図、主要編集、コマンドライン、JSON/ASCII DXF読込を優先実装しています。DWG、DXF書出し、寸法、ハッチ、ブロック、外部参照、レイアウト/印刷は今後の対象です。
 
 ## 関連文書
 

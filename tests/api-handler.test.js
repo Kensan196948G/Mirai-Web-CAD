@@ -23,6 +23,46 @@ test("OPTIONS preflight returns an empty 204 response", async () => {
   assert.equal(await response.text(), "");
 });
 
+test("drawing creation supports blank and demo templates", async () => {
+  resetMemoryStore();
+  const create = (template, idempotencyKey = `create-${template}`) =>
+    handleApiRequest(
+      new Request("https://example.test/api/drawings", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-demo-role": "drafter",
+          "idempotency-key": idempotencyKey
+        },
+        body: JSON.stringify({ name: `${template} drawing`, unit: "m", template })
+      }),
+      env
+    );
+  const blank = await (await create("blank")).json();
+  const demo = await (await create("demo")).json();
+  assert.equal(blank.drawing.entities.length, 0);
+  assert.equal(blank.drawing.name, "blank drawing");
+  assert.equal(blank.drawing.unit, "m");
+  assert.ok(demo.drawing.entities.length > 0);
+
+  const duplicate = await create("blank", "create-blank");
+  assert.equal(duplicate.status, 409);
+
+  const invalidBody = await handleApiRequest(
+    new Request("https://example.test/api/drawings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "drafter",
+        "idempotency-key": "create-invalid"
+      },
+      body: "null"
+    }),
+    env
+  );
+  assert.equal(invalidBody.status, 400);
+});
+
 test("production-like access mode fails closed without Cloudflare Access headers", async () => {
   resetMemoryStore();
   const response = await handleApiRequest(new Request("https://example.test/api/health"), {

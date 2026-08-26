@@ -7,6 +7,8 @@ const required = [
   "index.html",
   "src/app.js",
   "src/cad-core.js",
+  "src/cad-command.js",
+  "src/importers.js",
   "src/storage.js",
   "src/styles.css",
   "migrations/0001_initial.sql",

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Mirai Web CAD MVP - browser-based agentic 2D CAD prototype",
   "scripts": {
-    "dev": "node scripts/serve-local.mjs",
+    "dev": "npm run build && node scripts/serve-local.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc -p tsconfig.check.json",
     "a11y": "node scripts/a11y-static.mjs",
@@ -22,11 +22,13 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "dxf-parser": "1.1.2",
     "jose": "^6.2.10"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
+    "esbuild": "0.28.2",
     "typescript": "^7.0.2",
     "wrangler": "^4.126.0"
   }

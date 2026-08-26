@@ -147,6 +147,25 @@ export function applyTransaction(drawing, transaction) {
   const beforeHash = stableHash(next.entities);
 
   for (const command of transaction.commands) {
+    if (command.op === "add_layer") {
+      const layer = command.layer;
+      if (!layer || typeof layer.id !== "string" || typeof layer.name !== "string") {
+        return fail("追加レイヤーが不正です。", drawing);
+      }
+      if (next.layers.some((item) => item.id === layer.id)) {
+        warnings.push(`レイヤーは追加済みです: ${layer.name}`);
+        continue;
+      }
+      next.layers.push({
+        id: layer.id,
+        name: layer.name.slice(0, 80),
+        color: /^#[0-9a-f]{6}$/i.test(layer.color) ? layer.color : "#5b6b7a",
+        locked: false,
+        visible: true,
+        printable: layer.printable !== false
+      });
+    }
+
     if (command.op === "add") {
       const layer = next.layers.find((item) => item.id === command.entity.layerId);
       if (!layer) {
@@ -182,6 +201,19 @@ export function applyTransaction(drawing, transaction) {
         return fail(`ロック中レイヤーの図形は削除できません: ${layer.name}`, drawing);
       }
       next.entities = next.entities.filter((item) => item.id !== command.id);
+    }
+
+    if (command.op === "delete_layer") {
+      const target = next.layers.find((item) => item.id === command.id);
+      if (!target) {
+        warnings.push(`削除レイヤーが見つかりません: ${command.id}`);
+        continue;
+      }
+      if (next.layers.length === 1) return fail("最後のレイヤーは削除できません。", drawing);
+      if (next.entities.some((entity) => entity.layerId === command.id)) {
+        return fail(`図形が残るレイヤーは削除できません: ${target.name}`, drawing);
+      }
+      next.layers = next.layers.filter((item) => item.id !== command.id);
     }
 
     if (command.op === "update_layer") {

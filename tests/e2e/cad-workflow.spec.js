@@ -76,6 +76,56 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   await expect(page.getByLabel("コマンドログ")).toContainText("取消");
 });
 
+test("新規図面、コマンドライン、JSON Importを連続操作できる", async ({ page }) => {
+  await page.getByRole("button", { name: "新規図面" }).click();
+  await expect(page.getByRole("dialog", { name: "新規図面" })).toBeVisible();
+  await page.getByLabel("図面名").fill("CLI施工図");
+  await page.getByLabel("テンプレート").selectOption("blank");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+  await expect(page.getByText("CLI施工図", { exact: true })).toBeVisible();
+
+  const quantity = page.getByText("図形数").locator("xpath=following-sibling::dd[1]");
+  await expect(quantity).toHaveText("0");
+  const command = page.getByLabel("コマンド入力");
+  await command.fill("LINE 0,0 1200,800");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("1");
+  await expect(page.getByLabel("コマンドログ")).toContainText("CLI LINE");
+
+  await command.fill("UNDO");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("0");
+  await expect(page.getByRole("button", { name: "やり直す" })).toBeEnabled();
+
+  await command.fill("REDO");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("1");
+  await expect(page.getByRole("button", { name: "元に戻す" })).toBeEnabled();
+
+  const imported = {
+    layers: [{ id: "survey", name: "測量", color: "#224466" }],
+    entities: [{ type: "circle", layerId: "survey", center: { x: 1600, y: 900 }, radius: 300 }]
+  };
+  await page.locator("#importFile").setInputFiles({
+    name: "survey.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(imported))
+  });
+  await expect(quantity).toHaveText("2");
+  await expect(page.getByLabel("検査とAI").getByText("測量", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("コマンドログ")).toContainText("Import完了: 1/1図形");
+
+  await command.fill("UNDO");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("1");
+  await expect(page.getByLabel("検査とAI").getByText("測量", { exact: true })).toHaveCount(0);
+
+  await command.fill("REDO");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("2");
+  await expect(page.getByLabel("検査とAI").getByText("測量", { exact: true })).toBeVisible();
+});
+
 test("CriticalまたはSeriousのアクセシビリティ違反がない", async ({ page }) => {
   const results = await new AxeBuilder({ page }).analyze();
   const blocking = results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact));

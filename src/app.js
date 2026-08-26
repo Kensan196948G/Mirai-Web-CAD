@@ -6,6 +6,7 @@ import {
   createDrawing,
   circle,
   createNewVersion,
+  entityBounds,
   hitTest,
   line,
   measurements,
@@ -17,6 +18,8 @@ import {
   text,
   validateDrawing
 } from "./cad-core.js";
+import { parseCadCommand } from "./cad-command.js";
+import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
@@ -32,6 +35,11 @@ const state = {
   previewRunId: null,
   camera: { x: 50, y: 40, scale: 0.075 },
   commandLog: ["起動: Mirai Web CAD MVP"],
+  commandHistory: [],
+  commandHistoryIndex: 0,
+  undoStack: [],
+  redoStack: [],
+  focusTarget: null,
   drag: null,
   viewMode: VIEW_MODES.has(requestedViewMode) ? requestedViewMode : "normal",
   apiStatus: { state: "idle", message: "未確認" }
@@ -48,6 +56,7 @@ function render() {
         <h1>Mirai Web CAD</h1>
       </div>
       <div class="drawing-meta" aria-label="図面状態">
+        <strong>${escapeHtml(drawing.name)}</strong>
         <span>v${escapeHtml(drawing.version)}</span>
         <span>${escapeHtml(stateLabel(drawing.state))}</span>
         <label>
@@ -66,6 +75,10 @@ function render() {
 
     <main class="workspace">
       <aside class="rail" aria-label="作図ツール">
+        <div class="section-title">File</div>
+        <button id="newDrawingBtn" class="icon-button" title="新規図面" aria-label="新規図面">＋</button>
+        <button id="importBtn" class="icon-button" title="JSONまたはDXFをImport" aria-label="Import">⇧</button>
+        <input id="importFile" type="file" accept=".json,.dxf,application/json" hidden />
         <div class="section-title">Draw</div>
         ${toolButton("select", "↖", "選択")}
         ${toolButton("line", "／", "線")}
@@ -74,8 +87,10 @@ function render() {
         ${toolButton("polyline", "⌁", "ポリライン")}
         ${toolButton("text", "T", "文字")}
         <div class="section-title">Edit</div>
+        <button id="undoBtn" class="icon-button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>↶</button>
+        <button id="redoBtn" class="icon-button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>↷</button>
         <button id="deleteBtn" class="icon-button" title="削除" aria-label="選択図形を削除">⌫</button>
-        <button id="fitBtn" class="icon-button" title="全体表示" aria-label="全体表示">⛶</button>
+        <button id="fitBtn" class="icon-button" title="図面範囲表示" aria-label="図面範囲表示">⛶</button>
         <button id="exportBtn" class="icon-button" title="JSON出力" aria-label="JSON出力">⇩</button>
         <button id="resetBtn" class="icon-button danger" title="デモ初期化" aria-label="デモ初期化">↺</button>
       </aside>
@@ -167,9 +182,32 @@ function render() {
       </aside>
     </main>
 
-    <footer class="command-line" aria-label="コマンドログ">
-      ${state.commandLog.slice(-5).map((lineValue) => `<div>${escapeHtml(lineValue)}</div>`).join("")}
+    <footer class="command-line" aria-label="コマンドライン">
+      <div class="command-history" aria-label="コマンドログ" aria-live="polite">
+        ${state.commandLog.slice(-8).map((lineValue) => `<div>${escapeHtml(lineValue)}</div>`).join("")}
+      </div>
+      <form id="commandForm" class="command-form">
+        <span aria-hidden="true">&gt;</span>
+        <input id="commandInput" type="text" autocomplete="off" spellcheck="false" placeholder="Command" aria-label="コマンド入力" />
+        <button type="submit" title="コマンド実行" aria-label="コマンド実行">↵</button>
+      </form>
     </footer>
+
+    <dialog id="newDrawingDialog" aria-labelledby="newDrawingTitle">
+      <form id="newDrawingForm" method="dialog">
+        <header>
+          <h2 id="newDrawingTitle">新規図面</h2>
+          <button id="closeNewDrawingBtn" type="button" class="dialog-close" aria-label="閉じる" title="閉じる">×</button>
+        </header>
+        <label>図面名<input id="newDrawingName" name="name" maxlength="100" required value="新規図面" /></label>
+        <label>単位<select name="unit"><option value="mm">mm</option><option value="m">m</option></select></label>
+        <label>テンプレート<select name="template"><option value="blank">空図面</option><option value="demo">デモ施工図</option></select></label>
+        <div class="dialog-actions">
+          <button id="cancelNewDrawingBtn" type="button">キャンセル</button>
+          <button type="submit" class="primary">作成</button>
+        </div>
+      </form>
+    </dialog>
   `;
 
   bindEvents();
@@ -177,6 +215,20 @@ function render() {
 }
 
 function bindEvents() {
+  const newDrawingDialog = /** @type {HTMLDialogElement} */ (document.querySelector("#newDrawingDialog"));
+  const importFile = /** @type {HTMLInputElement} */ (document.querySelector("#importFile"));
+  document.querySelector("#newDrawingBtn").addEventListener("click", () => openNewDrawingDialog());
+  document.querySelector("#importBtn").addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", handleImportFile);
+  document.querySelector("#newDrawingForm").addEventListener("submit", createNewDrawingFromForm);
+  document.querySelector("#closeNewDrawingBtn").addEventListener("click", () => newDrawingDialog.close());
+  document.querySelector("#cancelNewDrawingBtn").addEventListener("click", () => newDrawingDialog.close());
+
+  const commandForm = /** @type {HTMLFormElement} */ (document.querySelector("#commandForm"));
+  const commandInput = /** @type {HTMLInputElement} */ (document.querySelector("#commandInput"));
+  commandForm.addEventListener("submit", executeCommandLine);
+  commandInput.addEventListener("keydown", navigateCommandHistory);
+
   /** @type {NodeListOf<HTMLButtonElement>} */
   const viewModeButtons = document.querySelectorAll("[data-view-mode]");
   viewModeButtons.forEach((button) => {
@@ -216,17 +268,15 @@ function bindEvents() {
   });
 
   document.querySelector("#deleteBtn").addEventListener("click", deleteSelected);
-  document.querySelector("#fitBtn").addEventListener("click", () => {
-    state.camera = { x: 45, y: 45, scale: 0.08 };
-    render();
-  });
+  document.querySelector("#undoBtn").addEventListener("click", undoLastTransaction);
+  document.querySelector("#redoBtn").addEventListener("click", redoLastTransaction);
+  document.querySelector("#fitBtn").addEventListener("click", fitToDrawing);
   document.querySelector("#exportBtn").addEventListener("click", () => exportDrawingFile(state.drawing));
   document.querySelector("#resetBtn").addEventListener("click", () => {
     clearDrawing();
     state.drawing = seedDrawing();
-    state.selectedId = null;
-    state.previewProposal = null;
-    state.previewRunId = null;
+    resetAuthoringState();
+    fitCameraToDrawing();
     state.apiStatus = { state: "idle", message: "未確認", connected: false };
     persist("デモ初期化");
   });
@@ -269,7 +319,191 @@ function bindEvents() {
   canvas.addEventListener("lostpointercapture", cancelDrag);
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("keydown", onCanvasKeyDown);
-  canvas.focus();
+  if (state.focusTarget === "command") commandInput.focus({ preventScroll: true });
+  else canvas.focus({ preventScroll: true });
+  state.focusTarget = null;
+}
+
+function openNewDrawingDialog(name = "") {
+  const dialog = /** @type {HTMLDialogElement} */ (document.querySelector("#newDrawingDialog"));
+  const input = /** @type {HTMLInputElement} */ (document.querySelector("#newDrawingName"));
+  if (name) input.value = name;
+  dialog.showModal();
+  input.select();
+}
+
+async function createNewDrawingFromForm(event) {
+  event.preventDefault();
+  const policy = ROLE_POLICIES[state.drawing.currentRole] ?? ROLE_POLICIES.viewer;
+  if (!policy.canEdit) {
+    log(`${policy.label}は図面を新規作成できません。`);
+    /** @type {HTMLDialogElement} */ (document.querySelector("#newDrawingDialog")).close();
+    render();
+    return;
+  }
+  const form = /** @type {HTMLFormElement} */ (event.currentTarget);
+  const data = new FormData(form);
+  const name = String(data.get("name") ?? "新規図面").trim() || "新規図面";
+  const unit = String(data.get("unit") ?? "mm");
+  const template = String(data.get("template") ?? "blank");
+  const role = state.drawing.currentRole;
+  try {
+    if (state.apiStatus.connected) {
+      const body = await apiRequest("/api/drawings", {
+        method: "POST",
+        headers: idempotencyHeaders(),
+        body: JSON.stringify({ name, unit, template })
+      });
+      state.drawing = { ...body.drawing, currentRole: role };
+    } else {
+      state.drawing = template === "demo" ? seedDrawing() : createDrawing();
+      state.drawing.id = `dwg_${globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Date.now()}`;
+      state.drawing.name = name;
+      state.drawing.unit = unit;
+      state.drawing.currentRole = role;
+    }
+    resetAuthoringState();
+    fitCameraToDrawing();
+    /** @type {HTMLDialogElement} */ (document.querySelector("#newDrawingDialog")).close();
+    persist(`新規図面作成: ${name}`);
+  } catch (error) {
+    log(`新規図面作成失敗: ${errorMessage(error)}`);
+    render();
+  }
+}
+
+async function handleImportFile(event) {
+  const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const imported = parseCadImport({
+      filename: file.name,
+      content: await file.text(),
+      drawing: state.drawing,
+      currentLayerId: state.currentLayerId
+    });
+    const committed = await commitCommands(`Import: ${file.name}`, imported.commands);
+    if (committed) {
+      for (const warning of imported.warnings) log(`Import警告: ${warning}`);
+      log(`Import完了: ${imported.entityCount}/${imported.sourceCount}図形`);
+      fitCameraToDrawing();
+      render();
+    }
+  } catch (error) {
+    log(`Import失敗: ${errorMessage(error)}`);
+    render();
+  }
+}
+
+async function executeCommandLine(event) {
+  event.preventDefault();
+  const input = /** @type {HTMLInputElement} */ (document.querySelector("#commandInput"));
+  const raw = input.value.trim();
+  if (!raw) return;
+  state.commandHistory.push(raw);
+  state.commandHistory = state.commandHistory.slice(-50);
+  state.commandHistoryIndex = state.commandHistory.length;
+  state.focusTarget = "command";
+  log(`> ${raw}`);
+  try {
+    const parsed = parseCadCommand(raw, {
+      drawing: state.drawing,
+      currentLayerId: state.currentLayerId,
+      selectedId: state.selectedId
+    });
+    if (parsed.kind === "transaction") {
+      await commitCommands(`CLI ${parsed.label}`, parsed.commands);
+      return;
+    }
+    if (parsed.kind === "message") log(parsed.message);
+    if (parsed.kind === "ui" && !(await executeUiCommand(parsed))) return;
+  } catch (error) {
+    log(`Command Error: ${errorMessage(error)}`);
+  }
+  render();
+}
+
+async function executeUiCommand(command) {
+  if (command.action === "tool") {
+    state.tool = command.tool;
+    state.draftPoints = [];
+    log(`ツール切替: ${command.tool}`);
+  }
+  if (command.action === "layer") {
+    state.currentLayerId = command.layerId;
+    log(`現在レイヤー: ${layerName(command.layerId)}`);
+  }
+  if (command.action === "fit") fitCameraToDrawing();
+  if (command.action === "select") {
+    state.selectedId = command.entityId;
+    log(`選択: ${command.entityId}`);
+  }
+  if (command.action === "cancel") {
+    state.draftPoints = [];
+    state.selectedId = null;
+    log("取消");
+  }
+  if (command.action === "undo") {
+    await undoLastTransaction();
+    return false;
+  }
+  if (command.action === "redo") {
+    await redoLastTransaction();
+    return false;
+  }
+  if (command.action === "new") {
+    render();
+    openNewDrawingDialog(command.name);
+    return false;
+  }
+  if (command.action === "import") {
+    /** @type {HTMLInputElement} */ (document.querySelector("#importFile")).click();
+    return false;
+  }
+  return true;
+}
+
+function navigateCommandHistory(event) {
+  if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
+  if (event.key === "ArrowUp") state.commandHistoryIndex = Math.max(0, state.commandHistoryIndex - 1);
+  if (event.key === "ArrowDown") state.commandHistoryIndex = Math.min(state.commandHistory.length, state.commandHistoryIndex + 1);
+  event.currentTarget.value = state.commandHistory[state.commandHistoryIndex] ?? "";
+}
+
+function fitToDrawing() {
+  fitCameraToDrawing();
+  render();
+}
+
+function fitCameraToDrawing() {
+  const bounds = state.drawing.entities.map(entityBounds).filter(Boolean);
+  if (bounds.length === 0) {
+    state.camera = { x: 45, y: 45, scale: 0.08 };
+    return;
+  }
+  const minX = Math.min(...bounds.map((value) => value.minX));
+  const minY = Math.min(...bounds.map((value) => value.minY));
+  const maxX = Math.max(...bounds.map((value) => value.maxX));
+  const maxY = Math.max(...bounds.map((value) => value.maxY));
+  const width = Math.max(maxX - minX, 100);
+  const height = Math.max(maxY - minY, 100);
+  const scale = Math.min(0.5, Math.max(0.025, Math.min(1080 / width, 660 / height)));
+  state.camera = { x: 50 - minX * scale, y: 50 - minY * scale, scale };
+}
+
+function resetAuthoringState() {
+  state.currentLayerId = state.drawing.layers.some((layer) => layer.id === "layer-structure")
+    ? "layer-structure"
+    : state.drawing.layers[0]?.id;
+  state.selectedId = null;
+  state.draftPoints = [];
+  state.previewProposal = null;
+  state.previewRunId = null;
+  state.viewMode = "normal";
+  state.undoStack = [];
+  state.redoStack = [];
 }
 
 async function changeReviewState(action) {
@@ -463,6 +697,71 @@ function deleteSelected() {
   state.selectedId = null;
 }
 
+async function undoLastTransaction() {
+  const target = state.undoStack.pop();
+  if (!target) {
+    log("元に戻せる操作がありません。");
+    render();
+    return;
+  }
+  const current = structuredClone(state.drawing);
+  state.redoStack.push(current);
+  const succeeded = await commitCommands("UNDO", snapshotCommands(state.drawing, target), { recordHistory: false });
+  if (!succeeded) {
+    state.redoStack.pop();
+    state.undoStack.push(target);
+  }
+}
+
+async function redoLastTransaction() {
+  const target = state.redoStack.pop();
+  if (!target) {
+    log("やり直せる操作がありません。");
+    render();
+    return;
+  }
+  const current = structuredClone(state.drawing);
+  state.undoStack.push(current);
+  const succeeded = await commitCommands("REDO", snapshotCommands(state.drawing, target), { recordHistory: false });
+  if (!succeeded) {
+    state.undoStack.pop();
+    state.redoStack.push(target);
+  }
+}
+
+function snapshotCommands(current, target) {
+  const commands = [];
+  const currentById = new Map(current.entities.map((entity) => [entity.id, entity]));
+  const targetById = new Map(target.entities.map((entity) => [entity.id, entity]));
+  for (const entity of current.entities) {
+    if (!targetById.has(entity.id)) commands.push({ op: "delete", id: entity.id });
+  }
+  for (const entity of target.entities) {
+    const existing = currentById.get(entity.id);
+    if (!existing) commands.push({ op: "add", entity: structuredClone(entity) });
+    else if (JSON.stringify(existing) !== JSON.stringify(entity)) {
+      commands.push({ op: "update", id: entity.id, patch: withoutIdentity(entity) });
+    }
+  }
+  for (const layer of current.layers) {
+    if (!target.layers.some((item) => item.id === layer.id)) {
+      commands.push({ op: "delete_layer", id: layer.id });
+    }
+  }
+  for (const layer of target.layers) {
+    const existing = current.layers.find((item) => item.id === layer.id);
+    if (!existing) commands.unshift({ op: "add_layer", layer: structuredClone(layer) });
+    else if (existing.visible !== layer.visible || existing.locked !== layer.locked) {
+      commands.push({
+        op: "update_layer",
+        id: layer.id,
+        patch: { visible: layer.visible, locked: layer.locked }
+      });
+    }
+  }
+  return commands;
+}
+
 async function planAiProposal() {
   const promptInput = /** @type {HTMLTextAreaElement} */ (document.querySelector("#aiPrompt"));
   const promptValue = promptInput.value;
@@ -524,7 +823,8 @@ async function applyAiProposal() {
   persist("AI提案を承認適用");
 }
 
-async function commitCommands(label, commands) {
+async function commitCommands(label, commands, options = {}) {
+  const before = structuredClone(state.drawing);
   if (state.apiStatus.connected) {
     try {
       const body = await apiRequest(`/api/drawings/${state.drawing.id}/transactions`, {
@@ -533,12 +833,14 @@ async function commitCommands(label, commands) {
         body: JSON.stringify({ label, commands })
       });
       state.drawing = body.drawing;
+      recordDrawingHistory(before, options);
       persist(`${label} / Neon同期`);
+      return true;
     } catch (error) {
       log(`${label}失敗: ${errorMessage(error)}`);
       render();
+      return false;
     }
-    return;
   }
 
   const result = applyTransaction(state.drawing, {
@@ -550,10 +852,19 @@ async function commitCommands(label, commands) {
   if (!result.ok) {
     log(`${label}失敗: ${result.error}`);
     render();
-    return;
+    return false;
   }
   state.drawing = result.drawing;
+  recordDrawingHistory(before, options);
   persist(label);
+  return true;
+}
+
+function recordDrawingHistory(before, options) {
+  if (options.recordHistory === false) return;
+  state.undoStack.push(before);
+  state.undoStack = state.undoStack.slice(-20);
+  state.redoStack = [];
 }
 
 function drawCanvas(pointerWorld = null) {
@@ -738,9 +1049,13 @@ async function apiRequest(pathname, options = {}) {
 
 function transactionHeaders() {
   return {
-    "idempotency-key": globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}`,
+    ...idempotencyHeaders(),
     "expected-version": String(state.drawing.revision ?? 1)
   };
+}
+
+function idempotencyHeaders() {
+  return { "idempotency-key": globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}` };
 }
 
 function log(message) {

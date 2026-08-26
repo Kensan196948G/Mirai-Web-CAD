@@ -155,3 +155,16 @@
 | API fail-closed | PASS | Pages直URLはSPA 200、`/api/health`未認証401。runtime tailはoutcome`ok`、例外0 |
 | Production DB | PASS | Neon専用DB`mirai_web_cad_production`は8テーブル、図面1件、revision列あり。全migration/Seedを2回適用済み |
 | OpenDesign | CONTINUE | 外部プロジェクトID/URLまたは接続ツールが現環境にないため、リポジトリ内仕様HTMLを正本として照合 |
+
+## Round 5 / 2026-08-26
+
+| 項目 | 内容 |
+| --- | --- |
+| 対象課題 | 新規作成、Import、CADコマンド入力、Undo/Redoがなく、基本作図がマウス操作に限定されていた |
+| 変更 | 空/デモ図面作成、Mirai JSON/ASCII DXF Import、固定コマンドライン、履歴、Undo/Redo、図面全体表示、レイヤ追加Transactionを実装 |
+| Command | `LINE/RECT/CIRCLE/PLINE/TEXT/ERASE/MOVE/COPY/UNDO/REDO/SELECT/LAYER/ZOOM/NEW/IMPORT/HELP`を実装。引用符付き文字と座標検証に対応 |
+| Import | 10MB/10,000要素を上限とし、JSONとDXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTを構造化パーサでCAD Transactionへ変換 |
+| Build | ブラウザ用に`dxf-parser`をesbuildでバンドルし、ローカルサーバーも`dist`と同じ成果物を配信 |
+| 公開境界 | Custom DomainのCloudflare Access appを削除し、SPAは全員が未認証で200閲覧可。Worker APIは`AUTH_MODE=access`のfail-closedを維持し、未認証401 |
+| 検証 | Type/Lint/static A11y/30 Unit+API/Build成功。desktop/mobile Chromiumの12 E2Eで新規作成、CLI作図、Undo/Redo、JSON Import、axe、狭幅表示を確認 |
+| 既知制約 | AutoCAD/Ares Standard完全互換ではない。DWG、DXF書出し、寸法、ハッチ、ブロック、外部参照、レイアウト/印刷は未実装 |
