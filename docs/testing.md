@@ -26,6 +26,15 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 
 ## 2026-08-26 本ラウンド証跡
 
+### Production release
+
+- PR #19 / merge commit `b20340001bc069b45774482e76238b7d3dfbaba1`
+- GitHub Actions `32934876851`: Verify Release、Deploy Cloudflare Pagesともに成功
+- Cloudflare deployment `7eaa57b7-c7ff-4ac0-89dc-5d8da6e11991`
+- 本番smoke: SPA / health / public demo 200、private drawing / write 401
+- Browser smoke: viewer固定、Canvas描画、主要操作面の非重複をdesktop/mobileで確認
+- Cloudflare Web Analyticsの配信元だけをCSP許可し、inline script/styleおよび未知の外部配信元は引き続き拒否
+
 | 検証 | 結果 |
 | --- | --- |
 | `npm run verify:fast` | PASS。Lint、Type、static A11y、34 Unit/API/性能baseline、Build |

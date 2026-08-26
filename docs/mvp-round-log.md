@@ -181,4 +181,17 @@
 | Recovery | PostgreSQL 18 custom archive作成/検証、空DB復元、projects/drawings/versions/audits各1件以上を確認。Production実データ復元は未実施 |
 | Visual | 1440x1000とiPhone 13 full-page screenshotでCanvas非blank、主要領域の重なり/切れなし。旧MVP表示をUI/デモから除去 |
 | Review | 新規Criticalなし。残存CriticalはDWG非対応、Production永続編集SSO不在、案件/図面ACL不在、本番backup/RTO未検証 |
-| Completion Gate | CONTINUE。ローカル/DB GateはPASS。PR/CI/Preview/Production deployと本番smoke test待ち |
+| Completion Gate | PASS。PR #19をsquash mergeし、Production CI、Cloudflare deploy、公開境界smoke testまで成功 |
+
+## Round 6 Release / 2026-08-26
+
+| 項目 | 結果 | 証跡 |
+|---|---|---|
+| Merge | PASS | PR #19、merge commit `b20340001bc069b45774482e76238b7d3dfbaba1` |
+| CI/CD | PASS | GitHub Actions run `32934876851`: Verify Release / Deploy Cloudflare Pages成功 |
+| Production | PASS | Cloudflare deployment `7eaa57b7-c7ff-4ac0-89dc-5d8da6e11991`、`mirai-web-cad.mirai-dx-platform.com`へ公開 |
+| Public boundary | PASS | SPA / health / public demoは200、任意図面 / writeは未認証401 |
+| DB | PASS | Neon production接続、migration適用、main branch保護を確認 |
+| Browser | PASS | viewer固定、role selector無効、Canvas描画、desktop/mobile表示を確認 |
+| Construction OS影響 | PASS | 別Cloudflare project・別workflowであり、`construction-os.mirai-dx-platform.com`は既存302のまま |
+| 残課題 | TRACKED | Entra/RBAC #20、DWG/CAD #21、性能/offline #22、DR/監視 #23、独立repo ADR #24 |
