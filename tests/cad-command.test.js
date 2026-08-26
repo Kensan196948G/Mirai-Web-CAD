@@ -47,3 +47,18 @@ test("command line supports UI commands and rejects malformed input", () => {
   assert.throws(() => parseCadCommand("CIRCLE 0,0 -1", context()), /半径/);
   assert.throws(() => parseCadCommand("UNKNOWN", context()), /未対応/);
 });
+
+test("advanced commands create and transform production CAD geometry", () => {
+  const drawing = seedDrawing();
+  const selectedId = drawing.entities.find((entity) => entity.type === "line").id;
+  const selectedContext = context({ drawing, selectedId });
+  for (const input of ["ROTATE 45", "SCALE 2", "OFFSET 100", "TRIM 50,0", "EXTEND 13000,0"]) {
+    assert.equal(parseCadCommand(input, selectedContext).kind, "transaction");
+  }
+  assert.equal(parseCadCommand("DIM 0,0 300,400", selectedContext).commands[0].entity.type, "dimension");
+  assert.equal(parseCadCommand("HATCH 0,0 100,0 100,100", selectedContext).commands[0].entity.type, "hatch");
+  assert.match(parseCadCommand("DIST 0,0 300,400", selectedContext).message, /距離=500/);
+  assert.match(parseCadCommand("AREA e_box_1", selectedContext).message, /面積=/);
+  assert.deepEqual(parseCadCommand("PAN 100,50", selectedContext), { kind: "ui", action: "pan", offset: { x: 100, y: 50 } });
+  assert.deepEqual(parseCadCommand("PLOT", selectedContext), { kind: "ui", action: "plot" });
+});
