@@ -26,6 +26,15 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 
 ## 2026-08-26 本ラウンド証跡
 
+### 独立リポジトリ移行
+
+- 新repo PR #1、merge commit `c93a917fe5632234b5cbb5f46abfba9fb1a78ece`
+- CI run `32936884367`: Lint/Type/34 Unit・API・性能/12 E2E/A11y/Build、Migration、Recovery、Secret Scan成功
+- Preview deployment `6950bcc0`: 実Neonに対するdesktop/mobile E2E 12/12成功
+- Previewで検出したdrawing version外部キー不整合を修正し、再試験で作図・AI承認・監査同期成功
+- Production deployment `81194e17`: SPA/health/demo 200、private drawing/write 401、CSP違反0
+- Construction OSは別Pages projectで既存302を維持
+
 ### Production release
 
 - PR #19 / merge commit `b20340001bc069b45774482e76238b7d3dfbaba1`
