@@ -40,7 +40,9 @@ DATABASE_URL="postgresql://..." npm run db:verify
 
 Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。DB migrationは破壊的変更を含めていないため、rollback時も既存テーブルを削除しません。静的SPAの公開設定とWorker APIの認証境界は別々に確認します。
 
-本番DeployはGitHub Actionsの`Mirai Web CAD Production`だけから実行します。GitHub既定branchとPages production branchは`fix/auth-guard-fail-closed`に統一し、全検証後にDeployします。SPA、health、公開デモは匿名200、任意図面と全writeは未認証401を確認します。
+本番Deployは独立リポジトリのGitHub Actions `Production`だけから実行します。GitHub既定branchとPages production branchは`main`に統一し、全検証後にDeployします。SPA、health、公開デモは匿名200、任意図面と全writeは未認証401を確認します。
+
+独立repo移行時にGitHub PATがActions Secrets管理権限を持たない場合、`CLOUDFLARE_DEPLOY_ENABLED`を未設定のままDeploy jobをfail-closedで停止します。移行責任者が同一commitをローカルのWrangler認証で初回配信し、GitHub管理者がSecrets登録後に変数を`true`へ設定してActions配信へ切り替えます。秘密値をworkflow inputやGit履歴へ渡してはいけません。
 
 ## Backup / Restore
 

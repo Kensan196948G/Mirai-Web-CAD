@@ -287,7 +287,7 @@ class NeonDataStore {
             id, drawing_version_id, source, actor_id, label, command_payload,
             before_hash, after_hash, created_at
           )
-          select ${commandEvent?.id ?? null}, ${versionId}, ${commandEvent?.source ?? "system"},
+          select ${commandEvent?.id ?? null}, version_write.id, ${commandEvent?.source ?? "system"},
                  ${actorId}, ${commandEvent?.label ?? "state transition"}, ${eventPayload}::jsonb,
                  ${commandEvent?.beforeHash ?? contentHash}, ${commandEvent?.afterHash ?? contentHash},
                  ${commandEvent?.at ?? new Date().toISOString()}
