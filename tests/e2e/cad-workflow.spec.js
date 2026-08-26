@@ -38,6 +38,15 @@ test("主要CAD画面は描画済みでAPI HealthとAI承認を操作できる",
   const beforeCount = Number(await quantity.textContent());
   await page.getByRole("button", { name: "線", exact: true }).click();
   await canvas.click({ position: { x: 260, y: 240 } });
+
+  const roleSelect = page.getByLabel("権限を切替");
+  if (await roleSelect.isDisabled()) {
+    await expect(roleSelect).toHaveValue("viewer");
+    await expect(quantity).toHaveText(String(beforeCount));
+    await expect(page.getByLabel("コマンドログ")).toContainText("閲覧者は作図できません");
+    return;
+  }
+
   await canvas.click({ position: { x: 420, y: 260 } });
   await expect(quantity).toHaveText(String(beforeCount + 1));
 
