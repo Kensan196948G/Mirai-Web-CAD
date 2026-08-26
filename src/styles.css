@@ -145,12 +145,14 @@ h2 {
 }
 
 .workspace {
+  --rail-width: 76px;
   display: grid;
-  grid-template-columns: 76px minmax(420px, 1fr) 330px;
+  grid-template-columns: var(--rail-width) minmax(420px, 1fr) 330px;
   gap: 10px;
   min-height: 0;
   overflow: hidden;
   padding: 10px;
+  position: relative;
 }
 
 .rail,
@@ -169,6 +171,43 @@ h2 {
   gap: 6px;
   overflow-y: auto;
   scrollbar-gutter: stable;
+}
+
+.rail-resize-handle {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  bottom: 10px;
+  left: calc(12px + var(--rail-width));
+  width: 6px;
+  display: grid;
+  place-items: center;
+  color: #718596;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.rail-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: #b8c8d4;
+}
+
+.rail-resize-handle span {
+  position: relative;
+  padding: 5px 0;
+  background: var(--bg);
+  font-weight: 800;
+}
+
+.rail-resize-handle:hover::before,
+.rail-resize-handle.active::before,
+.rail-resize-handle:focus-visible::before {
+  background: var(--cyan);
 }
 
 .section-title {
@@ -619,7 +658,7 @@ dialog label {
   }
 
   .workspace {
-    grid-template-columns: 72px 1fr;
+    grid-template-columns: var(--rail-width) 1fr;
     overflow: visible;
   }
 
@@ -656,6 +695,10 @@ dialog label {
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-gutter: auto;
+  }
+
+  .rail-resize-handle {
+    display: none;
   }
 
   .section-title {

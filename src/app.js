@@ -27,6 +27,8 @@ const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
 const USER_SETTINGS_KEY = "mirai-web-cad-settings";
 const GRID_INTERVALS = new Set([100, 250, 500, 1000]);
+const RAIL_WIDTH_MIN = 72;
+const RAIL_WIDTH_MAX = 180;
 const DEFAULT_USER_SETTINGS = Object.freeze({
   showGrid: true,
   snapEnabled: false,
@@ -34,7 +36,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   commandLogLines: 2,
   dimensionOffset: 350,
   dimensionPrecision: 0,
-  dimensionSuffix: ""
+  dimensionSuffix: "",
+  railWidth: 76
 });
 
 const state = {
@@ -123,6 +126,18 @@ function render() {
         <button id="exportBtn" class="icon-button" title="JSON出力" aria-label="JSON出力">⇩</button>
         <button id="resetBtn" class="icon-button danger" title="デモ初期化" aria-label="デモ初期化">↺</button>
       </aside>
+      <div
+        id="railResizeHandle"
+        class="rail-resize-handle"
+        role="separator"
+        aria-label="左サイドメニュー幅を調整"
+        aria-orientation="vertical"
+        aria-valuemin="${RAIL_WIDTH_MIN}"
+        aria-valuemax="${RAIL_WIDTH_MAX}"
+        aria-valuenow="${state.settings.railWidth}"
+        tabindex="0"
+        title="ドラッグまたは左右キーで幅を調整。ダブルクリックで初期化"
+      ><span aria-hidden="true">⋮</span></div>
 
       <section class="canvas-panel" aria-label="CADキャンバス">
         <div class="canvas-toolbar">
@@ -357,6 +372,7 @@ function render() {
     </dialog>
   `;
 
+  /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--rail-width", `${state.settings.railWidth}px`);
   bindEvents();
   drawCanvas();
 }
@@ -376,6 +392,7 @@ function bindEvents() {
   document.querySelector("#closeSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#cancelSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#resetSettingsBtn").addEventListener("click", resetUserSettings);
+  bindRailResize();
 
   const commandForm = /** @type {HTMLFormElement} */ (document.querySelector("#commandForm"));
   const commandInput = /** @type {HTMLInputElement} */ (document.querySelector("#commandInput"));
@@ -513,7 +530,8 @@ function saveSettingsFromForm(event) {
     commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
     dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
     dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
-    dimensionSuffix: String(data.get("dimensionSuffix") ?? "").slice(0, 12)
+    dimensionSuffix: String(data.get("dimensionSuffix") ?? "").slice(0, 12),
+    railWidth: state.settings.railWidth
   };
   saveUserSettings();
   log("システム設定を更新");
@@ -527,6 +545,53 @@ function resetUserSettings() {
   log("システム設定を初期化");
   /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
   render();
+}
+
+function bindRailResize() {
+  const handle = /** @type {HTMLElement} */ (document.querySelector("#railResizeHandle"));
+  const workspace = /** @type {HTMLElement} */ (document.querySelector(".workspace"));
+  let dragStart = null;
+
+  const applyWidth = (width, persist = false) => {
+    const next = Math.round(Math.min(RAIL_WIDTH_MAX, Math.max(RAIL_WIDTH_MIN, width)));
+    state.settings.railWidth = next;
+    workspace.style.setProperty("--rail-width", `${next}px`);
+    handle.setAttribute("aria-valuenow", String(next));
+    if (persist) saveUserSettings();
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    dragStart = { x: event.clientX, width: state.settings.railWidth };
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("active");
+    event.preventDefault();
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!dragStart || !handle.hasPointerCapture(event.pointerId)) return;
+    applyWidth(dragStart.width + event.clientX - dragStart.x);
+  });
+  const finish = (event) => {
+    if (!dragStart) return;
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    dragStart = null;
+    handle.classList.remove("active");
+    saveUserSettings();
+    drawCanvas();
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("keydown", (event) => {
+    const delta = event.key === "ArrowLeft" ? -8 : event.key === "ArrowRight" ? 8 : 0;
+    if (!delta && event.key !== "Home") return;
+    event.preventDefault();
+    applyWidth(event.key === "Home" ? DEFAULT_USER_SETTINGS.railWidth : state.settings.railWidth + delta, true);
+    drawCanvas();
+  });
+  handle.addEventListener("dblclick", () => {
+    applyWidth(DEFAULT_USER_SETTINGS.railWidth, true);
+    drawCanvas();
+  });
 }
 
 async function createNewDrawingFromForm(event) {
@@ -1631,6 +1696,7 @@ function loadUserSettings() {
     const commandLogLines = Number(stored?.commandLogLines);
     const dimensionOffset = Number(stored?.dimensionOffset);
     const dimensionPrecision = Number(stored?.dimensionPrecision);
+    const railWidth = Number(stored?.railWidth);
     return {
       showGrid: typeof stored?.showGrid === "boolean" ? stored.showGrid : DEFAULT_USER_SETTINGS.showGrid,
       snapEnabled: typeof stored?.snapEnabled === "boolean" ? stored.snapEnabled : DEFAULT_USER_SETTINGS.snapEnabled,
@@ -1638,7 +1704,8 @@ function loadUserSettings() {
       commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
       dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
       dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
-      dimensionSuffix: typeof stored?.dimensionSuffix === "string" ? stored.dimensionSuffix.slice(0, 12) : DEFAULT_USER_SETTINGS.dimensionSuffix
+      dimensionSuffix: typeof stored?.dimensionSuffix === "string" ? stored.dimensionSuffix.slice(0, 12) : DEFAULT_USER_SETTINGS.dimensionSuffix,
+      railWidth: Number.isFinite(railWidth) ? Math.min(RAIL_WIDTH_MAX, Math.max(RAIL_WIDTH_MIN, railWidth)) : DEFAULT_USER_SETTINGS.railWidth
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
