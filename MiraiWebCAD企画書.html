@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mirai Web CAD｜構想統合版</title>
+  <style>
+    :root{--navy:#0c2440;--blue:#1463b8;--cyan:#00a6c7;--ice:#eef8fc;--green:#168563;--amber:#d78513;--red:#c84242;--ink:#172536;--muted:#647487;--line:#d9e4ec;--paper:#fff;--bg:#f3f7fa;--shadow:0 10px 30px rgba(12,36,64,.09)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic UI","Meiryo",system-ui,sans-serif;line-height:1.75}
+    a{color:var(--blue)}.hero{background:linear-gradient(125deg,#081d35 0%,#0c3e70 62%,#057d99 100%);color:#fff;padding:70px 28px 60px;position:relative;overflow:hidden}.hero:after{content:"";position:absolute;width:380px;height:380px;border:1px solid rgba(255,255,255,.14);border-radius:50%;right:-80px;top:-170px;box-shadow:0 0 0 55px rgba(255,255,255,.035),0 0 0 110px rgba(255,255,255,.025)}
+    .wrap{max-width:1180px;margin:auto}.eyebrow{font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;color:#8ee8f3;font-weight:800}.hero h1{font-size:clamp(2.2rem,5vw,4.6rem);line-height:1.05;margin:.25em 0 .2em}.hero h1 span{color:#6fe6f4}.lead{font-size:clamp(1.05rem,2vw,1.35rem);max-width:850px;color:#dceaf5}.hero-tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}.hero-tags span{border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.08);padding:7px 13px;border-radius:999px;font-size:.88rem}
+    .layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:28px;max-width:1240px;margin:32px auto;padding:0 22px}.toc{position:sticky;top:18px;align-self:start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}.toc strong{display:block;margin-bottom:8px}.toc a{display:block;text-decoration:none;color:#41566b;font-size:.88rem;padding:5px 7px;border-left:2px solid #dbe7ef}.toc a:hover{color:var(--blue);border-color:var(--cyan);background:var(--ice)}main{min-width:0}
+    section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:clamp(22px,4vw,42px);margin-bottom:24px;box-shadow:var(--shadow)}h2{font-size:1.65rem;color:var(--navy);margin:0 0 20px;padding-bottom:10px;border-bottom:3px solid #dceef5}h3{color:#174d78;margin-top:28px}h4{margin-bottom:4px}.num{color:var(--cyan);font-size:.8em;margin-right:.35em}.statement{background:linear-gradient(110deg,#e9f8fc,#f4f9ff);border-left:5px solid var(--cyan);padding:22px 24px;border-radius:10px;font-size:1.08rem;font-weight:700}.callout{padding:18px 20px;border-radius:12px;background:#fff8e8;border:1px solid #f0d798}.callout.good{background:#ecf8f3;border-color:#bce4d4}.callout.danger{background:#fff1f1;border-color:#efc9c9}.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.card{border:1px solid var(--line);border-radius:14px;padding:18px;background:#fbfdff}.card h3,.card h4{margin-top:0}.pill{display:inline-block;padding:3px 9px;border-radius:999px;background:#e6f4fb;color:#075e8a;font-weight:700;font-size:.78rem}.metric{font-size:1.8rem;color:var(--blue);font-weight:900}.flow{display:grid;gap:10px}.step{display:grid;grid-template-columns:44px 1fr;gap:13px;align-items:start}.step b:first-child{width:38px;height:38px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center}.step>div{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fbfdff}.arrow{text-align:center;color:var(--cyan);font-size:1.3rem}
+    table{width:100%;border-collapse:collapse;margin:15px 0;font-size:.93rem}th{background:var(--navy);color:#fff;text-align:left}th,td{padding:11px 12px;border:1px solid var(--line);vertical-align:top}tbody tr:nth-child(even){background:#f7fafc}.yes{color:var(--green);font-weight:800}.later{color:var(--amber);font-weight:800}.no{color:var(--red);font-weight:800}code{background:#edf3f7;padding:2px 6px;border-radius:5px}pre{background:#10243a;color:#dceafb;padding:18px;border-radius:12px;overflow:auto;line-height:1.55}ul{padding-left:1.25em}.architecture{display:grid;grid-template-columns:1fr;gap:12px}.layer{padding:16px;border-radius:12px;border-left:6px solid var(--blue);background:#f4f9fc}.layer:nth-child(2){border-color:var(--cyan)}.layer:nth-child(3){border-color:var(--green)}.layer:nth-child(4){border-color:var(--amber)}.layer:nth-child(5){border-color:#7656bd}.phase{display:grid;grid-template-columns:90px 1fr;gap:15px;padding:14px 0;border-bottom:1px solid var(--line)}.phase:last-child{border:none}.phase b{color:var(--blue)}footer{text-align:center;color:var(--muted);padding:16px 20px 50px;font-size:.86rem}
+    @media(max-width:900px){.layout{display:block}.toc{position:static;margin-bottom:24px}.grid,.grid.three{grid-template-columns:1fr}.hero{padding-top:48px}section{border-radius:13px}table{display:block;overflow-x:auto;white-space:nowrap}}
+    @media print{body{background:#fff}.toc{display:none}.layout{display:block;max-width:none}.hero{padding:35px 24px}.hero h1{font-size:34px}section{box-shadow:none;break-inside:avoid}.callout,.statement,.card{break-inside:avoid}a{color:inherit;text-decoration:none}}
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="eyebrow">AI-FIRST CIVIL DRAWING PLATFORM / CONCEPT PAPER</div>
+      <h1>Mirai <span>Web CAD</span></h1>
+      <p class="lead">基本的な2D CAD機能を徹底的に磨き、AutoCAD／ARES Standardの主要な2D作図業務を80～90％カバーする。そこへAI Agent＋専門Skillsを組み合わせ、正確で速く、土木施工図に強いWeb CADを実現する。</p>
+      <div class="hero-tags"><span>本格2D CAD</span><span>AI自動作図</span><span>DWG / DXF / PDF</span><span>高精度編集</span><span>数量・図面検査</span><span>Web共同作業</span></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="目次"><strong>CONTENTS</strong>
+      <a href="#vision">01 基本構想</a><a href="#position">02 80～90％代替方針</a><a href="#users">03 対象業務・利用者</a><a href="#workflow">04 AI-first業務フロー</a><a href="#functions">05 2D CAD機能体系</a><a href="#agents">06 Agent＋Skills</a><a href="#accuracy">07 精度・品質設計</a><a href="#architecture">08 システム構成</a><a href="#roadmap">09 ロードマップ</a><a href="#kpi">10 KPI・統制</a><a href="#decision">11 正式方針</a>
+    </nav>
+    <main>
+      <section id="vision">
+        <h2><span class="num">01</span>構想と結論</h2>
+        <div class="statement">Mirai Web CADは、AutoCADやARES Standardの操作をそのままWebへ移すだけの製品ではない。自然言語、既存図面、設計資料、座標、施工条件からAI Agentが作図案・数量・工程・比較案を生成し、人が技術判断、修正指示、承認を行う「AI-first型 土木施工図プラットフォーム」である。</div>
+        <p>基礎には、AutoCAD／ARES Standardの主要な2D機能を<strong>実務利用範囲で80～90％カバーする</strong>「Mirai 2D CAD Core」を置きます。ただし、価値の中心は機能数の追随ではなく、作図前後の業務をまとめて省力化することです。</p>
+        <div class="grid three">
+          <div class="card"><span class="pill">NOW</span><h3>当面の勝ち筋</h3><p>2D施工図、注釈、寸法、数量、差分、承認をWebで完結。AIが初稿を作り、人が仕上げる。</p></div>
+          <div class="card"><span class="pill">NEXT</span><h3>次の差別化</h3><p>工法別Skillsと社内標準を蓄積し、「みらいの描き方・確認方法」を再利用できる知識資産にする。</p></div>
+          <div class="card"><span class="pill">TARGET</span><h3>到達点</h3><p>日常の2D作図・編集・印刷・互換・レビュー業務を、原則としてMirai Web CADだけで完結する。</p></div>
+        </div>
+        <div class="callout good"><strong>重要な考え方：</strong>「AutoCADの代替」をゴールにすると追随製品になります。「手作業による作図そのものを減らす」をゴールにすると、みらい独自のプラットフォームになります。</div>
+      </section>
+
+      <section id="position">
+        <h2><span class="num">02</span>AutoCAD／ARES Standardの80～90％代替方針</h2>
+        <table><thead><tr><th>観点</th><th>従来型2D CAD</th><th>Mirai Web CAD</th></tr></thead><tbody>
+          <tr><td>作業の起点</td><td>人が線・文字・寸法を入力</td><td>人が目的・条件・資料を入力</td></tr>
+          <tr><td>AIの役割</td><td>補助または外付け</td><td>条件整理、案生成、再作図、説明、検査支援</td></tr>
+          <tr><td>利用者の中心業務</td><td>作図操作</td><td>条件設定、技術レビュー、修正指示、承認</td></tr>
+          <tr><td>データ</td><td>線・文字・ブロック中心</td><td>高精度図形＋属性＋作図履歴＋根拠＋版</td></tr>
+          <tr><td>数量</td><td>拾い・表計算へ転記</td><td>図形データから決定論的に集計</td></tr>
+          <tr><td>拡張性</td><td>デスクトップ／ファイル中心</td><td>API、Agent、Skills、共同作業を標準装備</td></tr>
+        </tbody></table>
+        <h3>「80～90％」の意味</h3>
+        <p>製品全機能の個数ではなく、社内で実際に使われる2D作図操作・図面形式・印刷・修正・照査の<strong>利用頻度と業務時間を基準</strong>にカバー率を測ります。高度な3D、レンダリング、業界外の特殊機能、希少なアドオン互換は対象外です。</p>
+        <div class="callout good"><strong>判定基準：</strong>代表的な施工図業務の80～90％が、他CADへの往復なしで完成・検査・出力できること。単にメニューが存在するだけでなく、精度・操作速度・互換性・印刷品質まで満たすことを条件とします。</div>
+        <p class="muted">対象組織の前提：土木・建設業、従業員約600名、IT・DX部門7名、公共工事約80％・民間工事約20％。少人数のIT・DX部門でも継続運用できることを重視します。</p>
+      </section>
+
+      <section id="users">
+        <h2><span class="num">03</span>対象業務・利用者</h2>
+        <div class="grid">
+          <div class="card"><h3>主対象の図面</h3><ul><li>施工図・仮設計画図</li><li>施工ヤード図・重機配置図</li><li>土工図・平面図・縦横断図</li><li>数量根拠図・出来形関連図</li><li>安全設備・搬入動線・規制図</li><li>比較案・説明用図面</li></ul></div>
+          <div class="card"><h3>主な利用者</h3><ul><li>現場技術者・施工管理担当者</li><li>技術・研究開発部門</li><li>安全・品質・環境部門</li><li>設計・積算・営業技術担当者</li><li>協力会社・外部設計者（限定権限）</li><li>承認者・監査担当者</li></ul></div>
+        </div>
+        <div class="callout"><strong>対象外を明確化：</strong>3D CAD、BIM/CIMモデリング、構造計算、レンダリング、CAE、機械設計、電気CADは対象にしません。開発資源を2Dの完成度へ集中します。</div>
+      </section>
+
+      <section id="workflow">
+        <h2><span class="num">04</span>AI-first業務フロー</h2>
+        <div class="flow">
+          <div class="step"><b>1</b><div><strong>目的・条件・資料を入力</strong><br>自然言語、既存DWG/DXF/PDF、座標、施工条件、発注資料を登録。</div></div>
+          <div class="arrow">↓</div>
+          <div class="step"><b>2</b><div><strong>AIが条件を構造化</strong><br>不足、矛盾、単位、座標系、適用基準を確認。不明値は推測せず質問。</div></div>
+          <div class="arrow">↓</div>
+          <div class="step"><b>3</b><div><strong>AI Agentが作図案を生成</strong><br>専門Skillとテンプレートを選び、CAD Coreへ正確な作図命令を渡す。</div></div>
+          <div class="arrow">↓</div>
+          <div class="step"><b>4</b><div><strong>計算・検査エンジンが確認</strong><br>寸法、数量、重複、交差、離隔、レイヤー、図面間・表との整合を決定論的に検査。</div></div>
+          <div class="arrow">↓</div>
+          <div class="step"><b>5</b><div><strong>人がレビュー・修正指示</strong><br>図面、根拠、警告、数量、変更差分を並べて確認し、自然言語またはCAD操作で修正。</div></div>
+          <div class="arrow">↓</div>
+          <div class="step"><b>6</b><div><strong>AIが再作図し、権限者が承認</strong><br>再検査後に版を固定。承認者、日時、入力、Skill、エンジン版、出力を監査証跡として保存。</div></div>
+        </div>
+      </section>
+
+      <section id="functions">
+        <h2><span class="num">05</span>機能体系</h2>
+        <table><thead><tr><th>領域</th><th>主要機能</th><th>優先度</th></tr></thead><tbody>
+          <tr><td>2D CAD Core</td><td>線、ポリライン、円弧、ハッチ、文字、寸法、ブロック、スナップ、直交、座標入力、トリム、延長、オフセット、配列、レイヤー、Undo/Redo</td><td class="yes">最優先</td></tr>
+          <tr><td>レイアウト・出力</td><td>モデル／ペーパー空間、ビューポート、縮尺、図枠、表題欄、印刷、PDF出力、電子納品支援</td><td class="yes">最優先</td></tr>
+          <tr><td>互換性</td><td>DWG、DXF、PDF、画像、CSV、GeoJSON等の読込・出力、変換検証、文字・線種・尺度の維持</td><td class="yes">最優先</td></tr>
+          <tr><td>AI作図</td><td>自然言語作図、既存図面からの派生、標準図適用、断面生成、修正指示、複数案生成</td><td class="yes">高</td></tr>
+          <tr><td>数量</td><td>延長、面積、体積、部材数、重量、土量、集計表、図面オブジェクトとの双方向照合</td><td class="yes">高</td></tr>
+          <tr><td>品質検査</td><td>重複・交差・欠落・寸法不一致・レイヤー違反・図面間不整合・変更差分</td><td class="yes">高</td></tr>
+          <tr><td>共同作業</td><td>版管理、コメント、承認、差戻し、ロック、権限、監査ログ、比較表示</td><td class="yes">高</td></tr>
+          <tr><td>施工支援</td><td>ヤード・重機・搬入動線・施工段階・概算・工法比較・工程連携</td><td class="later">段階導入</td></tr>
+          <tr><td>高速操作</td><td>コマンドライン、ショートカット、右クリック、グリップ編集、選択循環、プロパティ一括変更、繰返しコマンド</td><td class="yes">最優先</td></tr>
+          <tr><td>精密作図</td><td>オブジェクトスナップ、極トラッキング、座標・距離・角度入力、作図補助、測定、公差を考慮した内部精度</td><td class="yes">最優先</td></tr>
+          <tr><td>再利用・標準化</td><td>ブロック、属性ブロック、外部参照、テンプレート、ツールパレット、標準部品、社内作図規則</td><td class="yes">高</td></tr>
+          <tr><td>大規模図面性能</td><td>表示範囲描画、空間インデックス、Web Worker、段階読込、キャッシュ、自動保存、障害復旧</td><td class="yes">高</td></tr>
+        </tbody></table>
+        <h3>2D CAD Coreで特に極める領域</h3>
+        <div class="grid three">
+          <div class="card"><h4>正確に描ける</h4><p>倍精度座標、安定したスナップ、変換後も崩れない図形、尺度に依存しない寸法・注釈。</p></div>
+          <div class="card"><h4>速く操作できる</h4><p>AutoCAD系の操作感を尊重し、コマンド、エイリアス、キーボード中心でも高速に作図。</p></div>
+          <div class="card"><h4>確実に渡せる</h4><p>DWG/DXF/PDFの往復変換、文字化け・線種・色・尺度・レイアウトの差異を自動検査。</p></div>
+        </div>
+      </section>
+
+      <section id="agents">
+        <h2><span class="num">06</span>AI Agent＋Skillsの設計</h2>
+        <p>Agentは作図依頼を分解・実行し、Skillは会社が承認した作図手順、レイヤー、図枠、命名、チェック項目を強制します。AIは座標値を曖昧に描画せず、最終的な図形生成・編集はMirai 2D CAD Coreの厳密なコマンドで実行します。</p>
+        <div class="grid three">
+          <div class="card"><h3>Supervisor Agent</h3><p>依頼を分解し、必要なSkillと専門Agentを選択。未確定条件があれば処理を止めて質問。</p></div>
+          <div class="card"><h3>Drawing Agents</h3><p>作図、編集、寸法、レイヤー整理、ブロック化、数量拾い、レイアウト・出力を担当。</p></div>
+          <div class="card"><h3>Verification Agent</h3><p>作成担当とは独立して、入力・図面・数量・計算・版の矛盾を再検査。</p></div>
+        </div>
+        <h3>代表的なSkills</h3>
+        <table><thead><tr><th>Skill</th><th>内容</th></tr></thead><tbody>
+          <tr><td><code>civil-drawing-standard</code></td><td>図枠、尺度、文字、線種、レイヤー、命名、出力規則</td></tr>
+          <tr><td><code>temporary-platform-design</code></td><td>仮設構台の必須入力、部材配置、照査順序、数量、出力、承認条件</td></tr>
+          <tr><td><code>earth-retaining-plan</code></td><td>鋼矢板・山留め配置、離隔、施工順序、標準詳細</td></tr>
+          <tr><td><code>quantity-takeoff</code></td><td>工種別の延長・面積・体積・重量・控除・丸め・集計規則</td></tr>
+          <tr><td><code>drawing-quality-check</code></td><td>重複、欠落、寸法、レイヤー、図面間、数量表、変更差分の検査</td></tr>
+          <tr><td><code>dwg-dxf-roundtrip-check</code></td><td>DWG/DXF変換前後の図形数、座標、文字、線種、尺度、レイアウト差異を検査</td></tr>
+        </tbody></table>
+        <pre>Skillに蓄積する知識
+標準工法 / 標準図 / 承認済み図面 / 使用部材 / 積算区分 / 歩掛
+施工能力 / 安全ルール / 発注者別規則 / 過去の差戻し理由
+ベテラン技術者の確認ポイント / 適用基準・年度 / 検証済み事例</pre>
+      </section>
+
+      <section id="accuracy">
+        <h2><span class="num">07</span>正確性を支える7層</h2>
+        <div class="architecture">
+          <div class="layer"><strong>1. 入力検証</strong> — 必須項目、単位、座標系、異常値、資料間矛盾、基準年度を検査。</div>
+          <div class="layer"><strong>2. 承認済み専門Skill</strong> — 工法別の手順と中止条件を固定し、自由解釈を抑制。</div>
+          <div class="layer"><strong>3. 決定論的CAD Core</strong> — 座標、幾何、変換、寸法、数量は同じ入力から同じ結果を返すエンジンが担当。</div>
+          <div class="layer"><strong>4. ルール検査</strong> — 離隔、数量一致、部材数、尺度、基準年度などをプログラムで厳密判定。</div>
+          <div class="layer"><strong>5. 独立検証</strong> — 作成Agentと検証Agentを分離し、同じAgentによる自己採点を避ける。</div>
+          <div class="layer"><strong>6. 既知事例との比較</strong> — 承認図、標準計算例、既存ソフト、実績、不具合事例との差を検知。</div>
+          <div class="layer"><strong>7. 人による承認</strong> — 入力、根拠、警告、差分を見て技術者・権限者が正式採用を判断。</div>
+        </div>
+        <div class="callout danger"><strong>AIが保証できないもの：</strong>誤った元資料、未記載の現場条件、未知の特殊構造、解釈が分かれる基準、施工時に変動する地盤・水位、古いSkill。したがって、Skill自体にも版管理・レビュー・承認・失効管理が必要です。</div>
+      </section>
+
+      <section id="architecture">
+        <h2><span class="num">08</span>推奨システム構成</h2>
+        <div class="architecture">
+          <div class="layer"><strong>利用・承認層</strong><br>Web UI、CAD操作、自然言語指示、比較、レビュー、承認、監査</div>
+          <div class="layer"><strong>Agent層</strong><br>Supervisor / Drawing / Editing / Layer / Block / Dimension / Quantity / Plot / Verification Agents</div>
+          <div class="layer"><strong>Skills・Rules層</strong><br>工法別Skill、発注者別規則、図面標準、数量規則、基準年度、エラー・中止条件</div>
+          <div class="layer"><strong>決定論的エンジン層</strong><br>Mirai 2D CAD Core、Geometry、Snap、Text/Dimension、Quantity、Rule、DWG/DXF/PDF Engine</div>
+          <div class="layer"><strong>データ・保存層</strong><br>2D図形モデル、図面DB、ブロック・テンプレート、版・承認、オブジェクト保存、自動保存</div>
+        </div>
+        <pre>人の指示・既存資料
+        ↓
+Supervisor Agent → 専門Skill選択 → 不足条件の確認
+        ↓
+CAD / Geometry / Snap / Quantity / Rule / File Conversion（決定論的処理）
+        ↓
+Verification Agent（独立検証）
+        ↓
+図面・数量・根拠・警告・差分 → 技術者レビュー → 権限者承認</pre>
+      </section>
+
+      <section id="roadmap">
+        <h2><span class="num">09</span>2D CAD完成度を高めるロードマップ</h2>
+        <div class="phase"><b>Phase 1</b><div><strong>Mirai 2D CAD Core</strong><br>基本作図、レイヤー、ブロック、寸法、スナップ、モデル／ペーパー空間、DWG/DXF/PDF。まず「普通に描ける」を固める。</div></div>
+        <div class="phase"><b>Phase 2</b><div><strong>土木施工図テンプレート</strong><br>図枠、標準レイヤー、土工・仮設・ヤード・数量根拠図の部品・作図コマンド。</div></div>
+        <div class="phase"><b>Phase 3</b><div><strong>AI作図アシスタント</strong><br>自然言語、既存図面、資料から初稿生成。修正指示による再作図と根拠表示。</div></div>
+        <div class="phase"><b>Phase 4</b><div><strong>数量・整合性・承認</strong><br>決定論的数量、品質検査、差分、コメント、承認、監査証跡。</div></div>
+        <div class="phase"><b>Phase 5</b><div><strong>高度編集・再利用</strong><br>属性ブロック、外部参照、グリップ、配列、フィレット、面取り、ストレッチ、ツールパレット。</div></div>
+        <div class="phase"><b>Phase 6</b><div><strong>高品質レイアウト・印刷</strong><br>複数ビューポート、注釈尺度、CTB/STB相当、線幅、透過、PDF一括出力、印刷プレビュー。</div></div>
+        <div class="phase"><b>Phase 7</b><div><strong>DWG/DXF互換性強化</strong><br>往復変換テスト、文字・寸法・ハッチ・ブロック・外部参照・レイアウトの差異検出。</div></div>
+        <div class="phase"><b>Phase 8</b><div><strong>大規模図面・性能最適化</strong><br>数十万～百万要素を想定した描画、選択、ズーム、保存、復旧、メモリ管理の改善。</div></div>
+        <div class="phase"><b>Phase 9</b><div><strong>AI Agent＋専門Skills</strong><br>自然言語作図、レイヤー整理、標準図適用、修正、数量、図面検査を実務投入。</div></div>
+        <div class="phase"><b>Phase 10</b><div><strong>代替率実証・移行</strong><br>代表業務と利用コマンドを計測し、80～90％を単独完結できるまで不足機能と互換差異を解消。</div></div>
+      </section>
+
+      <section id="kpi">
+        <h2><span class="num">10</span>KPI・品質・統制</h2>
+        <div class="grid three"><div class="card"><div class="metric">50%+</div><strong>作図時間削減</strong><p>対象定型図で、資料受領から初稿・修正完了までの時間を比較。</p></div><div class="card"><div class="metric">95%+</div><strong>ルール検査再現率</strong><p>登録済み違反ケースを漏れなく同じ判定で検出できる割合。</p></div><div class="card"><div class="metric">100%</div><strong>追跡可能性</strong><p>成果物から入力、Skill、エンジン、版、承認者まで辿れる状態。</p></div></div>
+        <table><thead><tr><th>統制項目</th><th>実装方針</th></tr></thead><tbody>
+          <tr><td>権限</td><td>閲覧・編集・検査・承認・管理を分離。協力会社は案件単位・期限付き</td></tr>
+          <tr><td>版管理</td><td>図面、属性、数量、計算条件、Skill、ルールを一体で版管理</td></tr>
+          <tr><td>変更管理</td><td>承認後の変更は承認状態を失効させ、再検査・再承認</td></tr>
+          <tr><td>AI統制</td><td>生成物を明示。根拠不明・低信頼・適用外は警告または停止</td></tr>
+          <tr><td>品質保証</td><td>ゴールデンケース、回帰、変換往復、境界値、性能試験</td></tr>
+          <tr><td>運用性</td><td>IT・DX部門7名を前提に、マネージド基盤、自動監視、標準化、段階展開</td></tr>
+        </tbody></table>
+      </section>
+
+      <section id="decision">
+        <h2><span class="num">11</span>推奨する正式方針</h2>
+        <div class="statement">Mirai Web CADは、基本的な2D CAD機能を徹底的に磨き、AutoCAD／ARES Standardで日常的に行う2D作図・編集・注釈・レイアウト・印刷・DWG/DXF/PDF交換業務の80～90％を、Webブラウザ上で代替することを第一目標とする。AI Agent＋専門Skillsは、CAD Coreを置き換えるものではなく、作図・修正・標準化・数量拾い・図面検査を高速化する中核支援機能として実装する。</div>
+        <h3>開発判断</h3>
+        <table><thead><tr><th>項目</th><th>判断</th><th>理由</th></tr></thead><tbody>
+          <tr><td>AutoCAD／ARESの完全コピー</td><td class="no">行わない</td><td>開発負荷が大きく、独自価値になりにくい</td></tr>
+          <tr><td>主要2D機能80～90％カバー</td><td class="yes">目指す</td><td>現場が既存CADへ戻らずに済む編集基盤が必要</td></tr>
+          <tr><td>AIによる初稿・再作図</td><td class="yes">中核にする</td><td>作図そのものを減らす最大の差別化要因</td></tr>
+          <tr><td>Agent＋Skills</td><td class="yes">中核にする</td><td>会社標準と専門手順を再利用可能な知識資産にできる</td></tr>
+          <tr><td>3D・BIM/CIM・構造計算</td><td class="no">対象外</td><td>2D CADの完成度、速度、互換性へ開発資源を集中する</td></tr>
+          <tr><td>DWG/DXF往復互換性</td><td class="yes">重点投資</td><td>既存CAD利用者・協力会社との実務交換に不可欠</td></tr>
+          <tr><td>コマンド・ショートカット互換</td><td class="yes">重視する</td><td>既存利用者の学習コストと操作速度低下を抑える</td></tr>
+        </tbody></table>
+        <div class="callout good"><strong>最初の実証テーマ：</strong>「仮設構台または施工ヤード図」を一つ選び、既存図面10～30件を匿名化・クレンジングして標準パターンを抽出。AI初稿、数量、整合検査、修正時間を現行作業と比較します。小さく始めても、設計思想は大きく持てます。</div>
+      </section>
+    </main>
+  </div>
+  <footer>Mirai Web CAD 構想統合版｜改訂日 2026-08-26｜基本2D CAD機能の完成度とAI-first作図支援に特化</footer>
+</body>
+</html>

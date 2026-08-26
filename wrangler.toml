@@ -1,0 +1,6 @@
+name = "mirai-web-cad"
+compatibility_date = "2026-08-22"
+pages_build_output_dir = "dist"
+
+[vars]
+APP_ENV = "preview"

@@ -1,0 +1,407 @@
+:root {
+  --navy: #10253c;
+  --blue: #246b9f;
+  --cyan: #00a3b8;
+  --green: #178363;
+  --amber: #bf7612;
+  --red: #be3c3c;
+  --bg: #eef3f7;
+  --panel: #ffffff;
+  --line: #d3dee7;
+  --text: #1a2937;
+  --muted: #5f7182;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+}
+
+button,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  background: #f7fafc;
+  color: var(--navy);
+  min-height: 34px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+canvas:focus-visible {
+  outline: 3px solid #8be3ed;
+  outline-offset: 2px;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
+  color: #fff;
+  background: linear-gradient(125deg, #0b1d31, #1a5076 65%, #007e91);
+}
+
+.eyebrow {
+  margin: 0;
+  color: #91e3ec;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+h1 {
+  margin: 1px 0 0;
+  font-size: 23px;
+  line-height: 1.1;
+}
+
+h2 {
+  margin: 0 0 10px;
+  color: var(--navy);
+  font-size: 15px;
+  border-bottom: 2px solid #dceef2;
+  padding-bottom: 6px;
+}
+
+.drawing-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.drawing-meta span,
+.drawing-meta label {
+  border: 1px solid #ffffff55;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.drawing-meta select {
+  margin-left: 4px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 56px minmax(420px, 1fr) 330px;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px;
+}
+
+.rail,
+.inspector section,
+.canvas-panel,
+.command-line {
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.rail {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.section-title {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.icon-button {
+  width: 38px;
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  font-weight: 800;
+}
+
+.icon-button.active {
+  background: #e6f8fb;
+  border-color: var(--cyan);
+  color: #006d7c;
+}
+
+.icon-button.danger {
+  color: var(--red);
+}
+
+.canvas-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.canvas-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+#cadCanvas {
+  width: 100%;
+  height: min(72vh, 760px);
+  display: block;
+  cursor: crosshair;
+}
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inspector section {
+  padding: 12px;
+}
+
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px;
+  background: #fff;
+  color: var(--text);
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.wide {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.segmented button {
+  min-height: 30px;
+  padding: 4px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.segmented button.active {
+  border-color: var(--cyan);
+  background: #e6f8fb;
+  color: #006d7c;
+  font-weight: 800;
+}
+
+.api-status {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 6px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #f8fbfd;
+}
+
+.api-status span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.api-status.ok {
+  border-color: #bfe5d7;
+  background: #eefaf5;
+}
+
+.api-status.loading {
+  border-color: #c9d9e6;
+  background: #f2f7fb;
+}
+
+.api-status.error {
+  border-color: #efc6c6;
+  background: #fff3f3;
+}
+
+.button-row button:last-child:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.preview-box {
+  margin-top: 9px;
+  padding: 10px;
+  background: #f8fbfd;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.layer-list {
+  display: grid;
+  gap: 6px;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 18px 16px 1fr 54px;
+  gap: 6px;
+  align-items: center;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.mini {
+  min-height: 24px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+
+.mini.locked {
+  border-color: var(--amber);
+  background: #fff5df;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 8px;
+  margin: 0;
+}
+
+dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+}
+
+.issue-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 130px;
+  overflow: auto;
+}
+
+.issue-list li {
+  margin-bottom: 4px;
+}
+
+.critical {
+  color: var(--red);
+}
+
+.major {
+  color: var(--amber);
+}
+
+.minor {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--green);
+  font-weight: 800;
+}
+
+.warn {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.command-line {
+  min-height: 70px;
+  max-height: 110px;
+  overflow: auto;
+  padding: 8px 12px;
+  background: #0d2136;
+  color: #dbeaf5;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 980px) {
+  .workspace {
+    grid-template-columns: 52px 1fr;
+  }
+
+  .inspector {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .section-title {
+    display: none;
+  }
+
+  .inspector {
+    display: flex;
+  }
+
+  #cadCanvas {
+    height: 58vh;
+  }
+}
