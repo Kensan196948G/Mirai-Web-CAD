@@ -283,6 +283,7 @@ h2 {
 
 .workspace {
   --dock-width: 300px;
+
   display: grid;
   grid-template-columns: minmax(420px, 1fr) var(--dock-width);
   grid-template-rows: minmax(0, 1fr);

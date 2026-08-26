@@ -29,12 +29,13 @@ export function applyOrtho(anchor, point) {
  * @returns {{x:number,y:number}[]}
  */
 export function entityKeyPoints(entity) {
-  if (entity.type === "line" || entity.type === "dimension") return entity.points.slice();
-  if (entity.type === "polyline" || entity.type === "hatch") return entity.points.slice();
+  const copy = (p) => ({ x: p.x, y: p.y });
+  if (entity.type === "line" || entity.type === "dimension") return entity.points.map(copy);
+  if (entity.type === "polyline" || entity.type === "hatch") return entity.points.map(copy);
   if (entity.type === "rect") {
     const o = entity.origin;
     return [
-      o,
+      copy(o),
       { x: o.x + entity.width, y: o.y },
       { x: o.x + entity.width, y: o.y + entity.height },
       { x: o.x, y: o.y + entity.height }
@@ -43,10 +44,10 @@ export function entityKeyPoints(entity) {
   if (entity.type === "circle") {
     const c = entity.center;
     const r = entity.radius;
-    return [c, { x: c.x + r, y: c.y }, { x: c.x - r, y: c.y }, { x: c.x, y: c.y + r }, { x: c.x, y: c.y - r }];
+    return [copy(c), { x: c.x + r, y: c.y }, { x: c.x - r, y: c.y }, { x: c.x, y: c.y + r }, { x: c.x, y: c.y - r }];
   }
-  if (entity.type === "text") return [entity.at];
-  if (entity.type === "block") return entity.insertion ? [entity.insertion] : [];
+  if (entity.type === "text") return [copy(entity.at)];
+  if (entity.type === "block") return entity.insertion ? [copy(entity.insertion)] : [];
   return [];
 }
 

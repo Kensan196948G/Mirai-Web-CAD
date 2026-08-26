@@ -1242,6 +1242,7 @@ async function applyOperationForm(event) {
       child.id = `child_${Date.now().toString(36)}`;
       const block = blockEntity(selected.layerId, name, [0, 0], [child]);
       state.selectedId = block.id;
+      state.pendingOperation = null;
       await commitCommands("ブロック化", [{ op: "delete", id: selected.id }, { op: "add", entity: block }]);
       return;
     }
@@ -1250,8 +1251,10 @@ async function applyOperationForm(event) {
       next.id = `e_${operation}_${Date.now().toString(36)}`;
       next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
       state.selectedId = next.id;
+      state.pendingOperation = null;
       await commitCommands(operation === "copy" ? "図形複写" : "オフセット", [{ op: "add", entity: next }]);
     } else {
+      state.pendingOperation = null;
       await commitCommands(operation.toUpperCase(), [{ op: "update", id: selected.id, patch: withoutIdentity(next) }]);
     }
   } catch (error) {
@@ -1396,7 +1399,8 @@ function onPointerDown(event) {
     if (state.draftPoints.length === 2) {
       const [a, b] = state.draftPoints;
       const area = Math.abs((b.x - a.x) * (b.y - a.y));
-      log(`AREA = ${formatNumber(area / 1e6)} m²`);
+      const areaInSquareMeters = state.drawing.unit === "m" ? area : area / 1e6;
+      log(`AREA = ${formatNumber(areaInSquareMeters)} m²`);
       state.draftPoints = [];
       render();
     } else drawCanvas(world);
