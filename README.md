@@ -25,7 +25,7 @@ Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図�
 | 用途 | URL | 状態 |
 | --- | --- | --- |
 | Cloudflare Pages Preview | `https://mvp-round-5.mirai-web-cad.pages.dev/` | 新規作成/CLI/Undo/Redo/Import/UI/API/Responsive/A11y E2E確認済み |
-| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | 本番Deploy済み。SPAはログイン不要で公開200、Worker APIは未認証401 |
+| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | SPAと公開デモは匿名閲覧可。任意図面と全更新APIはAccess JWT必須 |
 
 ## 起動
 
@@ -54,7 +54,7 @@ npm run verify
 - `npm run lint`: 必須ファイル存在、JS構文、未解決マーカーを検査
 - `npm run typecheck`: TypeScriptの`checkJs`でブラウザ/Core/API/DB層を型検査
 - `npm run a11y`: lang、viewport、aria、focus-visible、Responsive CSS等を静的検査
-- `npm test`: CAD Core、コマンド解析、JSON/DXF Import、API認証/権限、JWT fail-closed、Idempotency、AI承認を検査
+- `npm test`: CAD Core、コマンド解析、JSON/DXF Import、公開境界、API認証/権限、JWT fail-closed、Idempotency、原子更新、AI承認を検査
 - `npm run build`: `dist/`へ静的配信物を生成
 - `npm run test:e2e`: desktop/mobile Chromiumで新規作成、コマンドライン、Undo/Redo、Import、API同期、AI承認、Keyboard、axeを検査
 
@@ -66,7 +66,14 @@ npm run verify
 npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`、`0002_idempotency.sql`、`0003_drawing_revision.sql`、`seeds/demo.sql`を2回適用し、8テーブルとSeed重複なしを検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
+`db:verify`は`0001_initial.sql`から`0004_drawing_visibility.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なしを検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
+
+バックアップ/復元ドリル:
+
+```bash
+DATABASE_URL="postgresql://..." BACKUP_FILE="artifacts/cad.dump" npm run db:backup
+RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump" ALLOW_DATABASE_RESTORE=yes npm run db:restore
+```
 
 ## 主要な受入観点
 
@@ -78,7 +85,8 @@ npm run db:verify
 - API更新は`Idempotency-Key`と`expected-version`がない場合に拒否する
 - 同じ`Idempotency-Key`の再送は409で拒否し、二重変更を防ぐ
 - 本番の`AUTH_MODE=access`ではAccess JWTの署名、issuer、audienceを検証し、ロールはサーバー設定から決定する
-- Custom DomainのSPAは一般公開し、未認証ユーザーによるWorker API/Neon更新は401で拒否する
+- Custom DomainのSPA、health、`visibility=public`のデモ図面は一般公開し、任意図面取得と全更新は未認証401で拒否する
+- 図面、版、最新command event、監査、Idempotency、AI承認状態を単一DB文で確定する
 - 既定branchへのmerge後、`.github/workflows/mirai-web-cad-production.yml`が全検証成功時のみPages productionへ配信する
 
 ## CAD互換範囲
@@ -92,3 +100,5 @@ npm run db:verify
 - [API/DBメモ](docs/api-db.md)
 - [テスト方針](docs/testing.md)
 - [要件・設計トレーサビリティ](docs/mvp-traceability.md)
+- [本番運用適合性評価書](docs/production-readiness-assessment.md)
+- [改善台帳](docs/improvement-register.md)

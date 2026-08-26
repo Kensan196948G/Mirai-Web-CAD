@@ -34,7 +34,7 @@ const state = {
   previewProposal: null,
   previewRunId: null,
   camera: { x: 50, y: 40, scale: 0.075 },
-  commandLog: ["起動: Mirai Web CAD MVP"],
+  commandLog: ["起動: Mirai Web CAD"],
   commandHistory: [],
   commandHistoryIndex: 0,
   undoStack: [],
@@ -42,7 +42,7 @@ const state = {
   focusTarget: null,
   drag: null,
   viewMode: VIEW_MODES.has(requestedViewMode) ? requestedViewMode : "normal",
-  apiStatus: { state: "idle", message: "未確認" }
+  apiStatus: { state: "idle", message: "未確認", connected: false, roleLocked: false }
 };
 
 const app = document.querySelector("#app");
@@ -52,7 +52,7 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <div>
-        <p class="eyebrow">AGENTIC 2D CAD MVP</p>
+        <p class="eyebrow">CIVIL ENGINEERING 2D CAD</p>
         <h1>Mirai Web CAD</h1>
       </div>
       <div class="drawing-meta" aria-label="図面状態">
@@ -61,7 +61,7 @@ function render() {
         <span>${escapeHtml(stateLabel(drawing.state))}</span>
         <label>
           権限
-          <select id="roleSelect" aria-label="権限を切替">
+          <select id="roleSelect" aria-label="権限を切替" ${state.apiStatus.roleLocked ? "disabled" : ""}>
             ${Object.entries(ROLE_POLICIES)
               .map(
                 ([role, policy]) =>
@@ -151,7 +151,7 @@ function render() {
                 (layer) => `
                   <label class="layer-row">
                     <input type="checkbox" data-layer-visible="${escapeHtml(layer.id)}" ${layer.visible ? "checked" : ""} />
-                    <span class="swatch" style="background:${safeColor(layer.color)}"></span>
+                    <input class="swatch" type="color" value="${safeColor(layer.color)}" disabled aria-label="${escapeHtml(layer.name)}の色" />
                     <span>${escapeHtml(layer.name)}</span>
                     <button data-layer-lock="${escapeHtml(layer.id)}" class="mini ${
                       layer.locked ? "locked" : ""
@@ -277,7 +277,7 @@ function bindEvents() {
     state.drawing = seedDrawing();
     resetAuthoringState();
     fitCameraToDrawing();
-    state.apiStatus = { state: "idle", message: "未確認", connected: false };
+    state.apiStatus = { state: "idle", message: "未確認", connected: false, roleLocked: false };
     persist("デモ初期化");
   });
 
@@ -1014,21 +1014,23 @@ function persist(message) {
 }
 
 async function checkApiHealth() {
-  state.apiStatus = { state: "loading", message: "確認中", connected: false };
+  state.apiStatus = { state: "loading", message: "確認中", connected: false, roleLocked: false };
   render();
   try {
     const body = await apiRequest("/api/health");
     const drawingBody = await apiRequest("/api/drawings/demo");
-    const selectedRole = state.drawing.currentRole;
+    const roleLocked = body.auth.mode !== "demo";
+    const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
     saveDrawing(state.drawing);
     state.apiStatus = {
       state: "ok",
-      message: `${body.service} / auth=${body.auth.mode} / db=${body.db.mode} / 同期済み`,
-      connected: true
+      message: `${body.service} / ${body.auth.anonymous ? "公開閲覧" : `auth=${body.auth.mode}`} / db=${body.db.mode} / 同期済み`,
+      connected: true,
+      roleLocked
     };
   } catch (error) {
-    state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false };
+    state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false, roleLocked: false };
   }
   render();
 }

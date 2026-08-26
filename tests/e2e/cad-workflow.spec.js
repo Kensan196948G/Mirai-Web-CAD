@@ -144,7 +144,7 @@ test("URLと保存図面の文字列をHTMLとして実行しない", async ({ p
   await expect(page.getByText("表示状態: 正常")).toBeVisible();
   await expect(page.locator("#app img")).toHaveCount(0);
   expect(await page.evaluate(() => window.__miraiXss)).toBeUndefined();
-  await expect(page.locator(".swatch").first()).toHaveCSS("background-color", "rgb(91, 107, 122)");
+  await expect(page.locator(".swatch").first()).toHaveValue("#5b6b7a");
 });
 
 test("狭い画面でも主要操作領域が表示範囲を破綻させない", async ({ page }) => {

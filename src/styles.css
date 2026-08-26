@@ -299,8 +299,20 @@ select {
 .swatch {
   width: 14px;
   height: 14px;
+  min-height: 14px;
+  padding: 0;
   border: 1px solid #ffffff;
   box-shadow: 0 0 0 1px var(--line);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.swatch::-webkit-color-swatch {
+  border: 0;
 }
 
 .mini {

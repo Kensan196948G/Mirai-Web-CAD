@@ -29,11 +29,15 @@ class MemoryDataStore {
   }
 
   async probe() {
-    return { provider: "memory", mode: "memory-preview", migration: "0002_idempotency.sql" };
+    return { provider: "memory", mode: "memory-preview", migration: "0004_drawing_visibility.sql" };
   }
 
   async getDrawing(id) {
     return clone(memory.drawings.get(id));
+  }
+
+  async getPublicDrawing(id) {
+    return id === "dwg_demo_001" ? clone(memory.drawings.get(id)) : null;
   }
 
   async saveDrawing(drawing) {
@@ -52,6 +56,22 @@ class MemoryDataStore {
     memory.drawings.set(drawing.id, storedDrawing);
     memory.auditLogs.push(storedAudit);
     memory.idempotencyKeys.add(idempotencyKey);
+    return true;
+  }
+
+  async saveDrawingAtomically(drawing, auditEntry, idempotencyKey, _actorId, _route, agentRun = null) {
+    const current = memory.drawings.get(drawing.id);
+    if (memory.idempotencyKeys.has(idempotencyKey)) return false;
+    if (!current || drawing.revision !== current.revision + 1) {
+      throw conflictError(current?.revision ?? null, drawing.revision - 1);
+    }
+    if (agentRun && !memory.agentRuns.has(agentRun.id)) {
+      throw Object.assign(new Error(`Agent Runが見つかりません: ${agentRun.id}`), { status: 404 });
+    }
+    memory.drawings.set(drawing.id, clone(drawing));
+    memory.auditLogs.push(clone(auditEntry));
+    memory.idempotencyKeys.add(idempotencyKey);
+    if (agentRun) memory.agentRuns.set(agentRun.id, clone(agentRun));
     return true;
   }
 
@@ -100,6 +120,9 @@ class NeonDataStore {
              ) and exists (
                select 1 from information_schema.columns
                where table_schema = 'public' and table_name = 'drawings' and column_name = 'revision'
+             ) and exists (
+               select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = 'drawings' and column_name = 'visibility'
              ) as migrated
     `;
     return {
@@ -107,17 +130,18 @@ class NeonDataStore {
       mode: "connected",
       database: rows[0].database,
       migrated: rows[0].migrated,
-      migration: "0003_drawing_revision.sql"
+      migration: "0004_drawing_visibility.sql"
     };
   }
 
-  async getDrawing(id) {
+  async getDrawing(id, publicOnly = false) {
     const rows = await this.sql`
       select d.id, d.name, d.unit, d.current_version, d.revision, d.state, v.content
       from drawings d
       join drawing_versions v
         on v.drawing_id = d.id and v.version_no = d.current_version
       where d.id = ${id}
+        and (${publicOnly} = false or d.visibility = 'public')
       limit 1
     `;
     if (rows.length === 0) return null;
@@ -138,6 +162,10 @@ class NeonDataStore {
       revision: Number(row.revision)
     };
     return drawing;
+  }
+
+  async getPublicDrawing(id) {
+    return this.getDrawing(id, true);
   }
 
   async saveDrawing(drawing) {
@@ -216,6 +244,81 @@ class NeonDataStore {
           )
         `
       ]);
+      return true;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "23505") return false;
+      throw error;
+    }
+  }
+
+  async saveDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route, agentRun = null) {
+    const content = JSON.stringify(drawing);
+    const commandEvent = drawing.commandEvents?.at(-1) ?? null;
+    const contentHash = commandEvent?.afterHash ?? `version-${drawing.version}`;
+    const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
+    const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
+    const expectedRevision = drawing.revision - 1;
+    const eventPayload = commandEvent ? JSON.stringify(commandEvent.commands ?? []) : null;
+    const agentProposal = agentRun ? JSON.stringify(agentRun.proposal) : null;
+    try {
+      const rows = await this.sql`
+        with drawing_write as (
+          update drawings set
+            name = ${drawing.name},
+            unit = ${drawing.unit},
+            current_version = ${drawing.version},
+            revision = ${drawing.revision},
+            state = ${drawing.state},
+            updated_at = now()
+          where id = ${drawing.id} and revision = ${expectedRevision}
+          returning id
+        ), version_write as (
+          insert into drawing_versions (id, drawing_id, version_no, state, content, content_hash, created_by)
+          select ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
+                 ${content}::jsonb, ${contentHash}, ${actor}
+          from drawing_write
+          on conflict (drawing_id, version_no) do update set
+            state = excluded.state,
+            content = excluded.content,
+            content_hash = excluded.content_hash
+          returning id
+        ), command_write as (
+          insert into command_events (
+            id, drawing_version_id, source, actor_id, label, command_payload,
+            before_hash, after_hash, created_at
+          )
+          select ${commandEvent?.id ?? null}, ${versionId}, ${commandEvent?.source ?? "system"},
+                 ${actorId}, ${commandEvent?.label ?? "state transition"}, ${eventPayload}::jsonb,
+                 ${commandEvent?.beforeHash ?? contentHash}, ${commandEvent?.afterHash ?? contentHash},
+                 ${commandEvent?.at ?? new Date().toISOString()}
+          from version_write
+          where ${commandEvent !== null}
+          on conflict (id) do nothing
+          returning id
+        ), audit_write as (
+          insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
+          select ${auditEntry.id}, ${auditEntry.actorId}, ${auditEntry.action},
+                 ${auditEntry.targetType}, ${auditEntry.targetId},
+                 ${JSON.stringify({ role: auditEntry.role, ...auditEntry.detail })}::jsonb,
+                 ${auditEntry.createdAt}
+          from drawing_write
+          returning id
+        ), agent_write as (
+          update agent_runs set
+            status = ${agentRun?.status ?? null},
+            proposal = coalesce(${agentProposal}::jsonb, proposal)
+          where id = ${agentRun?.id ?? null}
+            and exists (select 1 from drawing_write)
+          returning id
+        ), idempotency_write as (
+          insert into idempotency_keys (key, actor_id, route)
+          select ${idempotencyKey}, ${actorId}, ${route}
+          from audit_write
+          returning key
+        )
+        select key from idempotency_write
+      `;
+      if (rows.length === 0) throw conflictError(null, expectedRevision);
       return true;
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "23505") return false;

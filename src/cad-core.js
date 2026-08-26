@@ -21,7 +21,7 @@ export function createDrawing(overrides = {}) {
   return {
     schemaVersion: 1,
     id: overrides.id ?? "dwg_demo_001",
-    name: overrides.name ?? "道路拡幅 仮設施工図 MVP",
+    name: overrides.name ?? "道路拡幅 仮設施工図",
     unit: overrides.unit ?? "mm",
     version: overrides.version ?? 1,
     revision: overrides.revision ?? 1,
@@ -37,7 +37,7 @@ export function createDrawing(overrides = {}) {
         at: now,
         actor: "system",
         action: "drawing.seeded",
-        detail: "MVP demo drawing created"
+        detail: "Demo drawing created"
       }
     ],
     createdAt: now,
@@ -60,7 +60,7 @@ export function seedDrawing() {
       id: "e_yard_1",
       closed: true
     }),
-    text("layer-annotation", [720, 6500], "Mirai Web CAD MVP / Preview Required", {
+    text("layer-annotation", [720, 6500], "Mirai Web CAD / Review Required", {
       id: "e_note_1",
       size: 280
     }),
@@ -421,7 +421,7 @@ export function buildAiProposal(drawing, prompt) {
   } else {
     return {
       status: "needs_input",
-      question: "MVPでは「重機範囲」「標準整理」「注記追加」のいずれかを具体的に指定してください。",
+      question: "「重機範囲」「標準整理」「注記追加」のいずれかを具体的に指定してください。",
       commands,
       warnings
     };

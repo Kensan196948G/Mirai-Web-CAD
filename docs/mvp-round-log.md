@@ -168,3 +168,17 @@
 | 公開境界 | Custom DomainのCloudflare Access appを削除し、SPAは全員が未認証で200閲覧可。Worker APIは`AUTH_MODE=access`のfail-closedを維持し、未認証401 |
 | 検証 | Type/Lint/static A11y/30 Unit+API/Build成功。desktop/mobile Chromiumの12 E2Eで新規作成、CLI作図、Undo/Redo、JSON Import、axe、狭幅表示を確認 |
 | 既知制約 | AutoCAD/Ares Standard完全互換ではない。DWG、DXF書出し、寸法、ハッチ、ブロック、外部参照、レイアウト/印刷は未実装 |
+
+## Round 6 / 2026-08-26 本番運用適合性改善
+
+| 項目 | 内容 |
+| --- | --- |
+| Monitor | Production SPA公開200/API 401、Access Applicationなし、Neon main未保護/履歴1日、静的security header不足、更新の部分commit可能性を確認 |
+| Assessment | 改善前41.5/100、代替率27%、総合PoC。18軸、競合5製品、強み/リスク、25追加機能を評価書・改善台帳へ記録 |
+| Development | public health/demoと認証writeを分離、visibility既定private、図面/版/event/監査/Idempotency/AI承認を原子化、CSP/CORS/本文制限、backup/restore、CI recoveryを実装 |
+| Database | Migration 0004をPreview/Productionへ適用。実Neon Previewで原子更新`revision=2/audit=2/idempotency=2`を確認し試験レコード削除。mainをprotected化 |
+| Verify | 34 Unit/API/性能baseline、desktop/mobile 12 E2E、axe Critical/Serious 0、Lint/Type/Build成功。10k CAD Coreは約0.45秒。隔離Neon DBへ全Migrationを2回適用 |
+| Recovery | PostgreSQL 18 custom archive作成/検証、空DB復元、projects/drawings/versions/audits各1件以上を確認。Production実データ復元は未実施 |
+| Visual | 1440x1000とiPhone 13 full-page screenshotでCanvas非blank、主要領域の重なり/切れなし。旧MVP表示をUI/デモから除去 |
+| Review | 新規Criticalなし。残存CriticalはDWG非対応、Production永続編集SSO不在、案件/図面ACL不在、本番backup/RTO未検証 |
+| Completion Gate | CONTINUE。ローカル/DB GateはPASS。PR/CI/Preview/Production deployと本番smoke test待ち |

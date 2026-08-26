@@ -1,4 +1,4 @@
--- Mirai Web CAD MVP demo seed.
+-- Mirai Web CAD demo seed.
 -- Safe to re-run after migration 0001; rows are upserted by primary key.
 
 insert into projects (id, name, owner, status)
@@ -6,7 +6,7 @@ values ('prj_demo_road_001', '道路拡幅デモ案件', 'mirai-demo', 'active')
 on conflict (id) do nothing;
 
 insert into drawings (id, project_id, name, unit, current_version, state)
-values ('dwg_demo_001', 'prj_demo_road_001', '道路拡幅 仮設施工図 MVP', 'mm', 1, 'draft')
+values ('dwg_demo_001', 'prj_demo_road_001', '道路拡幅 仮設施工図', 'mm', 1, 'draft')
 on conflict (id) do nothing;
 
 insert into drawing_versions (id, drawing_id, version_no, state, content, content_hash, created_by)
@@ -53,6 +53,6 @@ values (
   'seed.loaded',
   'drawing',
   'dwg_demo_001',
-  '{"source": "seeds/demo.sql", "purpose": "mvp demo"}'::jsonb
+  '{"source": "seeds/demo.sql", "purpose": "demo"}'::jsonb
 )
 on conflict (id) do nothing;

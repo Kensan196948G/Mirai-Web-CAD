@@ -63,15 +63,89 @@ test("drawing creation supports blank and demo templates", async () => {
   assert.equal(invalidBody.status, 400);
 });
 
-test("production-like access mode fails closed without Cloudflare Access headers", async () => {
+test("production access mode permits only public health and demo drawing reads", async () => {
   resetMemoryStore();
+  const productionEnv = {
+    APP_ENV: "production",
+    AUTH_MODE: "access"
+  };
+  const health = await handleApiRequest(new Request("https://example.test/api/health"), productionEnv);
+  const healthBody = await health.json();
+  assert.equal(health.status, 200);
+  assert.equal(healthBody.auth.role, "viewer");
+  assert.equal(healthBody.auth.anonymous, true);
+  assert.equal("database" in healthBody.db, false);
+
+  const demo = await handleApiRequest(new Request("https://example.test/api/drawings/demo"), productionEnv);
+  assert.equal(demo.status, 200);
+
+  const arbitrary = await handleApiRequest(new Request("https://example.test/api/drawings/dwg_private"), productionEnv);
+  assert.equal(arbitrary.status, 401);
+
+  const mutation = await handleApiRequest(
+    new Request("https://example.test/api/drawings", { method: "POST", body: "{}" }),
+    productionEnv
+  );
+  assert.equal(mutation.status, 401);
+});
+
+test("API applies production security and CORS headers", async () => {
   const response = await handleApiRequest(new Request("https://example.test/api/health"), {
     APP_ENV: "production",
     AUTH_MODE: "access"
   });
-  const body = await response.json();
-  assert.equal(response.status, 401);
-  assert.equal(body.ok, false);
+  assert.equal(response.headers.get("access-control-allow-origin"), "https://mirai-web-cad.mirai-dx-platform.com");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.match(response.headers.get("permissions-policy"), /camera=\(\)/);
+});
+
+test("mutating JSON endpoints reject unsupported media types and oversized bodies", async () => {
+  resetMemoryStore();
+  const unsupported = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "text/plain",
+        "x-demo-role": "drafter",
+        "idempotency-key": "media-type",
+        "expected-version": "1"
+      },
+      body: "{}"
+    }),
+    env
+  );
+  assert.equal(unsupported.status, 415);
+
+  const oversized = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "1048577",
+        "x-demo-role": "drafter",
+        "idempotency-key": "oversized",
+        "expected-version": "1"
+      },
+      body: "{}"
+    }),
+    env
+  );
+  assert.equal(oversized.status, 413);
+
+  const chunkedBody = JSON.stringify({ value: "x".repeat(1_048_576) });
+  const chunkedRequest = new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "drafter",
+        "idempotency-key": "chunked-oversized",
+        "expected-version": "1"
+      },
+      body: chunkedBody
+    });
+  assert.equal(chunkedRequest.headers.has("content-length"), false);
+  const chunked = await handleApiRequest(chunkedRequest, env);
+  assert.equal(chunked.status, 413);
 });
 
 test("access mode ignores client role spoofing and uses server role mapping", async () => {
@@ -178,6 +252,31 @@ test("duplicate idempotency key cannot execute a transaction twice", async () =>
   assert.equal(first.status, 200);
   assert.equal(second.status, 409);
   assert.match((await second.json()).error, /処理済み/);
+});
+
+test("successful mutation commits drawing and audit as one logical operation", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "drafter",
+        "idempotency-key": "atomic-audit",
+        "expected-version": "1"
+      },
+      body: JSON.stringify({ label: "atomic audit", commands: [] })
+    }),
+    env
+  );
+  assert.equal(response.status, 200);
+
+  const auditResponse = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const auditBody = await auditResponse.json();
+  assert.equal(auditBody.auditLogs.filter((entry) => entry.action === "drawing.transaction").length, 1);
 });
 
 test("stale revision cannot overwrite a newer transaction", async () => {
