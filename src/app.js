@@ -24,6 +24,14 @@ import { clearDrawing, exportDrawingFile, loadDrawing, saveDrawing } from "./sto
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
+const USER_SETTINGS_KEY = "mirai-web-cad-settings";
+const GRID_INTERVALS = new Set([100, 250, 500, 1000]);
+const DEFAULT_USER_SETTINGS = Object.freeze({
+  showGrid: true,
+  snapEnabled: false,
+  gridInterval: 500,
+  commandLogLines: 2
+});
 
 const state = {
   drawing: loadDrawing() ?? seedDrawing(),
@@ -42,34 +50,42 @@ const state = {
   focusTarget: null,
   drag: null,
   viewMode: VIEW_MODES.has(requestedViewMode) ? requestedViewMode : "normal",
-  apiStatus: { state: "idle", message: "未確認", connected: false, roleLocked: false }
+  apiStatus: { state: "idle", message: "未確認", connected: false, roleLocked: false },
+  settings: loadUserSettings()
 };
 
 const app = document.querySelector("#app");
 
 function render() {
   const drawing = activeDrawing();
+  const commandLogClass = `command-log-${state.settings.commandLogLines}`;
+  app.className = `app-shell ${commandLogClass}`;
   app.innerHTML = `
     <header class="topbar">
       <div>
         <p class="eyebrow">CIVIL ENGINEERING 2D CAD</p>
         <h1>Mirai Web CAD</h1>
       </div>
-      <div class="drawing-meta" aria-label="図面状態">
-        <strong>${escapeHtml(drawing.name)}</strong>
-        <span>v${escapeHtml(drawing.version)}</span>
-        <span>${escapeHtml(stateLabel(drawing.state))}</span>
-        <label>
-          権限
-          <select id="roleSelect" aria-label="権限を切替" ${state.apiStatus.roleLocked ? "disabled" : ""}>
-            ${Object.entries(ROLE_POLICIES)
-              .map(
-                ([role, policy]) =>
-                  `<option value="${role}" ${state.drawing.currentRole === role ? "selected" : ""}>${policy.label}</option>`
-              )
-              .join("")}
-          </select>
-        </label>
+      <div class="topbar-actions">
+        <div class="drawing-meta" aria-label="図面状態">
+          <strong>${escapeHtml(drawing.name)}</strong>
+          <span>v${escapeHtml(drawing.version)}</span>
+          <span>${escapeHtml(stateLabel(drawing.state))}</span>
+          <label>
+            権限
+            <select id="roleSelect" aria-label="権限を切替" ${state.apiStatus.roleLocked ? "disabled" : ""}>
+              ${Object.entries(ROLE_POLICIES)
+                .map(
+                  ([role, policy]) =>
+                    `<option value="${role}" ${state.drawing.currentRole === role ? "selected" : ""}>${policy.label}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+        </div>
+        <button id="settingsBtn" class="topbar-command" type="button" title="システム設定" aria-label="システム設定">
+          <span aria-hidden="true">⚙</span><span>設定</span>
+        </button>
       </div>
     </header>
 
@@ -113,6 +129,7 @@ function render() {
           <span>${escapeHtml(state.tool.toUpperCase())}</span>
           <span>${state.selectedId ? `選択: ${escapeHtml(state.selectedId)}` : "未選択"}</span>
           <span>表示状態: ${escapeHtml(viewModeLabel(state.viewMode))}</span>
+          <span>SNAP: ${state.settings.snapEnabled ? `${state.settings.gridInterval} ${drawing.unit}` : "OFF"}</span>
         </div>
         <canvas id="cadCanvas" width="1180" height="760" tabindex="0" aria-label="作図キャンバス"></canvas>
       </section>
@@ -182,9 +199,12 @@ function render() {
       </aside>
     </main>
 
-    <footer class="command-line" aria-label="コマンドライン">
-      <div class="command-history" aria-label="コマンドログ" aria-live="polite">
-        ${state.commandLog.slice(-8).map((lineValue) => `<div>${escapeHtml(lineValue)}</div>`).join("")}
+    <footer class="command-line ${commandLogClass}" aria-label="コマンドライン">
+      <div class="command-history" aria-label="コマンドログ" aria-live="polite" tabindex="0">
+        ${state.commandLog
+          .slice(-state.settings.commandLogLines)
+          .map((lineValue) => `<div>${escapeHtml(lineValue)}</div>`)
+          .join("")}
       </div>
       <form id="commandForm" class="command-form">
         <span aria-hidden="true">&gt;</span>
@@ -208,6 +228,63 @@ function render() {
         </div>
       </form>
     </dialog>
+
+    <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+      <form id="settingsForm" method="dialog">
+        <header>
+          <h2 id="settingsTitle">システム設定</h2>
+          <button id="closeSettingsBtn" type="button" class="dialog-close" aria-label="閉じる" title="閉じる">×</button>
+        </header>
+        <fieldset class="settings-group">
+          <legend>作図補助</legend>
+          <label class="toggle-row">
+            <input name="showGrid" type="checkbox" ${state.settings.showGrid ? "checked" : ""} />
+            <span>グリッド表示</span>
+          </label>
+          <label class="toggle-row">
+            <input name="snapEnabled" type="checkbox" ${state.settings.snapEnabled ? "checked" : ""} />
+            <span>グリッドスナップ</span>
+          </label>
+          <label>
+            グリッド間隔
+            <select name="gridInterval">
+              ${[100, 250, 500, 1000]
+                .map(
+                  (interval) =>
+                    `<option value="${interval}" ${state.settings.gridInterval === interval ? "selected" : ""}>${interval} ${escapeHtml(
+                      drawing.unit
+                    )}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+        </fieldset>
+        <fieldset class="settings-group">
+          <legend>画面</legend>
+          <label>
+            ログ表示行数
+            <select name="commandLogLines">
+              ${[1, 2, 3]
+                .map(
+                  (lines) => `<option value="${lines}" ${state.settings.commandLogLines === lines ? "selected" : ""}>${lines}行</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+        </fieldset>
+        <dl class="system-summary">
+          <dt>保存先</dt><dd>このブラウザ</dd>
+          <dt>API</dt><dd>${escapeHtml(state.apiStatus.connected ? "接続済み" : "未確認")}</dd>
+          <dt>バージョン</dt><dd>0.1.0</dd>
+        </dl>
+        <div class="dialog-actions settings-actions">
+          <button id="resetSettingsBtn" type="button">初期値</button>
+          <span></span>
+          <button id="cancelSettingsBtn" type="button">キャンセル</button>
+          <button type="submit" class="primary">適用</button>
+        </div>
+      </form>
+    </dialog>
   `;
 
   bindEvents();
@@ -216,6 +293,7 @@ function render() {
 
 function bindEvents() {
   const newDrawingDialog = /** @type {HTMLDialogElement} */ (document.querySelector("#newDrawingDialog"));
+  const settingsDialog = /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog"));
   const importFile = /** @type {HTMLInputElement} */ (document.querySelector("#importFile"));
   document.querySelector("#newDrawingBtn").addEventListener("click", () => openNewDrawingDialog());
   document.querySelector("#importBtn").addEventListener("click", () => importFile.click());
@@ -223,6 +301,11 @@ function bindEvents() {
   document.querySelector("#newDrawingForm").addEventListener("submit", createNewDrawingFromForm);
   document.querySelector("#closeNewDrawingBtn").addEventListener("click", () => newDrawingDialog.close());
   document.querySelector("#cancelNewDrawingBtn").addEventListener("click", () => newDrawingDialog.close());
+  document.querySelector("#settingsBtn").addEventListener("click", () => settingsDialog.showModal());
+  document.querySelector("#settingsForm").addEventListener("submit", saveSettingsFromForm);
+  document.querySelector("#closeSettingsBtn").addEventListener("click", () => settingsDialog.close());
+  document.querySelector("#cancelSettingsBtn").addEventListener("click", () => settingsDialog.close());
+  document.querySelector("#resetSettingsBtn").addEventListener("click", resetUserSettings);
 
   const commandForm = /** @type {HTMLFormElement} */ (document.querySelector("#commandForm"));
   const commandInput = /** @type {HTMLInputElement} */ (document.querySelector("#commandInput"));
@@ -330,6 +413,32 @@ function openNewDrawingDialog(name = "") {
   if (name) input.value = name;
   dialog.showModal();
   input.select();
+}
+
+function saveSettingsFromForm(event) {
+  event.preventDefault();
+  const form = /** @type {HTMLFormElement} */ (event.currentTarget);
+  const data = new FormData(form);
+  const gridInterval = Number(data.get("gridInterval"));
+  const commandLogLines = Number(data.get("commandLogLines"));
+  state.settings = {
+    showGrid: data.get("showGrid") === "on",
+    snapEnabled: data.get("snapEnabled") === "on",
+    gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
+    commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines
+  };
+  saveUserSettings();
+  log("システム設定を更新");
+  /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
+  render();
+}
+
+function resetUserSettings() {
+  state.settings = { ...DEFAULT_USER_SETTINGS };
+  saveUserSettings();
+  log("システム設定を初期化");
+  /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
+  render();
 }
 
 async function createNewDrawingFromForm(event) {
@@ -566,7 +675,8 @@ function onPointerDown(event) {
     render();
     return;
   }
-  const world = screenToWorld(event.offsetX, event.offsetY);
+  const rawWorld = screenToWorld(event.offsetX, event.offsetY);
+  const world = state.tool === "select" ? rawWorld : snapPoint(rawWorld);
   const policy = ROLE_POLICIES[state.drawing.currentRole] ?? ROLE_POLICIES.viewer;
 
   if (state.tool === "select") {
@@ -608,7 +718,8 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
-  const world = screenToWorld(event.offsetX, event.offsetY);
+  const rawWorld = screenToWorld(event.offsetX, event.offsetY);
+  const world = state.drag ? rawWorld : snapPoint(rawWorld);
   if (state.drag) {
     const dx = world.x - state.drag.start.x;
     const dy = world.y - state.drag.start.y;
@@ -911,9 +1022,13 @@ function drawGrid(ctx, canvas) {
   ctx.save();
   ctx.fillStyle = "#f8fbfd";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!state.settings.showGrid) {
+    ctx.restore();
+    return;
+  }
   ctx.strokeStyle = "#e4edf3";
   ctx.lineWidth = 1;
-  const step = 500 * state.camera.scale;
+  const step = state.settings.gridInterval * state.camera.scale;
   for (let x = state.camera.x % step; x < canvas.width; x += step) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -1004,6 +1119,15 @@ function screenToWorld(x, y) {
   return {
     x: (x - state.camera.x) / state.camera.scale,
     y: (y - state.camera.y) / state.camera.scale
+  };
+}
+
+function snapPoint(point) {
+  if (!state.settings.snapEnabled) return point;
+  const interval = state.settings.gridInterval;
+  return {
+    x: Math.round(point.x / interval) * interval,
+    y: Math.round(point.y / interval) * interval
   };
 }
 
@@ -1190,6 +1314,26 @@ function safeColor(value) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function loadUserSettings() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(USER_SETTINGS_KEY) ?? "null");
+    const gridInterval = Number(stored?.gridInterval);
+    const commandLogLines = Number(stored?.commandLogLines);
+    return {
+      showGrid: typeof stored?.showGrid === "boolean" ? stored.showGrid : DEFAULT_USER_SETTINGS.showGrid,
+      snapEnabled: typeof stored?.snapEnabled === "boolean" ? stored.snapEnabled : DEFAULT_USER_SETTINGS.snapEnabled,
+      gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
+      commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines
+    };
+  } catch {
+    return { ...DEFAULT_USER_SETTINGS };
+  }
+}
+
+function saveUserSettings() {
+  localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
 render();

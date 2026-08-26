@@ -20,6 +20,7 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | 保存 | 実装済み | LocalStorage自動保存、JSON出力、デモ初期化。認証済みAPI接続時はNeonへ同期 |
 | API | 実装済み | Cloudflare Pages Functionsの`/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否 |
 | 状態確認 | 実装済み | 正常、空、Loading、Errorを画面内のState Reviewで切替 |
+| システム設定 | 実装済み | 上部設定からグリッド表示、スナップ、間隔、コマンドログ行数をブラウザ単位で保存 |
 | DB | 実装済み | Neon PostgreSQLへ接続し、図面、AI Run、監査、Idempotencyを永続化 |
 
 ## Preview
