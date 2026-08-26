@@ -207,14 +207,19 @@ test("左サイドメニュー幅をドラッグ・キーボードで調整し�
 
   const rail = page.getByLabel("作図ツール");
   const initialWidth = (await rail.boundingBox()).width;
+  const initialRailBox = await rail.boundingBox();
+  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id, {
+    x: initialRailBox.x + initialRailBox.width,
+    y: initialRailBox.y + 120
+  })).toBe("railResizeHandle");
   await handle.focus();
   await handle.press("ArrowRight");
   expect((await rail.boundingBox()).width).toBe(initialWidth + 8);
 
-  const handleBox = await handle.boundingBox();
-  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 80);
+  const resizedRailBox = await rail.boundingBox();
+  await page.mouse.move(resizedRailBox.x + resizedRailBox.width, resizedRailBox.y + 120);
   await page.mouse.down();
-  await page.mouse.move(handleBox.x + handleBox.width / 2 + 32, handleBox.y + 80);
+  await page.mouse.move(resizedRailBox.x + resizedRailBox.width + 32, resizedRailBox.y + 120);
   await page.mouse.up();
   const resizedWidth = (await rail.boundingBox()).width;
   expect(resizedWidth).toBe(initialWidth + 40);
