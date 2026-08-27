@@ -15,6 +15,7 @@ const required = [
   "migrations/0002_idempotency.sql",
   "migrations/0003_drawing_revision.sql",
   "migrations/0004_drawing_visibility.sql",
+  "migrations/0005_audit_log_immutability.sql",
   "_headers",
   "seeds/demo.sql",
   "playwright.config.js",

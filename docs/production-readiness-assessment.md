@@ -23,7 +23,7 @@
 | 現在の価値 | インストール不要の公開デモ、基本作図、JSON/ASCII DXF取込、コマンド入力、レビュー、数量、AIルール提案 |
 | 完成段階 | MVP/PoC。AutoCAD/ARES相当の中核機能は未完成 |
 | 運用段階 | Production URLは公開済み。永続更新APIはAccess JWT必須だがAccess Applicationが存在せず、一般利用者は匿名閲覧のみ |
-| DB | Neon PostgreSQL。Preview/Production分離、Migration 0001-0004適用済み |
+| DB | Neon PostgreSQL。Preview/Production分離、Migration 0001-0005適用済み(監査追記専用トリガー含む) |
 | テスト | Unit/API 33件、Playwright E2E、axe、型検査、Lint、空DB Migration、復旧ドリル |
 | 未確認 | OpenDesign正本、GitHub Issue/PRの全過去議論、実ユーザー受入、契約・法務、DWG実案件互換、負荷100k/1m図形、RTO実測 |
 
