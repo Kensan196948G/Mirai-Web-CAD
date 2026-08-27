@@ -44,6 +44,30 @@ Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。D
 
 独立repo移行時にGitHub PATがActions Secrets管理権限を持たない場合、`CLOUDFLARE_DEPLOY_ENABLED`を未設定のままDeploy jobをfail-closedで停止します。移行責任者が同一commitをローカルのWrangler認証で初回配信し、GitHub管理者がSecrets登録後に変数を`true`へ設定してActions配信へ切り替えます。秘密値をworkflow inputやGit履歴へ渡してはいけません。
 
+### 2026-08-27 実績(ローカルWrangler配信)
+
+Actions Secrets/Variables APIが403(Issue #9)のため、`feat(ops)` PR #18(merge commit `77f71bd`)はローカルWrangler認証で本番配信しました。
+
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name mirai-web-cad \
+  --branch main --commit-hash "$(git rev-parse HEAD)"
+```
+
+- Cloudflare deployment `0f0784ac-e209-4c4f-bc96-071056451bb9`(production、stage success)
+- 配信後にSPA/health/demo 200、write/audit-logs匿名401、healthの`status/version/timestamp`を確認
+
+## 監査ログの追記専用化(0005)
+
+`audit_logs`はDBトリガーでUPDATE/DELETEが拒否されます(errcode `42501`)。INSERTのみ許可です。DB権限保有者でも既存行の改変・削除はできません。トリガーを無効化する場合(監査ポリシー変更時のみ):
+
+```sql
+drop trigger audit_logs_no_update on audit_logs;
+drop trigger audit_logs_no_delete on audit_logs;
+```
+
+監査データの棚卸は承認者権限で`GET /api/audit-logs?format=csv`(export操作自体が`audit.exported`として記録されます)。
+
 ## Backup / Restore
 
 CIは一時PostgreSQLにMigration/Seedを適用し、custom archiveを空DBへ復元します。

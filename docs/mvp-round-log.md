@@ -195,3 +195,30 @@
 | Browser | PASS | viewer固定、role selector無効、Canvas描画、desktop/mobile表示を確認 |
 | Construction OS影響 | PASS | 別Cloudflare project・別workflowであり、`construction-os.mirai-dx-platform.com`は既存302のまま |
 | 残課題 | TRACKED | Entra/RBAC #20、DWG/CAD #21、性能/offline #22、DR/監視 #23、独立repo ADR #24 |
+
+## Round 7 / 2026-08-27 監査・監視・運用強化と正本ディレクトリ確立
+
+| 項目 | 内容 |
+| --- | --- |
+| Monitor | 本番のSPA/health/demo/write境界を実測し健全を確認。Actions Secrets/Variables API 403(Issue #9)を再確認し、自動デプロイが未稼働である事実を検出 |
+| Assessment | 既存評価書(41.5→48.3)をベースラインとして継承し、弱み「監査ログ改ざん防止」「監査exportなし」「監視エンドポイント不足」を本ラウンドの改善対象に選定 |
+| Development | ① `0005_audit_log_immutability.sql`: `audit_logs`へDBトリガー2件(UPDATE/DELETE拒否) ② `/api/audit-logs`にlimit/offsetページングと`format=csv` export(数式注入ガード、承認権限のみ、export自体を監査) ③ `/api/health`にstatus/version/timestampとDB異常時503 |
+| Database | 本番Neon(`construction-enterprise-os`/main branch/`mirai_web_cad_production`)へ0005を適用し、トリガー2件・INSERT許可・UPDATE/DELETE拒否を実DBで検証 |
+| Verify | lint/typecheck/a11y/build PASS、unit 43/43、E2E desktop/mobile 24/24、PostgreSQL 18空DBで0001-0005×2回+トリガー検証、backup/restore drill PASS |
+| CI/CD | PR #18をSquash Merge(merge commit `77f71bd`)。CI 4ジョブ(Migration/アプリ/Secret Scan/Recovery)成功。Production workflowはVerify成功、Deployは`CLOUDFLARE_DEPLOY_ENABLED`未設定のためfail-closed skip |
+| Release | マージ後、本番Cloudflare Pagesへデプロイ(commit `77f71bd`、deployment `0f0784ac`、production success)。SPA/health/demo 200、write/audit-logs匿名401、healthにstatus/version/timestamp反映を確認 |
+| Directory | 正本ディレクトリを`Mirai-Web-CAD`へ統一(旧`Mirai-Web-CAD-Standalone`は移行元としてマーカー保持、HEAD一致確認済み) |
+| 残課題 | Issue #9(Actions Secrets 403)による自動デプロイ未稼働、P0-06 SSO、P0-09 合成監視・通知、本番backup自動化、DWG往復、案件RBAC |
+
+## Round 7 検証結果
+
+| 対象 | 結果 | 証拠 |
+| --- | --- | --- |
+| Lint/Type/A11y/Unit/Build | PASS | 43/43 unit(新規: CSV権限・ガード・ページング2件) |
+| E2E | PASS | desktop/mobile 24/24、axe critical/serious 0 |
+| Migration 0001-0005 | PASS | PostgreSQL 18空DBで2回適用、8テーブル、トリガー2件、UPDATE/DELETE拒否を機械検証 |
+| 本番Neon 0005適用 | PASS | `mirai_web_cad_production`でINSERT許可・UPDATE/DELETE拒否(42501)を実測 |
+| backup/restore drill | PASS | custom archive → 空DB復元、projects/drawings/versions/audits各1件一致 |
+| GitHub CI | PASS | run `33064297408`(PR #18)4ジョブ成功。Secret Scan no leaks |
+| Production | PASS | deployment `0f0784ac`、commit `77f71bd`、公開境界smoke成功 |
+| 未実施 | Production実データbackup/restore、100k図形負荷、SSO実利用者E2E、自動デプロイ経路(Issue #9権限待ち) |
