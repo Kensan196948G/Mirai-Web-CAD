@@ -73,7 +73,7 @@ npm run verify
 npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`から`0004_drawing_visibility.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なしを検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
+`db:verify`は`0001_initial.sql`から`0005_audit_log_immutability.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)を検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
 
 バックアップ/復元ドリル:
 
