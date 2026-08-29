@@ -4,6 +4,25 @@
 移行元: `Kensan196948G/Construction-Enterprise-OS`の`Mirai-Web-CAD/`  
 移行先: `Kensan196948G/Mirai-Web-CAD`
 
+## 移行結果
+
+ソース正本、CI、Issue、Cloudflare production branchの独立repo移管は完了した。初回本番配信はGitHub PATのActions Secrets管理権限不足により、CI成功済みの同一commitをローカルWrangler認証で配信した。Actionsからの自動Deploy有効化とProduction required reviewerはIssue #9で追跡する。
+
+| 項目 | 結果 | 証跡 |
+| --- | --- | --- |
+| 新repo | PASS | `Kensan196948G/Mirai-Web-CAD`、Private、default branch `main` |
+| PR | PASS | 新repo PR #1、merge commit `c93a917fe5632234b5cbb5f46abfba9fb1a78ece` |
+| CI | PASS | run `32936884367`、Application/Migration/Recovery/Secret Scan成功 |
+| Preview | PASS | deployment `6950bcc0`、実Neonに対するdesktop/mobile E2E 12/12成功 |
+| Production | PASS | deployment `81194e17`、Pages production branch `main` |
+| Public boundary | PASS | SPA/health/demo 200、private drawing/write 401、CSP違反0 |
+| DB | PASS | Neon connected、migration適用済み。データ移行なし |
+| 旧deploy停止 | PASS | 移行元PR #26、merge commit `b06d0108a459576daf4f9f047b58be550b3ee309` |
+| Construction OS | PASS | 別Pages project。公開URLは既存302のまま |
+| Issue | PASS | 移行元#20-#23を新repo#5-#8へtransfer、移行元#24を完了close |
+| Actions deploy | BLOCKED | Secrets API 403。Deploy jobは変数未設定時fail-closed。新repo#9で追跡 |
+| Production承認 | PARTIAL | protected branch限定。Private repoの現行planではrequired reviewer設定が422 |
+
 ## 方針
 
 - GitHub公式手順に従い、使い捨てcloneで`git filter-repo --subdirectory-filter Mirai-Web-CAD`を実行した。
@@ -31,18 +50,19 @@
 | Cloudflare Pages | 既存projectを維持し、production branchだけを`main`へ変更 |
 | Custom Domain | `mirai-web-cad.mirai-dx-platform.com`を維持。DNS変更なし |
 | Neon | 既存Production DBを維持。project分離は別変更 |
-| GitHub Secrets | `CLOUDFLARE_ACCOUNT_ID`と`CLOUDFLARE_API_TOKEN`を新repoへ再登録 |
-| Issues | #20-#23を移管し、#24に本manifestと結果を記録 |
+| GitHub Secrets | 現PATではSecrets APIが403。秘密値をGitへ保存せずIssue #9で追跡 |
+| Issues | 移行元#20-#23を新repo#5-#8へ移管し、移行元#24に本manifestと結果を記録 |
 
 ## Cutover Gate
 
-- 新repoのLint、Type、Unit/API、E2E、A11y、Buildが成功
-- 空DB Migration、backup/restore、secret scanが成功
-- PreviewのSPA/API/DB/認証境界が成功
-- `main`のbranch protectionとProduction Environment承認を設定
-- 旧Production workflowのpush triggerを停止
-- ProductionのSPA/health/demoが200、private drawing/writeが401
-- Construction OSのPages projectとURLが不変
+- PASS: 新repoのLint、Type、Unit/API、E2E、A11y、Build
+- PASS: 空DB Migration、backup/restore、secret scan
+- PASS: PreviewのSPA/API/DB/認証境界
+- PASS: `main`のbranch protection、force-push/delete禁止、必須4チェック
+- PARTIAL: Production Environmentは保護branch限定。required reviewerはplan制約
+- PASS: 旧Production workflowのpush trigger停止
+- PASS: ProductionのSPA/health/demo 200、private drawing/write 401
+- PASS: Construction OSのPages projectとURLが不変
 
 ## Rollback
 

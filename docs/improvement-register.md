@@ -1,6 +1,6 @@
 # 改善台帳
 
-更新日: 2026-08-26。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
+更新日: 2026-08-27。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
 
 ## 今すぐ
 
@@ -13,8 +13,10 @@
 | P0-05 | backup/restore drill | 運用/消失対策 | 手順の機械検証 | 中 2日 | P0 | PG client | 空DB復元と件数検証 | 完了 |
 | P0-06 | Entra ID + Cloudflare Access再構成 | 社員/永続編集 | SSO/MFA/RBAC | 中 3-5日 | P0 | IdP管理者、HENNGE方針 | 社員3roleでE2E | 未着手 |
 | P0-07 | Neon main保護・復旧窓延長 | 運用/誤削除防止 | RPO改善 | 低 1日 | P0 | 復旧窓の費用承認 | protected、7日以上、復旧演習 | 一部完了: protected |
-| P0-08 | Production環境承認Gate | CTO/誤deploy防止 | 変更統制 | 低 1日 | P0 | GitHub権限 | reviewer必須、rollback確認 | 未着手 |
-| P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 未着手 |
+| P0-08 | Production環境承認Gate | CTO/誤deploy防止 | 変更統制 | 低 1日 | P0 | GitHub権限 | reviewer必須、rollback確認 | 一部完了: branch protection必須check4件。required reviewerはプラン制約(Issue #9) |
+| P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 一部完了: healthにstatus/version/timestamp/503を実装(2026-08-27)。5分合成監視・Teams通知は未着手 |
+| P0-10 | 監査ログのDB追記専用化 | 監査者/改ざん防止 | 権限保有者でも改変不可 | 低 0.5日 | P0 | 0005 migration | トリガー2件、UPDATE/DELETE拒否をCI・本番で検証 | 完了 (2026-08-27) |
+| P0-11 | 監査ログCSV export・ページング | 監査者/説明責任 | 監査データの棚卸が可能 | 低 1日 | P1 | 数式注入対策 | `?format=csv`が承認権限のみ、export自体を監査 | 完了 (2026-08-27) |
 
 ## 3か月以内
 

@@ -1,4 +1,5 @@
-import { circle, line, polyline, rect, text } from "./cad-core.js";
+import { circle, entityArea, line, polyline, rect, text } from "./cad-core.js";
+import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
 
 const TOOL_COMMANDS = {
   L: "line",
@@ -73,9 +74,53 @@ export function parseCadCommand(input, context) {
   }
   if (["M", "MOVE"].includes(command)) return transformCommand("MOVE", tokens, context, false);
   if (["CO", "COPY"].includes(command)) return transformCommand("COPY", tokens, context, true);
+  if (["RO", "ROTATE"].includes(command)) return rotateOrScaleCommand("ROTATE", tokens, context);
+  if (["SC", "SCALE"].includes(command)) return rotateOrScaleCommand("SCALE", tokens, context);
+  if (["O", "OFFSET"].includes(command)) return offsetCommand(tokens, context);
+  if (["TR", "TRIM"].includes(command)) return endpointCommand("TRIM", tokens, context);
+  if (["EX", "EXTEND"].includes(command)) return endpointCommand("EXTEND", tokens, context);
+  if (["D", "DIM", "DIMLINEAR"].includes(command)) {
+    if (tokens.length < 2 || tokens.length > 3) throw new Error("形式: DIM x1,y1 x2,y2 [offset]");
+    return transaction("DIM", [{ op: "add", entity: dimensionEntity(context.currentLayerId, point(tokens[0]), point(tokens[1]), { offset: tokens[2] === undefined ? 350 : number(tokens[2], "offset") }) }]);
+  }
+  if (["DI", "DIST"].includes(command)) {
+    requireCount(tokens, 2, "DIST x1,y1 x2,y2");
+    const result = measurePoints(point(tokens[0]), point(tokens[1]));
+    return { kind: "message", message: `距離=${format(result.distance)} ΔX=${format(result.dx)} ΔY=${format(result.dy)} 角度=${format(result.angle)}°` };
+  }
+  if (["AREA", "AA"].includes(command)) {
+    const entity = selectedEntity(tokens, context, "AREA");
+    return { kind: "message", message: `面積=${format(entityArea(entity))} ${context.drawing.unit}²` };
+  }
+  if (["ID", "COORD"].includes(command)) {
+    requireCount(tokens, 1, "ID x,y");
+    const value = point(tokens[0]);
+    return { kind: "message", message: `X=${format(value.x)} Y=${format(value.y)}` };
+  }
+  if (["H", "HATCH"].includes(command)) {
+    if (tokens.length < 3) throw new Error("HATCHには3点以上の境界座標が必要です。");
+    return transaction("HATCH", [{ op: "add", entity: hatchEntity(context.currentLayerId, tokens.map(point)) }]);
+  }
+  if (["B", "BLOCK"].includes(command)) {
+    if (!tokens[0]) throw new Error("形式: BLOCK name [id]");
+    const name = tokens.shift();
+    const entity = selectedEntity(tokens, context, "BLOCK");
+    const child = transformEntity(entity, { dx: 0, dy: 0 });
+    child.id = `child_${randomId()}`;
+    return transaction("BLOCK", [{ op: "delete", id: entity.id }, { op: "add", entity: blockEntity(entity.layerId, name, [0, 0], [child]) }]);
+  }
   if (["LA", "LAYER"].includes(command)) {
     if (tokens.length === 0) {
       return { kind: "message", message: context.drawing.layers.map((layer) => layer.name).join(" / ") };
+    }
+    if (tokens[0]?.toUpperCase() === "NEW") {
+      if (!tokens[1]) throw new Error("形式: LAYER NEW name [#color]");
+      const color = tokens[2] ?? "#5b6b7a";
+      return transaction("LAYER NEW", [{ op: "add_layer", layer: { id: `layer_${randomId()}`, name: tokens[1], color } }]);
+    }
+    if (tokens[0]?.toUpperCase() === "EDIT") {
+      if (tokens.length < 3) throw new Error("形式: LAYER EDIT id name [#color]");
+      return transaction("LAYER EDIT", [{ op: "update_layer", id: tokens[1], patch: { name: tokens[2], color: tokens[3] } }]);
     }
     const query = tokens.join(" ").toLowerCase();
     const layer = context.drawing.layers.find(
@@ -89,6 +134,11 @@ export function parseCadCommand(input, context) {
     if (!["E", "EXTENTS", "ALL", "A"].includes(option)) throw new Error("ZOOMはEXTENTSに対応しています。");
     return { kind: "ui", action: "fit" };
   }
+  if (["P", "PAN"].includes(command)) {
+    requireCount(tokens, 1, "PAN dx,dy");
+    return { kind: "ui", action: "pan", offset: point(tokens[0]) };
+  }
+  if (["PLOT", "PRINT"].includes(command)) return { kind: "ui", action: "plot" };
   if (["S", "SELECT"].includes(command)) {
     if (!tokens[0]) throw new Error("SELECTには図形IDが必要です。");
     if (!context.drawing.entities.some((entity) => entity.id === tokens[0])) {
@@ -101,10 +151,10 @@ export function parseCadCommand(input, context) {
   if (["U", "UNDO"].includes(command)) return { kind: "ui", action: "undo" };
   if (["REDO"].includes(command)) return { kind: "ui", action: "redo" };
   if (["ESC", "CANCEL"].includes(command)) return { kind: "ui", action: "cancel" };
-  if (["H", "HELP", "?"].includes(command)) {
+  if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE PLINE TEXT ERASE MOVE COPY UNDO REDO SELECT LAYER ZOOM NEW IMPORT HELP"
+      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);
@@ -127,17 +177,71 @@ function transformCommand(label, tokens, context, copy) {
   return transaction("MOVE", [{ op: "update", id, patch: movedPatch(entity, offset.x, offset.y) }]);
 }
 
+function rotateOrScaleCommand(label, tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !looksNumeric(tokens[0])) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error(`${label}する図形を選択するかIDを指定してください。`);
+  if (tokens.length < 1 || tokens.length > 2) throw new Error(`形式: ${label} [id] value [baseX,baseY]`);
+  const value = number(tokens[0], label === "ROTATE" ? "angle" : "scale");
+  if (label === "SCALE" && value <= 0) throw new Error("尺度は0より大きい値を指定してください。");
+  const base = tokens[1] ? point(tokens[1]) : entityReferencePoint(entity);
+  const next = transformEntity(entity, label === "ROTATE" ? { angle: value, base } : { scale: value, base });
+  return transaction(label, [{ op: "update", id: entity.id, patch: withoutIdentity(next) }]);
+}
+
+function offsetCommand(tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !looksNumeric(tokens[0])) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error("OFFSETする図形を選択するかIDを指定してください。");
+  requireCount(tokens, 1, "OFFSET [id] distance");
+  const next = offsetEntity(entity, number(tokens[0], "distance"));
+  next.id = `e_offset_${randomId()}`;
+  next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
+  return transaction("OFFSET", [{ op: "add", entity: next }]);
+}
+
+function endpointCommand(label, tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !tokens[0].includes(",")) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error(`${label}する線分を選択するかIDを指定してください。`);
+  requireCount(tokens, 1, `${label} [id] x,y`);
+  const next = editLineEndpoint(entity, point(tokens[0]), label);
+  return transaction(label, [{ op: "update", id: entity.id, patch: { points: next.points } }]);
+}
+
+function selectedEntity(tokens, context, label) {
+  const id = tokens[0] ?? context.selectedId;
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error(`${label}対象を選択するかIDを指定してください。`);
+  return entity;
+}
+
+function entityReferencePoint(entity) {
+  return entity.center ?? entity.origin ?? entity.at ?? entity.insertion ?? entity.points?.[0] ?? { x: 0, y: 0 };
+}
+
+function withoutIdentity(entity) {
+  const { id, ...patch } = entity;
+  return patch;
+}
+
+function looksNumeric(value) {
+  return value !== "" && Number.isFinite(Number(value));
+}
+
+function format(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
 function movedEntity(entity, dx, dy) {
   return { ...structuredClone(entity), ...movedPatch(entity, dx, dy) };
 }
 
 function movedPatch(entity, dx, dy) {
-  const patch = {};
-  if (entity.points) patch.points = entity.points.map((value) => ({ x: value.x + dx, y: value.y + dy }));
-  if (entity.origin) patch.origin = { x: entity.origin.x + dx, y: entity.origin.y + dy };
-  if (entity.center) patch.center = { x: entity.center.x + dx, y: entity.center.y + dy };
-  if (entity.at) patch.at = { x: entity.at.x + dx, y: entity.at.y + dy };
-  return patch;
+  return withoutIdentity(transformEntity(entity, { dx, dy }));
 }
 
 function transaction(label, commands) {

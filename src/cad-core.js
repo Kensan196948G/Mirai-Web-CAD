@@ -1,5 +1,7 @@
 const EPSILON = 1e-9;
 
+import { transformEntity } from "./cad-advanced.js";
+
 export const DEFAULT_LAYERS = [
   { id: "layer-frame", name: "図枠", color: "#5b6b7a", visible: true, locked: false, printable: true },
   { id: "layer-center", name: "中心線", color: "#d14f4f", visible: true, locked: false, printable: true },
@@ -30,6 +32,8 @@ export function createDrawing(overrides = {}) {
     layers: structuredClone(DEFAULT_LAYERS),
     entities: [],
     comments: [],
+    dimensionStyles: [{ id: "dim-standard", name: "標準", textSize: 180, arrowSize: 120, precision: 0, suffix: "" }],
+    layout: { paper: "A3", orientation: "landscape", scale: 100, margin: 10, title: "" },
     commandEvents: [],
     auditLog: [
       {
@@ -187,6 +191,9 @@ export function applyTransaction(drawing, transaction) {
       if (layer?.locked) {
         return fail(`ロック中レイヤーの図形は変更できません: ${layer.name}`, drawing);
       }
+      if (command.patch?.layerId && !next.layers.some((item) => item.id === command.patch.layerId)) {
+        return fail(`移動先レイヤーが存在しません: ${command.patch.layerId}`, drawing);
+      }
       Object.assign(target, structuredClone(command.patch));
     }
 
@@ -222,12 +229,25 @@ export function applyTransaction(drawing, transaction) {
         warnings.push(`更新レイヤーが見つかりません: ${command.id}`);
         continue;
       }
-      const allowedPatch = Object.fromEntries(
-        Object.entries(command.patch ?? {}).filter(
-          ([key, value]) => ["visible", "locked"].includes(key) && typeof value === "boolean"
-        )
-      );
+      const allowedPatch = {};
+      for (const [key, value] of Object.entries(command.patch ?? {})) {
+        if (["visible", "locked", "printable"].includes(key) && typeof value === "boolean") allowedPatch[key] = value;
+        if (key === "name" && typeof value === "string" && value.trim()) allowedPatch.name = value.trim().slice(0, 80);
+        if (key === "color" && typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) allowedPatch.color = value;
+      }
       Object.assign(target, structuredClone(allowedPatch));
+    }
+
+    if (command.op === "update_layout") {
+      const patch = command.patch ?? {};
+      next.layout = {
+        ...next.layout,
+        paper: ["A4", "A3", "A2", "A1"].includes(patch.paper) ? patch.paper : next.layout?.paper ?? "A3",
+        orientation: ["portrait", "landscape"].includes(patch.orientation) ? patch.orientation : next.layout?.orientation ?? "landscape",
+        scale: Number.isFinite(Number(patch.scale)) && Number(patch.scale) > 0 ? Number(patch.scale) : next.layout?.scale ?? 100,
+        margin: Number.isFinite(Number(patch.margin)) && Number(patch.margin) >= 0 ? Number(patch.margin) : next.layout?.margin ?? 10,
+        title: typeof patch.title === "string" ? patch.title.slice(0, 100) : next.layout?.title ?? ""
+      };
     }
   }
 
@@ -485,6 +505,23 @@ export function entityBounds(entity) {
       maxY: entity.at.y
     };
   }
+  if (entity.type === "dimension" || entity.type === "hatch") return boundsFromPoints(entity.points);
+  if (entity.type === "block") {
+    const bounds = (entity.children ?? []).map(entityBounds).filter(Boolean);
+    if (!bounds.length) return null;
+    const combined = {
+      minX: Math.min(...bounds.map((value) => value.minX)), minY: Math.min(...bounds.map((value) => value.minY)),
+      maxX: Math.max(...bounds.map((value) => value.maxX)), maxY: Math.max(...bounds.map((value) => value.maxY))
+    };
+    const corners = [
+      { x: combined.minX, y: combined.minY }, { x: combined.maxX, y: combined.minY },
+      { x: combined.maxX, y: combined.maxY }, { x: combined.minX, y: combined.maxY }
+    ];
+    return boundsFromPoints(transformEntity({ points: corners }, {
+      dx: entity.insertion?.x ?? 0, dy: entity.insertion?.y ?? 0,
+      angle: entity.rotation ?? 0, scale: entity.scale ?? 1, base: { x: 0, y: 0 }
+    }).points);
+  }
   return null;
 }
 
@@ -496,6 +533,9 @@ export function entityLength(entity) {
   }
   if (entity.type === "rect") return Math.abs(entity.width * 2) + Math.abs(entity.height * 2);
   if (entity.type === "circle") return 2 * Math.PI * entity.radius;
+  if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
+  if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
+  if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
   return 0;
 }
 
@@ -503,6 +543,8 @@ export function entityArea(entity) {
   if (entity.type === "rect") return Math.abs(entity.width * entity.height);
   if (entity.type === "circle") return Math.PI * entity.radius * entity.radius;
   if (entity.type === "polyline" && entity.closed) return polygonArea(entity.points);
+  if (entity.type === "hatch") return polygonArea(entity.points);
+  if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
   return 0;
 }
 
@@ -541,6 +583,15 @@ function distanceToEntity(entity, p) {
   if (entity.type === "text") {
     const bounds = entityBounds(entity);
     return p.x >= bounds.minX && p.x <= bounds.maxX && p.y >= bounds.minY && p.y <= bounds.maxY ? 0 : Infinity;
+  }
+  if (entity.type === "dimension") return pointToSegmentDistance(p, entity.points[0], entity.points[1]);
+  if (entity.type === "hatch") {
+    const points = [...entity.points, entity.points[0]];
+    return Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current)));
+  }
+  if (entity.type === "block") {
+    const bounds = entityBounds(entity);
+    return bounds && p.x >= bounds.minX && p.x <= bounds.maxX && p.y >= bounds.minY && p.y <= bounds.maxY ? 0 : Infinity;
   }
   return Infinity;
 }

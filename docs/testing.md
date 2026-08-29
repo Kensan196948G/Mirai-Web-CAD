@@ -10,7 +10,7 @@
 | A11y static | `npm run a11y` | lang、ARIA、focus-visible、Responsive規則 |
 | Build | `npm run build` | Cloudflare Pages配信物生成 |
 | E2E | `npm run test:e2e` | desktop/mobile UI、新規作成、CLI、Undo/Redo、Import、Canvas、API同期、AI承認、Keyboard、axe |
-| DB | `npm run db:verify` | 空PostgreSQLへMigration/Seedを2回適用 |
+| DB | `npm run db:verify` | 空PostgreSQLへMigration/Seedを2回適用、監査追記専用トリガー存在とUPDATE/DELETE拒否を検証 |
 | Recovery | `npm run db:backup` / `db:restore` | custom archive検証、空DB復元、主要件数確認 |
 | Secret | GitHub Actions | Gitleaksで独立リポジトリ全体を走査 |
 
@@ -26,6 +26,15 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 
 ## 2026-08-26 本ラウンド証跡
 
+### 独立リポジトリ移行
+
+- 新repo PR #1、merge commit `c93a917fe5632234b5cbb5f46abfba9fb1a78ece`
+- CI run `32936884367`: Lint/Type/34 Unit・API・性能/12 E2E/A11y/Build、Migration、Recovery、Secret Scan成功
+- Preview deployment `6950bcc0`: 実Neonに対するdesktop/mobile E2E 12/12成功
+- Previewで検出したdrawing version外部キー不整合を修正し、再試験で作図・AI承認・監査同期成功
+- Production deployment `81194e17`: SPA/health/demo 200、private drawing/write 401、CSP違反0
+- Construction OSは別Pages projectで既存302を維持
+
 ### Production release
 
 - PR #19 / merge commit `b20340001bc069b45774482e76238b7d3dfbaba1`
@@ -38,7 +47,7 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 | 検証 | 結果 |
 | --- | --- |
 | `npm run verify:fast` | PASS。Lint、Type、static A11y、34 Unit/API/性能baseline、Build |
-| PostgreSQL 18空DB | PASS。Migration 0001-0004/Seedを2回適用 |
+| PostgreSQL 18空DB | PASS。Migration 0001-0005/Seedを2回適用、監査追記専用トリガー検証込み |
 | Neon Preview原子更新 | PASS。revision 2、audit 2、idempotency 2を別queryで確認後、試験レコード削除 |
 | backup/restore drill | PASS。custom archiveを空DBへ復元、projects/drawings/versions/audits各1以上 |
 | 未実施 | Production実データbackup/restore、100k図形負荷、障害注入、SSO実利用者E2E |
