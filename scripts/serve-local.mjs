@@ -4,6 +4,7 @@ import path from "node:path";
 import { handleApiRequest } from "../src/api-handler.js";
 import {
   CONTENT_TYPES,
+  RequestBodyTooLargeError,
   loadHeaderRules,
   makeHeadersResolver,
   nodeRequestToFetchRequest,
@@ -26,7 +27,17 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
   if (url.pathname.startsWith("/api")) {
-    const request = await nodeRequestToFetchRequest(req, url);
+    let request;
+    try {
+      request = await nodeRequestToFetchRequest(req, url);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        res.writeHead(413, { "content-type": "text/plain; charset=utf-8" });
+        res.end("payload too large");
+        return;
+      }
+      throw error;
+    }
     const response = await handleApiRequest(request, {
       AUTH_MODE: process.env.AUTH_MODE ?? "demo",
       APP_ENV: process.env.APP_ENV ?? "preview",

@@ -10,6 +10,7 @@ import { closeDataStorePool, createDataStore } from "../src/data-store.js";
 import { ROLE_POLICIES } from "../src/cad-core.js";
 import {
   CONTENT_TYPES,
+  RequestBodyTooLargeError,
   loadHeaderRules,
   makeHeadersResolver,
   nodeRequestToFetchRequest,
@@ -63,6 +64,12 @@ const server = createServer(async (req, res) => {
     res.end(await readFile(file));
     logRequest(req, url, 200, startedAt);
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      if (!res.headersSent) res.writeHead(413, { "content-type": "text/plain; charset=utf-8" });
+      res.end("payload too large");
+      logRequest(req, url, 413, startedAt);
+      return;
+    }
     log("error", "unhandled request error", { path: url.pathname, error: errorMessage(error) });
     if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
     res.end("internal error");
@@ -138,8 +145,10 @@ function validateEnv() {
   }
   const unknownRoles = Object.entries(accessRoleMap).filter(([, role]) => !ROLE_POLICIES[role]);
   if (unknownRoles.length > 0) {
+    // メールアドレス(個人識別子)はログへ残さない。件数と不正なロール名のみ出力する。
     log("error", "ACCESS_ROLE_MAP contains unknown roles, refusing to start", {
-      unknownEntries: unknownRoles.map(([email, role]) => `${email}=${role}`)
+      unknownCount: unknownRoles.length,
+      unknownRoleValues: [...new Set(unknownRoles.map(([, role]) => role))]
     });
     process.exit(78);
   }

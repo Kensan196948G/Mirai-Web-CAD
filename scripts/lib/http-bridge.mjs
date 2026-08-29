@@ -105,14 +105,39 @@ export function toResolvedPathname(staticRoot, file) {
   return `/${path.relative(staticRoot, file).split(path.sep).join("/")}`;
 }
 
+// api-handler.jsのJSON本文上限(1 MiB)より緩めに設定した、Node層でのDoS防止用
+// 粗いガード。正式なビジネスルールとしての本文サイズ検証はapi-handler.js側の
+// readJson()が担う。ここでのガードは、api-handler.jsのストリーミング検証に
+// 到達する前にNode.jsプロセスのメモリが無制限に膨らむことを防ぐためのもの。
+const DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+export class RequestBodyTooLargeError extends Error {
+  constructor(maxBodyBytes) {
+    super(`request body exceeds ${maxBodyBytes} bytes`);
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
 /**
  * Node.js http.IncomingMessageをWeb標準Requestへ変換する。
+ * 受信中に本文サイズを`maxBodyBytes`で制限し、超過時はRequestBodyTooLargeError
+ * を投げて以後のチャンク受信を中断する(呼び出し側で413を返すこと)。
  * @param {import("node:http").IncomingMessage} req
  * @param {URL} url
+ * @param {{ maxBodyBytes?: number }} [options]
  */
-export async function nodeRequestToFetchRequest(req, url) {
+export async function nodeRequestToFetchRequest(req, url, options = {}) {
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBodyBytes) {
+      req.destroy();
+      throw new RequestBodyTooLargeError(maxBodyBytes);
+    }
+    chunks.push(chunk);
+  }
   const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
   return new Request(url, {
     method: req.method,

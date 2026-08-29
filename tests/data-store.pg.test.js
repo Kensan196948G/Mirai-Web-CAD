@@ -3,12 +3,21 @@ import assert from "node:assert/strict";
 import { createDataStore, closeDataStorePool } from "../src/data-store.js";
 import { createDrawing } from "../src/cad-core.js";
 
-// DATABASE_URLが未設定の環境(通常のnpm test実行)ではこのファイル全体をskipする。
-// ローカルPostgreSQL(または検証用DB)を用意し、DATABASE_URLを設定した場合のみ実行される。
-const databaseUrl = process.env.DATABASE_URL;
+// 本番用DATABASE_URLを設定したシェルでうっかりnpm testを実行しても本番DBへ
+// 書き込まないよう、専用の環境変数TEST_DATABASE_URLのみを見る(DATABASE_URLは
+// 意図的に無視する)。加えて、接続先のDB名が"test"を含むことを要求し、命名を
+// 誤った検証用DBへの書き込みも防ぐ。いずれかを満たさない場合はこのファイル
+// 全体をskipする(通常のnpm test実行では未設定なので常にskipされる)。
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const databaseNameLooksLikeTest = isTestDatabaseUrl(testDatabaseUrl);
+const skipReason = !testDatabaseUrl
+  ? "TEST_DATABASE_URLが未設定のためskip"
+  : !databaseNameLooksLikeTest
+    ? 'TEST_DATABASE_URLのDB名に"test"が含まれないためskip(本番DBへの誤書き込み防止)'
+    : false;
 
-test("PostgreSQL統合テスト", { skip: !databaseUrl && "DATABASE_URLが未設定のためskip" }, async (t) => {
-  const store = createDataStore({ DATABASE_URL: databaseUrl });
+test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
+  const store = createDataStore({ DATABASE_URL: testDatabaseUrl });
 
   await t.test("probeが接続済み・migration適用済みを返す", async () => {
     const probe = await store.probe();
@@ -159,3 +168,14 @@ test("PostgreSQL統合テスト", { skip: !databaseUrl && "DATABASE_URLが未設
     await closeDataStorePool();
   });
 });
+
+function isTestDatabaseUrl(connectionString) {
+  if (!connectionString) return false;
+  try {
+    const url = new URL(connectionString);
+    const databaseName = url.pathname.replace(/^\//, "");
+    return databaseName.toLowerCase().includes("test");
+  } catch {
+    return false;
+  }
+}

@@ -161,6 +161,9 @@ class PostgresDataStore {
              ) and exists (
                select 1 from information_schema.triggers
                where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_update'
+             ) and exists (
+               select 1 from information_schema.triggers
+               where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_delete'
              ) as migrated
     `;
     return {

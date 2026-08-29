@@ -1,6 +1,6 @@
 # ローカルデプロイ運用メモ
 
-2026-08-29〜、本番の永続化先をNeon PostgreSQLからローカルPostgreSQL + Cloudflare Tunnelへ移行した(Issue #22、ユーザー指示による)。この文書は運用手順を記録する。移行の背景・設計判断は`.claude/plans/`の実装計画、および`docs/operations.md`の該当節を参照。
+2026-08-29〜、本番の永続化先をNeon PostgreSQLからローカルPostgreSQL + Cloudflare Tunnelへ移行する作業を進めている(Issue #22、ユーザー指示による)。**現時点(Phase 1)はコード変更のみが完了しており、systemd配置・Cloudflare Tunnel作成・DNS切替(Phase 2〜3)は未実施のため、実際の本番カットオーバーはまだ行われていない。** 本番は引き続きCloudflare Pages + Neonの構成のまま(Neon認証障害でAPIは機能不全)である。この文書は移行完了後の運用手順、および各Phaseの実施手順を記録する。移行の背景・設計判断は`.claude/plans/`の実装計画、および`docs/operations.md`の該当節を参照。
 
 ## 構成
 
