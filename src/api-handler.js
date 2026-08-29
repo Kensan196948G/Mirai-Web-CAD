@@ -41,10 +41,14 @@ export async function handleApiRequest(request, env = {}) {
 
     if (request.method === "GET" && route === "/health") {
       const db = await store.probe();
+      const dbHealthy = (db.mode === "connected" && db.migrated === true) || db.mode === "memory-preview";
       return json(
         {
-          ok: true,
+          ok: dbHealthy,
+          status: dbHealthy ? "ok" : "degraded",
           service: "mirai-web-cad-api",
+          version: "0.1.0",
+          timestamp: new Date().toISOString(),
           auth: {
             mode: authMode(env),
             actor: actor.actor.id,
@@ -54,7 +58,7 @@ export async function handleApiRequest(request, env = {}) {
           db: actor.actor.anonymous ? sanitizeProbe(db) : db,
           durationMs: Date.now() - startedAt
         },
-        200,
+        dbHealthy ? 200 : 503,
         corsHeaders(env, requestId)
       );
     }
@@ -199,7 +203,23 @@ export async function handleApiRequest(request, env = {}) {
 
     if (request.method === "GET" && route === "/audit-logs") {
       authorize(actor.actor, "canApprove");
-      return json({ ok: true, auditLogs: await store.listAuditLogs(100) }, 200, corsHeaders(env, requestId));
+      const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 100));
+      const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+      const auditLogs = await store.listAuditLogs(limit, offset);
+      if (url.searchParams.get("format") === "csv") {
+        await audit(store, actor.actor, "audit.exported", "audit_logs", "bulk", { count: auditLogs.length, limit, offset });
+        return new Response(auditLogsToCsv(auditLogs), {
+          status: 200,
+          headers: {
+            ...corsHeaders(env, requestId),
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
+            "cache-control": "no-store"
+          }
+        });
+      }
+      const total = typeof store.countAuditLogs === "function" ? await store.countAuditLogs() : null;
+      return json({ ok: true, auditLogs, limit, offset, total }, 200, corsHeaders(env, requestId));
     }
 
     return json({ ok: false, error: "not found" }, 404, corsHeaders(env, requestId));
@@ -437,6 +457,31 @@ function createAuditEntry(actor, action, targetType, targetId, detail) {
 
 function httpError(message, status) {
   return Object.assign(new Error(message), { status });
+}
+
+function auditLogsToCsv(entries) {
+  const header = ["id", "createdAt", "actorId", "role", "action", "targetType", "targetId", "detail"];
+  const rows = entries.map((entry) => [
+    entry.id,
+    entry.createdAt,
+    entry.actorId,
+    entry.role ?? "",
+    entry.action,
+    entry.targetType,
+    entry.targetId,
+    JSON.stringify(entry.detail ?? {})
+  ]);
+  return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  // 先頭が =, +, -, @ の場合は表計算ソフトの数式注入を防ぐため単一引用符を前置する。
+  const guarded = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  if (/[",\r\n]/.test(guarded)) {
+    return `"${guarded.replace(/"/g, '""')}"`;
+  }
+  return guarded;
 }
 
 function cryptoSafeId() {

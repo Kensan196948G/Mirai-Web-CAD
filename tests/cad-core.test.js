@@ -88,12 +88,13 @@ test("layer updates use the audited transaction path", () => {
     source: "user",
     label: "lock layer",
     commands: [
-      { op: "update_layer", id: "layer-structure", patch: { locked: true, visible: "no", name: "ignored" } }
+      { op: "update_layer", id: "layer-structure", patch: { locked: true, visible: "no", name: "施工構造", color: "invalid" } }
     ]
   });
   assert.equal(result.ok, true);
   assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").locked, true);
   assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").visible, true);
-  assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").name, "構造物");
+  assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").name, "施工構造");
+  assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").color, "#1574b8");
   assert.equal(result.drawing.commandEvents.at(-1).label, "lock layer");
 });

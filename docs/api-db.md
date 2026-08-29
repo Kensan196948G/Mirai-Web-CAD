@@ -12,7 +12,7 @@
 | `POST` | `/api/drawings/:drawingId/agent-runs` | 実装済み。AI提案作成 |
 | `POST` | `/api/agent-runs/:runId/approve` | 実装済み。AI提案を人の承認で適用 |
 | `POST` | `/api/drawings/:drawingId/review` | 実装済み。レビュー提出、承認、新版 |
-| `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ |
+| `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ。`limit`/`offset`ページング、`?format=csv`でCSV export(数式注入ガード付き) |
 
 ## DB設計方針
 
@@ -53,6 +53,9 @@ curl http://127.0.0.1:4176/api/health
 | `0002_idempotency.sql` | 更新APIの重複実行防止 |
 | `0003_drawing_revision.sql` | 図面更新の楽観ロック用revision |
 | `0004_drawing_visibility.sql` | 匿名公開を明示し、既定をprivateに固定 |
+| `0005_audit_log_immutability.sql` | `audit_logs`をDBトリガーで追記専用化(UPDATE/DELETE拒否) |
 | `seeds/demo.sql` | 5レイヤー、4図形の再実行安全なデモ図面 |
 
 Neon Preview/Productionへ`0004`を適用し、デモだけがpublicであることを確認しました。Previewでは図面・監査・Idempotencyの原子更新後に別接続で件数を検証し、検証レコードを削除しました。
+
+`0005`は`db:verify`の中で、トリガー2件の存在と、UPDATE/DELETEが`42501`で拒否されることを機械検証します。監査ログはDB権限保有者を含め改変・削除できません(物理的なリストアやテーブル再作成を除く)。
