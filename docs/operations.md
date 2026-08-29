@@ -43,7 +43,8 @@ DATABASE_URL="postgresql://..." npm run db:verify
 本番の正常稼働は、必ず以下を**すべて**満たした場合にのみ判定してください。手動での`/api/health`確認は判定条件の代替にはなりません(health 1エンドポイントだけではSPA表示、公開デモ、書込みfail-closedの回帰を検出できないため)。
 
 1. `Production`ワークフロー(`main`へのpush後に自動実行)の`Deploy Cloudflare Pages`ジョブ、特に`Verify public boundary`ステップが成功していること(`gh run list --branch main`で直近のProduction run結果を確認)。このステップはSPA/health/demo(両ドメイン200)と未認証write(両ドメイン401)を確認する
-2. 15分間隔で実行される`Synthetic Monitor`ワークフロー(`.github/workflows/synthetic-monitor.yml`)が`incident`ラベルの未解決Issueを起票していないこと(`gh issue list --label incident --state open`で確認)
+2. `Synthetic Monitor`ワークフロー(`.github/workflows/synthetic-monitor.yml`、15分間隔)の**直近実行が成功しており、かつ実行時刻が現在から1時間以内**であること(`gh run list --workflow=synthetic-monitor.yml --limit 1`で確認)。`schedule`はGitHub側の負荷で遅延・間引かれることがあるため、実行自体が止まっていないかをこの時刻で確認する
+3. 上記2の直近成功実行が`incident`ラベルの未解決Issueを起票していないこと(`gh issue list --label incident --state open`で確認)。2を満たさずに3だけを確認しても、監視が止まっている間の障害を見逃す
 
 「mainへのマージが成功した」「CIが緑だった」「healthが200だった」のいずれか単独をもって本番正常と報告しないでください。
 
