@@ -322,3 +322,30 @@ test("レイアウト空間のプレビューに実データの表題欄が表�
   await expect(page.locator(".layout-titleblock")).toContainText("v1");
   await expect(page.locator(".layout-titleblock")).toContainText("1:100");
 });
+
+test("レイアウト用紙はCSP適用下でもcomputed width/heightが0にならない", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  const page1 = page.locator(".layout-page");
+  const box = await page1.boundingBox();
+  if (!box) throw new Error("layout-page bounding box is null");
+  expect(box.width).toBeGreaterThan(100);
+  expect(box.height).toBeGreaterThan(100);
+});
+
+test("用紙サイズ選択(A4/A1)がレイアウト用紙のサイズへ反映される", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  const paper = page.locator(".layout-page");
+
+  await page.locator("#layoutForm select[name=paper]").selectOption("A4");
+  await page.getByRole("button", { name: "設定保存" }).click();
+  const a4Box = await paper.boundingBox();
+  if (!a4Box) throw new Error("layout-page bounding box is null (A4)");
+
+  await page.locator("#layoutForm select[name=paper]").selectOption("A1");
+  await page.getByRole("button", { name: "設定保存" }).click();
+  const a1Box = await paper.boundingBox();
+  if (!a1Box) throw new Error("layout-page bounding box is null (A1)");
+
+  expect(a1Box.width).toBeGreaterThan(a4Box.width);
+  expect(a1Box.height).toBeGreaterThan(a4Box.height);
+});

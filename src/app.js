@@ -1,11 +1,9 @@
 import {
   ROLE_POLICIES,
   applyTransaction,
-  approveDrawing,
   buildAiProposal,
   createDrawing,
   circle,
-  createNewVersion,
   entityBounds,
   hitTest,
   line,
@@ -14,7 +12,6 @@ import {
   proposalToTransaction,
   rect,
   seedDrawing,
-  submitForReview,
   text,
   validateDrawing
 } from "./cad-core.js";
@@ -376,6 +373,7 @@ function render() {
   `;
 
   /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--dock-width", `${state.settings.dockWidth}px`);
+  if (state.space === "layout") applyLayoutGeometry(drawing);
   bindEvents();
   drawCanvas();
 }
@@ -440,37 +438,67 @@ function layoutSpaceHtml(drawing) {
   `;
 }
 
-function layoutPreviewHtml(drawing) {
+const PAPER_SIZES_MM = { A4: [210, 297], A3: [297, 420], A2: [420, 594], A1: [594, 841] };
+
+function layoutGeometry(drawing) {
   const landscape = drawing.layout?.orientation !== "portrait";
-  const pageW = landscape ? 420 : 297;
-  const pageH = landscape ? 297 : 420;
+  const [short, long] = PAPER_SIZES_MM[drawing.layout?.paper] ?? PAPER_SIZES_MM.A3;
+  const pageW = landscape ? long : short;
+  const pageH = landscape ? short : long;
   const margin = Math.max(4, Math.min(24, Number(drawing.layout?.margin ?? 10)));
-  const scale = drawing.layout?.scale ?? 100;
   const titleblockWidth = Math.min(pageW - margin * 2, 240);
+  return { landscape, pageW, pageH, margin, titleblockWidth };
+}
+
+function layoutPreviewHtml(drawing) {
+  const { landscape } = layoutGeometry(drawing);
+  const scale = drawing.layout?.scale ?? 100;
   return `
-    <div class="layout-page" style="width:${pageW}px;height:${pageH}px;">
-      <div class="layout-margin" style="inset:${margin}px;"></div>
-      <div class="layout-viewport" style="left:${margin + 12}px;top:${margin + 12}px;right:${margin + 12}px;bottom:${margin + 96}px;">
-        <span>ビューポート　モデル空間 1:${escapeHtml(String(scale))}<br><span style="font-size:11px;color:#8a97a8;">${escapeHtml(
+    <div class="layout-page" data-layout-page="1">
+      <div class="layout-margin" data-layout-margin="1"></div>
+      <div class="layout-viewport" data-layout-viewport="1">
+        <span>ビューポート　モデル空間 1:${escapeHtml(String(scale))}<br><span class="paper-note">${escapeHtml(
           drawing.layout?.paper ?? "A3"
         )} ${landscape ? "横" : "縦"}</span></span>
       </div>
-      <div class="layout-titleblock" style="right:${margin}px;bottom:${margin}px;width:${titleblockWidth}px;">
-        <div class="row" style="grid-template-columns:1fr;"><div class="cell label">${escapeHtml(
-          drawing.layout?.title || drawing.name
-        )}</div></div>
-        <div class="row" style="grid-template-columns:1fr 1fr;"><div class="cell label">版</div><div class="cell">v${escapeHtml(
+      <div class="layout-titleblock" data-layout-titleblock="1">
+        <div class="row single"><div class="cell label">${escapeHtml(drawing.layout?.title || drawing.name)}</div></div>
+        <div class="row split"><div class="cell label">版</div><div class="cell">v${escapeHtml(
           drawing.version
         )} / ${escapeHtml(stateLabel(drawing.state))}</div></div>
-        <div class="row" style="grid-template-columns:1fr 1fr;"><div class="cell label">縮尺</div><div class="cell">1:${escapeHtml(
-          String(scale)
-        )}</div></div>
-        <div class="row" style="grid-template-columns:1fr 1fr;"><div class="cell label">作成</div><div class="cell">${escapeHtml(
+        <div class="row split"><div class="cell label">縮尺</div><div class="cell">1:${escapeHtml(String(scale))}</div></div>
+        <div class="row split"><div class="cell label">作成</div><div class="cell">${escapeHtml(
           ROLE_POLICIES[drawing.currentRole]?.label ?? drawing.currentRole
         )}</div></div>
       </div>
     </div>
   `;
+}
+
+function applyLayoutGeometry(drawing) {
+  const page = /** @type {HTMLElement | null} */ (document.querySelector("[data-layout-page]"));
+  if (!page) return;
+  const { pageW, pageH, margin, titleblockWidth } = layoutGeometry(drawing);
+  page.style.width = `${pageW}px`;
+  page.style.height = `${pageH}px`;
+
+  const marginEl = /** @type {HTMLElement | null} */ (document.querySelector("[data-layout-margin]"));
+  if (marginEl) marginEl.style.inset = `${margin}px`;
+
+  const viewport = /** @type {HTMLElement | null} */ (document.querySelector("[data-layout-viewport]"));
+  if (viewport) {
+    viewport.style.left = `${margin + 12}px`;
+    viewport.style.top = `${margin + 12}px`;
+    viewport.style.right = `${margin + 12}px`;
+    viewport.style.bottom = `${margin + 96}px`;
+  }
+
+  const titleblock = /** @type {HTMLElement | null} */ (document.querySelector("[data-layout-titleblock]"));
+  if (titleblock) {
+    titleblock.style.right = `${margin}px`;
+    titleblock.style.bottom = `${margin}px`;
+    titleblock.style.width = `${titleblockWidth}px`;
+  }
 }
 
 function statusBarHtml(drawing) {
@@ -629,12 +657,19 @@ function checkDockHtml() {
       <h2>Inspection</h2>
       ${inspectionHtml()}
       <div class="button-row">
-        <button id="reviewBtn">レビュー提出</button>
-        <button id="approveBtn">承認</button>
-        <button id="newVersionBtn">新版</button>
+        <button id="reviewBtn" ${reviewActionDisabled("submit") ? "disabled" : ""}>レビュー提出</button>
+        <button id="approveBtn" ${reviewActionDisabled("approve") ? "disabled" : ""}>承認</button>
+        <button id="newVersionBtn" ${reviewActionDisabled("new_version") ? "disabled" : ""}>新版</button>
       </div>
     </section>
   `;
+}
+
+function reviewActionDisabled(action) {
+  const policy = ROLE_POLICIES[state.drawing.currentRole] ?? ROLE_POLICIES.viewer;
+  const allowed = action === "submit" ? policy.canEdit : policy.canApprove;
+  if (!allowed) return true;
+  return state.apiStatus.state !== "ok";
 }
 
 function newDrawingDialogHtml() {
@@ -1331,39 +1366,22 @@ async function changeReviewState(action) {
     render();
     return;
   }
-  if (state.apiStatus.connected) {
-    try {
-      const body = await apiRequest(`/api/drawings/${state.drawing.id}/review`, {
-        method: "POST",
-        headers: transactionHeaders(),
-        body: JSON.stringify({ action })
-      });
-      state.drawing = body.drawing;
-      persist({ submit: "レビュー提出", approve: "承認完了", new_version: "新版作成" }[action]);
-    } catch (error) {
-      log(`API操作失敗: ${errorMessage(error)}`);
-      render();
-    }
+  if (state.apiStatus.state !== "ok") {
+    log("API未接続のため、レビュー提出・承認・新版作成はサーバー接続後に行ってください。オフライン中はローカルで確定させません。");
+    render();
     return;
   }
-
-  if (action === "submit") {
-    state.drawing = submitForReview(state.drawing, state.drawing.currentRole);
-    persist("レビュー提出");
-  }
-  if (action === "approve") {
-    const result = approveDrawing(state.drawing, state.drawing.currentRole);
-    if (!result.ok) {
-      log(`承認失敗: ${result.error}`);
-      render();
-      return;
-    }
-    state.drawing = result.drawing;
-    persist("承認完了");
-  }
-  if (action === "new_version") {
-    state.drawing = createNewVersion(state.drawing, state.drawing.currentRole);
-    persist("新版作成");
+  try {
+    const body = await apiRequest(`/api/drawings/${state.drawing.id}/review`, {
+      method: "POST",
+      headers: transactionHeaders(),
+      body: JSON.stringify({ action })
+    });
+    state.drawing = body.drawing;
+    persist({ submit: "レビュー提出", approve: "承認完了", new_version: "新版作成" }[action]);
+  } catch (error) {
+    log(`API操作失敗: ${errorMessage(error)}`);
+    render();
   }
 }
 
@@ -1983,7 +2001,7 @@ async function checkApiHealth() {
       roleLocked
     };
   } catch (error) {
-    state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false, roleLocked: false };
+    state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false, roleLocked: true };
   }
   render();
 }
@@ -2097,9 +2115,14 @@ function proposalHtml() {
 }
 
 function inspectionHtml() {
+  const disconnectedNotice =
+    state.apiStatus.state !== "ok"
+      ? '<p class="warn">検査不能: サーバーに接続できないため、最新の検証結果を保証できません。承認操作は無効化されています。</p>'
+      : "";
   const issues = validateDrawing(activeDrawing());
-  if (issues.length === 0) return '<p class="ok">検査OK: Critical/Highなし</p>';
+  if (issues.length === 0) return `${disconnectedNotice}<p class="ok">検査OK: Critical/Highなし</p>`;
   return `
+    ${disconnectedNotice}
     <ul class="issue-list">
       ${issues
         .map((issue) => `<li class="${issue.severity}"><b>${issue.severity}</b> ${escapeHtml(issue.message)}</li>`)
@@ -2195,3 +2218,4 @@ function saveUserSettings() {
 }
 
 render();
+checkApiHealth();

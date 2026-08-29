@@ -36,6 +36,18 @@ DATABASE_URL="postgresql://..." npm run db:verify
 - 既存本番データ削除は行いません
 - migrationは`create table if not exists`中心、Seedは`on conflict do nothing`で、既存業務データを上書きしません
 
+## リリース判定基準(2026-08-29追記)
+
+**`CI`ワークフロー(pull_request/push時のLint/Test/Build/E2E/A11y等)の成功は「コード品質が基準を満たしている」ことのみを保証し、「本番が正常稼働している」ことは保証しません。** CIはephemeralなPostgreSQLコンテナを使うため、実際のNeon本番DB接続・資格情報の健全性は検証できません(2026-08-29のIssue #22はこの盲点で発生し、CI全green・Production workflowのDeployジョブ成功後も`Verify public boundary`ステップの失敗で発覚しました)。
+
+本番の正常稼働は、必ず以下を**すべて**満たした場合にのみ判定してください。手動での`/api/health`確認は判定条件の代替にはなりません(health 1エンドポイントだけではSPA表示、公開デモ、書込みfail-closedの回帰を検出できないため)。
+
+1. `Production`ワークフロー(`main`へのpush後に自動実行)の`Deploy Cloudflare Pages`ジョブ、特に`Verify public boundary`ステップが成功していること(`gh run list --branch main`で直近のProduction run結果を確認)。このステップはSPA/health/demo(両ドメイン200)と未認証write(両ドメイン401)を確認する
+2. `Synthetic Monitor`ワークフロー(`.github/workflows/synthetic-monitor.yml`、15分間隔)の**`main`ブランチの定期実行(`schedule`)が直近で成功しており、かつ実行時刻が現在から1時間以内**であること。`workflow_dispatch`による他ブランチの手動実行はこの判定に含めない(`gh run list --workflow=synthetic-monitor.yml --branch main --event schedule --limit 1 --json conclusion,createdAt,headBranch,event`で`conclusion=success`かつ`headBranch=main`を確認)。`schedule`はGitHub側の負荷で遅延・間引かれることがあるため、実行自体が止まっていないかをこの時刻で確認する
+3. 上記2の直近成功実行が`incident`ラベルの未解決Issueを起票していないこと(`gh issue list --label incident --state open`で確認)。2を満たさずに3だけを確認しても、監視が止まっている間の障害を見逃す
+
+「mainへのマージが成功した」「CIが緑だった」「healthが200だった」のいずれか単独をもって本番正常と報告しないでください。
+
 ## Rollback
 
 Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。DB migrationは破壊的変更を含めていないため、rollback時も既存テーブルを削除しません。静的SPAの公開設定とWorker APIの認証境界は別々に確認します。
@@ -106,7 +118,7 @@ Production実データのbackup/restoreは未実施である。実施には保�
 - 復旧時: 同条件で見つけたIssueへ復旧コメントを追記してcloseします。`synthetic-monitor`ラベルはこのworkflowが作成したIssueだけを対象にする識別子で、人が起票した`incident`ラベルのIssueを誤ってcloseしないようにしています。
 - Teams/Slack Webhook通知(任意): Actions Secret `MONITOR_WEBHOOK_URL`にIncoming Webhook URLを設定すると、失敗時にWebhook通知も送信します。未設定の場合はIssue起票のみで運用でき、追加のSecrets登録なしで機能します。
 
-GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれることがあるため、5分間隔の保証はされません(公式仕様)。7名のIT・DX部門での一次窓口として、Issue起票を主経路、Webhookを補助経路とします。
+GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれることがあるため、設定した15分間隔の実行は保証されません(公式仕様)。7名のIT・DX部門での一次窓口として、Issue起票を主経路、Webhookを補助経路とします。
 
 制約: 実行間隔の保証がない、当番表・重大度別SLAは未整備、Cloudflare側のログ相関(request ID起点の5xx分析)は手動確認のままです。これらはIssue #8の残課題として管理します。
 
