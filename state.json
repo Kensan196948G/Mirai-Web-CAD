@@ -14,7 +14,7 @@
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
     "unit_test_count": 44,
-    "e2e_test_count": 24,
+    "e2e_test_count": 28,
     "security_critical": 0,
     "blocker_count": 1
   },

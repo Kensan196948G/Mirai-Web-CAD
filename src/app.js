@@ -438,10 +438,13 @@ function layoutSpaceHtml(drawing) {
   `;
 }
 
+const PAPER_SIZES_MM = { A4: [210, 297], A3: [297, 420], A2: [420, 594], A1: [594, 841] };
+
 function layoutGeometry(drawing) {
   const landscape = drawing.layout?.orientation !== "portrait";
-  const pageW = landscape ? 420 : 297;
-  const pageH = landscape ? 297 : 420;
+  const [short, long] = PAPER_SIZES_MM[drawing.layout?.paper] ?? PAPER_SIZES_MM.A3;
+  const pageW = landscape ? long : short;
+  const pageH = landscape ? short : long;
   const margin = Math.max(4, Math.min(24, Number(drawing.layout?.margin ?? 10)));
   const titleblockWidth = Math.min(pageW - margin * 2, 240);
   return { landscape, pageW, pageH, margin, titleblockWidth };

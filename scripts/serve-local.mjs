@@ -20,8 +20,10 @@ async function loadHeaderRules(file) {
   let text;
   try {
     text = await readFile(file, "utf8");
-  } catch {
-    return [];
+  } catch (error) {
+    throw new Error(`_headersを読み込めません(CSP等のセキュリティheaderを検証できないため起動を中止します): ${file}`, {
+      cause: error
+    });
   }
   const rules = [];
   let current = null;
@@ -81,10 +83,11 @@ const server = createServer(async (req, res) => {
     return;
   }
   const ext = path.extname(file);
+  const resolvedPathname = `/${path.relative(staticRoot, file).split(path.sep).join("/")}`;
   res.writeHead(200, {
     "content-type": contentTypes[ext] ?? "application/octet-stream",
     "x-content-type-options": "nosniff",
-    ...headersForPath(url.pathname)
+    ...headersForPath(resolvedPathname)
   });
   res.end(await readFile(file));
 });
