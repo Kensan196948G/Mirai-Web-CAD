@@ -98,6 +98,31 @@ RESTORE_DATABASE_URL="postgresql://empty-recovery-db" \
 
 Production実データのbackup/restoreは未実施である。実施には保存先、暗号鍵、保持期間、費用、復元責任者の承認が必要。
 
+## 合成監視・障害Issue自動起票(2026-08-29)
+
+`.github/workflows/synthetic-monitor.yml`が15分毎(`workflow_dispatch`でも手動実行可)に、Pages既定URLとCustom Domainの両方でSPA/health/demo図面の200と、任意write APIの401 fail-closedを確認します。
+
+- 失敗時: `incident`+`synthetic-monitor`両ラベルを持つ既存Open Issueがあれば追記コメント、なければ新規Issueを自動起票し、ジョブを失敗させてActionsの通知(既定のGitHub通知経路)を発報します。
+- 復旧時: 同条件で見つけたIssueへ復旧コメントを追記してcloseします。`synthetic-monitor`ラベルはこのworkflowが作成したIssueだけを対象にする識別子で、人が起票した`incident`ラベルのIssueを誤ってcloseしないようにしています。
+- Teams/Slack Webhook通知(任意): Actions Secret `MONITOR_WEBHOOK_URL`にIncoming Webhook URLを設定すると、失敗時にWebhook通知も送信します。未設定の場合はIssue起票のみで運用でき、追加のSecrets登録なしで機能します。
+
+GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれることがあるため、5分間隔の保証はされません(公式仕様)。7名のIT・DX部門での一次窓口として、Issue起票を主経路、Webhookを補助経路とします。
+
+制約: 実行間隔の保証がない、当番表・重大度別SLAは未整備、Cloudflare側のログ相関(request ID起点の5xx分析)は手動確認のままです。これらはIssue #8の残課題として管理します。
+
+## 本番バックアップ自動化(2026-08-29)
+
+`.github/workflows/backup-production.yml`が毎日 UTC 18:00(JST 03:00)に、Actions Secret `PRODUCTION_DATABASE_URL`を使ってNeon本番DBの`pg_dump`カスタムアーカイブを取得し、GitHub Actions artifact(35日保持、GitHub管理下で暗号化)として保存します。
+
+設定手順(人間による承認・投入が必要。Secretsへ本番接続文字列を投入する操作のため自動実行しません):
+
+1. Neon Consoleで本番DB用の読み取り専用ロールを作成する(推奨。既存roleを流用する場合は最小権限を確認する)。
+2. リポジトリ設定 → Secrets and variables → Actions → New repository secretで`PRODUCTION_DATABASE_URL`を登録する(`postgresql://<readonly-role>:<password>@<host>/mirai_web_cad_production?sslmode=require`形式)。
+3. `workflow_dispatch`で`Production Backup`を手動実行し、成功を確認する。
+4. 以後は日次自動実行を確認する。失敗時は`incident`+`backup-automation`両ラベルでIssueが自動起票される(重複起票を避けるため、既存Open Issueがあれば追記コメント)。
+
+Secret未設定の間は、ジョブが`ops`+`backup-automation`両ラベルのIssueを一度だけ起票してバックアップをスキップします(失敗扱いにはしません)。artifactの保存先をGitHub Actions外(Cloudflare R2やAzure Blob等の長期保管)へ拡張する場合、保存先・暗号鍵・保持期間・費用・復元責任者の合意が別途必要です。RPO/RTO目標は既存の「Backup / Restore」節を参照してください。
+
 ## Incident Response
 
 1. 検知: Cloudflare 5xx、health/demo失敗、Neon接続、認証失敗率、利用者申告をrequest IDで関連付ける。
@@ -107,7 +132,7 @@ Production実データのbackup/restoreは未実施である。実施には保�
 5. 確認: health、公開デモ、未認証write 401、認証済み作図/再読込、監査をsmoke testする。
 6. 事後: 発生/検知/復旧時刻、影響図面、request ID、原因、再発防止をIssueへ残す。
 
-自動alert、連絡先、当番表、重大度別SLAは未設定。Production移行前にCloudflare通知からTeams/メールへの経路を確定する。
+自動alert、連絡先、当番表、重大度別SLAは未設定。Production移行前にCloudflare通知からTeams/メールへの経路を確定する。合成監視によるIssue自動起票(上記)は導入済みだが、当番表と重大度別SLAは引き続き未設定。
 
 ## 監視観点
 

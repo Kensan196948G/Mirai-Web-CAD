@@ -1,0 +1,106 @@
+name: Synthetic Monitor
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: synthetic-monitor
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Public boundary smoke check
+    runs-on: ubuntu-latest
+    env:
+      MONITOR_WEBHOOK_URL: ${{ secrets.MONITOR_WEBHOOK_URL }}
+    steps:
+      - name: Check SPA / health / demo / write boundary
+        id: probe
+        run: |
+          set +e
+          fail=0
+          report=""
+
+          check() {
+            local desc="$1" url="$2" method="$3" expected="$4"
+            local code
+            code="$(curl --max-time 10 --retry 2 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' -X "$method" "$url")"
+            if [ "$code" != "$expected" ]; then
+              fail=1
+              report="${report}- ❌ ${desc}: expected ${expected}, got ${code} (${url})\n"
+            else
+              report="${report}- ✅ ${desc}: ${code}\n"
+            fi
+          }
+
+          check "Pages default SPA" "https://mirai-web-cad.pages.dev/" GET 200
+          check "Pages default health" "https://mirai-web-cad.pages.dev/api/health" GET 200
+          check "Pages default demo drawing" "https://mirai-web-cad.pages.dev/api/drawings/demo" GET 200
+          check "Pages default write fail-closed" "https://mirai-web-cad.pages.dev/api/drawings" POST 401
+          check "Custom domain SPA" "https://mirai-web-cad.mirai-dx-platform.com/" GET 200
+          check "Custom domain health" "https://mirai-web-cad.mirai-dx-platform.com/api/health" GET 200
+          check "Custom domain demo drawing" "https://mirai-web-cad.mirai-dx-platform.com/api/drawings/demo" GET 200
+          check "Custom domain write fail-closed" "https://mirai-web-cad.mirai-dx-platform.com/api/drawings" POST 401
+
+          health_body="$(curl --max-time 10 --silent https://mirai-web-cad.mirai-dx-platform.com/api/health)"
+          echo "health_body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$health_body" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          printf '%b' "$report" > /tmp/report.txt
+          echo "report<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/report.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "failed=$fail" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Find open incident issue created by this monitor
+        if: always()
+        id: existing
+        run: |
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label incident --label synthetic-monitor --state open --limit 1 --json number --jq '.[0].number // empty')"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Open or update incident issue
+        if: steps.probe.outputs.failed == '1'
+        run: |
+          body=$'公開境界の合成監視が失敗しました。\n\n'"${{ steps.probe.outputs.report }}"$'\n\nrun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\ndetected_at: '"$(date -u +%FT%TZ)"
+          if [ -n "${{ steps.existing.outputs.number }}" ]; then
+            gh issue comment "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "[incident] Synthetic monitor: 公開境界チェック失敗" \
+              --label incident --label synthetic-monitor \
+              --body "$body"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Close recovered incident issue
+        if: steps.probe.outputs.failed == '0' && steps.existing.outputs.number != ''
+        run: |
+          gh issue comment "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" \
+            --body "復旧を確認しました。全チェックが成功しています。run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue close "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" --reason completed
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Notify webhook (Teams/Slack incoming webhook, optional)
+        if: steps.probe.outputs.failed == '1' && env.MONITOR_WEBHOOK_URL != ''
+        run: |
+          payload=$(printf '{"text":"⚠️ Mirai Web CAD 公開境界チェック失敗\\n%s\\nDetail: %s/%s/actions/runs/%s"}' \
+            "$(echo "${{ steps.probe.outputs.report }}" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')" \
+            "${{ github.server_url }}" "${{ github.repository }}" "${{ github.run_id }}")
+          curl --max-time 10 --silent --show-error -X POST -H "Content-Type: application/json" -d "$payload" "$MONITOR_WEBHOOK_URL"
+
+      - name: Fail job when checks failed
+        if: steps.probe.outputs.failed == '1'
+        run: exit 1

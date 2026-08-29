@@ -30,14 +30,15 @@ export async function handleApiRequest(request, env = {}) {
   const startedAt = Date.now();
   const route = normalizeRoute(url.pathname);
   const requestId = request.headers.get("x-request-id")?.slice(0, 100) ?? `req_${cryptoSafeId()}`;
+  const cors = corsHeaders(env, requestId, request.headers.get("origin"));
 
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders(env, requestId) });
+    return new Response(null, { status: 204, headers: cors });
   }
 
   try {
     const actor = await resolveActor(request, env, isPublicReadRoute(request.method, route));
-    if (!actor.ok) return json({ ok: false, error: actor.error }, 401, corsHeaders(env, requestId));
+    if (!actor.ok) return json({ ok: false, error: actor.error }, 401, cors);
 
     if (request.method === "GET" && route === "/health") {
       const db = await store.probe();
@@ -59,7 +60,7 @@ export async function handleApiRequest(request, env = {}) {
           durationMs: Date.now() - startedAt
         },
         dbHealthy ? 200 : 503,
-        corsHeaders(env, requestId)
+        cors
       );
     }
 
@@ -67,7 +68,7 @@ export async function handleApiRequest(request, env = {}) {
       const drawing = actor.actor.anonymous
         ? await getPublicDrawing(store, "dwg_demo_001")
         : await getDrawing(store, "dwg_demo_001");
-      return json({ ok: true, drawing }, 200, corsHeaders(env, requestId));
+      return json({ ok: true, drawing }, 200, cors);
     }
 
     if (request.method === "POST" && route === "/drawings") {
@@ -91,12 +92,12 @@ export async function handleApiRequest(request, env = {}) {
         route
       );
       if (!created) throw httpError("同じIdempotency-Keyまたは図面IDは処理済みです。", 409);
-      return json({ ok: true, drawing }, 201, corsHeaders(env, requestId));
+      return json({ ok: true, drawing }, 201, cors);
     }
 
     const drawingMatch = route.match(/^\/drawings\/([^/]+)$/);
     if (request.method === "GET" && drawingMatch) {
-      return json({ ok: true, drawing: await getDrawing(store, drawingMatch[1]) }, 200, corsHeaders(env, requestId));
+      return json({ ok: true, drawing: await getDrawing(store, drawingMatch[1]) }, 200, cors);
     }
 
     const transactionMatch = route.match(/^\/drawings\/([^/]+)\/transactions$/);
@@ -113,9 +114,9 @@ export async function handleApiRequest(request, env = {}) {
         label: body.label ?? "API transaction",
         commands: body.commands ?? []
       });
-      if (!result.ok) return json({ ok: false, error: result.error }, 409, corsHeaders(env, requestId));
+      if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
       await saveMutationAtomically(store, result.drawing, actor.actor, "drawing.transaction", drawing.id, { label: body.label }, idempotencyKey, route);
-      return json({ ok: true, drawing: result.drawing, warnings: result.warnings }, 200, corsHeaders(env, requestId));
+      return json({ ok: true, drawing: result.drawing, warnings: result.warnings }, 200, cors);
     }
 
     const agentMatch = route.match(/^\/drawings\/([^/]+)\/agent-runs$/);
@@ -135,7 +136,7 @@ export async function handleApiRequest(request, env = {}) {
       };
       await store.saveAgentRun(run);
       await audit(store, actor.actor, "agent.planned", "agent_run", run.id, { status: run.status });
-      return json({ ok: true, run }, proposal.status === "planned" ? 201 : 202, corsHeaders(env, requestId));
+      return json({ ok: true, run }, proposal.status === "planned" ? 201 : 202, cors);
     }
 
     const approveAgentMatch = route.match(/^\/agent-runs\/([^/]+)\/approve$/);
@@ -146,12 +147,12 @@ export async function handleApiRequest(request, env = {}) {
       await readJson(request);
       const run = await getAgentRun(store, approveAgentMatch[1]);
       if (run.proposal.status !== "planned") {
-        return json({ ok: false, error: "適用可能なAI提案ではありません。" }, 409, corsHeaders(env, requestId));
+        return json({ ok: false, error: "適用可能なAI提案ではありません。" }, 409, cors);
       }
       const drawing = withActor(await getDrawing(store, run.drawingId), actor.actor);
       requireExpectedVersion(request, drawing);
       const result = applyTransaction(drawing, proposalToTransaction(run.proposal, actor.actor.id));
-      if (!result.ok) return json({ ok: false, error: result.error }, 409, corsHeaders(env, requestId));
+      if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
       run.status = "completed";
       await saveMutationAtomically(
         store,
@@ -164,7 +165,7 @@ export async function handleApiRequest(request, env = {}) {
         route,
         run
       );
-      return json({ ok: true, drawing: result.drawing, run }, 200, corsHeaders(env, requestId));
+      return json({ ok: true, drawing: result.drawing, run }, 200, cors);
     }
 
     const reviewMatch = route.match(/^\/drawings\/([^/]+)\/review$/);
@@ -173,31 +174,31 @@ export async function handleApiRequest(request, env = {}) {
       const body = await readJson(request);
       if (body.action === "submit") authorize(actor.actor, "canEdit");
       else if (body.action === "approve" || body.action === "new_version") authorize(actor.actor, "canApprove");
-      else return json({ ok: false, error: "review actionが不正です。" }, 400, corsHeaders(env, requestId));
+      else return json({ ok: false, error: "review actionが不正です。" }, 400, cors);
       const idempotencyKey = requireIdempotency(request);
       await rejectClaimedIdempotency(store, idempotencyKey);
       requireExpectedVersion(request, drawing);
       if (body.action === "submit") {
         if (!["draft", "rejected"].includes(drawing.state)) {
-          return json({ ok: false, error: "下書きまたは差戻し図面だけをレビュー提出できます。" }, 409, corsHeaders(env, requestId));
+          return json({ ok: false, error: "下書きまたは差戻し図面だけをレビュー提出できます。" }, 409, cors);
         }
         const next = submitForReview(drawing, actor.actor.id);
         await saveMutationAtomically(store, next, actor.actor, "review.submitted", drawing.id, {}, idempotencyKey, route);
-        return json({ ok: true, drawing: next }, 200, corsHeaders(env, requestId));
+        return json({ ok: true, drawing: next }, 200, cors);
       }
       if (body.action === "approve") {
         const result = approveDrawing(drawing, actor.actor.id);
-        if (!result.ok) return json({ ok: false, error: result.error, issues: validateDrawing(drawing) }, 409, corsHeaders(env, requestId));
+        if (!result.ok) return json({ ok: false, error: result.error, issues: validateDrawing(drawing) }, 409, cors);
         await saveMutationAtomically(store, result.drawing, actor.actor, "review.approved", drawing.id, {}, idempotencyKey, route);
-        return json({ ok: true, drawing: result.drawing }, 200, corsHeaders(env, requestId));
+        return json({ ok: true, drawing: result.drawing }, 200, cors);
       }
       if (body.action === "new_version") {
         if (drawing.state !== "approved") {
-          return json({ ok: false, error: "承認済み図面からのみ新版を作成できます。" }, 409, corsHeaders(env, requestId));
+          return json({ ok: false, error: "承認済み図面からのみ新版を作成できます。" }, 409, cors);
         }
         const next = createNewVersion(drawing, actor.actor.id);
         await saveMutationAtomically(store, next, actor.actor, "drawing.version.created", drawing.id, {}, idempotencyKey, route);
-        return json({ ok: true, drawing: next }, 200, corsHeaders(env, requestId));
+        return json({ ok: true, drawing: next }, 200, cors);
       }
     }
 
@@ -211,7 +212,7 @@ export async function handleApiRequest(request, env = {}) {
         return new Response(auditLogsToCsv(auditLogs), {
           status: 200,
           headers: {
-            ...corsHeaders(env, requestId),
+            ...cors,
             "content-type": "text/csv; charset=utf-8",
             "content-disposition": `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
             "cache-control": "no-store"
@@ -219,15 +220,15 @@ export async function handleApiRequest(request, env = {}) {
         });
       }
       const total = typeof store.countAuditLogs === "function" ? await store.countAuditLogs() : null;
-      return json({ ok: true, auditLogs, limit, offset, total }, 200, corsHeaders(env, requestId));
+      return json({ ok: true, auditLogs, limit, offset, total }, 200, cors);
     }
 
-    return json({ ok: false, error: "not found" }, 404, corsHeaders(env, requestId));
+    return json({ ok: false, error: "not found" }, 404, cors);
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
     if (status >= 500) console.error(`[${requestId}] API request failed`, error);
     const message = status >= 500 && env.APP_ENV === "production" ? "internal error" : error instanceof Error ? error.message : "internal error";
-    return json({ ok: false, error: message }, status, corsHeaders(env, requestId));
+    return json({ ok: false, error: message }, status, cors);
   }
 }
 
@@ -416,14 +417,28 @@ function json(body, status = 200, headers = {}) {
   });
 }
 
-function corsHeaders(env, requestId) {
-  const origin = env.CORS_ORIGIN ?? (env.APP_ENV === "production" ? "https://mirai-web-cad.mirai-dx-platform.com" : "*");
+function corsHeaders(env, requestId, requestOrigin) {
+  const origin = resolveCorsOrigin(env, requestOrigin);
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type,idempotency-key,expected-version,x-demo-role,x-demo-actor,x-request-id",
+    vary: "Origin",
     "x-request-id": requestId
   };
+}
+
+function resolveCorsOrigin(env, requestOrigin) {
+  const configured =
+    env.CORS_ORIGIN ?? (env.APP_ENV === "production" ? "https://mirai-web-cad.mirai-dx-platform.com" : "*");
+  if (configured === "*") return "*";
+  const allowList = configured
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (allowList.length === 0) return "null";
+  if (requestOrigin && allowList.includes(requestOrigin)) return requestOrigin;
+  return allowList[0];
 }
 
 async function saveMutationAtomically(store, drawing, actor, action, targetId, detail, idempotencyKey, route, agentRun = null) {

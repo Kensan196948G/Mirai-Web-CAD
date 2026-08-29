@@ -97,6 +97,30 @@ test("API applies production security and CORS headers", async () => {
   assert.equal(response.headers.get("access-control-allow-origin"), "https://mirai-web-cad.mirai-dx-platform.com");
   assert.equal(response.headers.get("x-frame-options"), "DENY");
   assert.match(response.headers.get("permissions-policy"), /camera=\(\)/);
+  assert.equal(response.headers.get("vary"), "Origin");
+});
+
+test("CORS_ORIGIN supports a comma-separated allowlist and reflects only known origins", async () => {
+  const multiOriginEnv = {
+    APP_ENV: "production",
+    AUTH_MODE: "access",
+    CORS_ORIGIN: "https://mirai-web-cad.mirai-dx-platform.com,https://mirai-web-cad.pages.dev"
+  };
+
+  const allowed = await handleApiRequest(
+    new Request("https://example.test/api/health", { headers: { origin: "https://mirai-web-cad.pages.dev" } }),
+    multiOriginEnv
+  );
+  assert.equal(allowed.headers.get("access-control-allow-origin"), "https://mirai-web-cad.pages.dev");
+
+  const unknown = await handleApiRequest(
+    new Request("https://example.test/api/health", { headers: { origin: "https://evil.example" } }),
+    multiOriginEnv
+  );
+  assert.equal(unknown.headers.get("access-control-allow-origin"), "https://mirai-web-cad.mirai-dx-platform.com");
+
+  const noOriginHeader = await handleApiRequest(new Request("https://example.test/api/health"), multiOriginEnv);
+  assert.equal(noOriginHeader.headers.get("access-control-allow-origin"), "https://mirai-web-cad.mirai-dx-platform.com");
 });
 
 test("mutating JSON endpoints reject unsupported media types and oversized bodies", async () => {

@@ -222,3 +222,17 @@
 | GitHub CI | PASS | run `33064297408`(PR #18)4ジョブ成功。Secret Scan no leaks |
 | Production | PASS | deployment `0f0784ac`、commit `77f71bd`、公開境界smoke成功 |
 | 未実施 | Production実データbackup/restore、100k図形負荷、SSO実利用者E2E、自動デプロイ経路(Issue #9権限待ち) |
+
+## Round 8 / 2026-08-29 監視自動化・バックアップ基盤・CORS強化
+
+土木・建設会社向け本番運用可否の総合評価(CTO全権委任)を起点に、既存の評価書・改善台帳(総合49.0/100、PoC)を継承し、Issue #8(本番バックアップ・監視・障害対応の自動化)のうち自律実行範囲内で完結できる項目を選定・実装した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Monitor | `gh issue list`/`gh pr list`/`gh run list`で現状確認。Open Issue #5(SSO/RBAC)・#6(DWG往復)・#7(性能/offline)・#8(監視/バックアップ)、Open PR(dependabot 3件、CI全pass)を確認。Neon直接接続用MCPは接続失敗のためGitHub Actions Secrets経由の設計へ切替 |
+| Assessment判断 | SSO再構成(Issue #5)は認証方式変更で高リスク変更に該当し、Entra ID管理者権限も未確認のため本ラウンドは対象外。DWG往復(Issue #6)は20〜40日規模のため対象外。Issue #8のうち「合成監視+障害検知」「バックアップ自動化の枠組み」「CORS複数オリジン」を費用対効果の高い実装対象に選定 |
+| Development | ① Dependabot PR #2/#3/#4(GitHub Actions依存更新)をCI全pass確認後にbranch更新・squash mergeで統合 ② `.github/workflows/synthetic-monitor.yml`: 15分間隔で公開境界(SPA/health/demo 200、write 401)をPages既定URL/Custom Domain両方で検査し、失敗時`incident`Issue自動起票・復旧時自動close・任意Webhook通知(`MONITOR_WEBHOOK_URL`) ③ `.github/workflows/backup-production.yml`: 日次でNeon本番DBを`pg_dump`しArtifact保存(35日)。`PRODUCTION_DATABASE_URL`未設定時は`ops`Issueを起票してスキップ ④ `src/api-handler.js`のCORSをカンマ区切り許可リスト方式へ変更し、許可リスト外オリジンを反映しない安全な複数オリジン対応(Pages既定URL/Custom Domain両立)に改善 |
+| Database | 変更なし(migration追加なし)。DBスキーマ非破壊 |
+| Verify | `npm run verify`(lint/typecheck/a11y/unit/build/e2e)全成功。Unit 44/44(CORS許可リストのテスト1件追加)、E2E desktop/mobile 24/24。追加した2つのworkflow YAMLは`yaml.safe_load`で構文検証済み |
+| 事前準備 | `incident`ラベル・`ops`ラベルをリポジトリへ作成済み |
+| 残課題 | `PRODUCTION_DATABASE_URL` Secret投入(人間承認事項、Neon読み取り専用roleの発行を推奨)、`MONITOR_WEBHOOK_URL`任意設定、当番表・重大度別SLA、Cloudflare/Neon内部5xxログとの相関、案件RBAC(Issue #5)、DWG往復(Issue #6)、SSO再構成(Issue #5、Entra ID管理者権限待ち) |
