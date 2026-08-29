@@ -111,7 +111,7 @@
 | ~~高~~ | ~~自動監視と通知がない~~ | ~~障害発見が利用者申告依存~~ → **一部解消(2026-08-29)**: 15分間隔の合成監視workflowが公開境界(SPA/health/demo 200、write 401)を検査し、失敗時に`incident`Issueを自動起票・復旧時自動close。Webhook通知は`MONITOR_WEBHOOK_URL`任意設定。schedule実行間隔の保証なし、当番表・重大度別SLA・内部5xx相関は未着手のため残課題として維持 |
 | 高 | Production GitHub Environmentに承認保護がない | base branch pushで自動本番Deployされる |
 | 中 | AI計画作成と監査記録は別コミット | 監査欠落の可能性が残る。図面変更は原子化済み |
-| 中 | CORS許可先が単一Custom Domain | Pages標準URLをクロスオリジンAPIとして使う構成には追加設定が必要 |
+| ~~中~~ | ~~CORS許可先が単一Custom Domain~~ | ~~Pages標準URLをクロスオリジンAPIとして使う構成には追加設定が必要~~ → **解消(2026-08-29)**: `CORS_ORIGIN`をカンマ区切り許可リストへ変更し、Pages既定URLとCustom Domainを任意オリジン反映なしで両立可能にした |
 | 中 | APIレート制限/WAFルール未設定 | 公開health/demoへの濫用耐性はCloudflare既定のみ |
 | 中 | マルウェア検査がない | 将来バイナリ/DWGアップロード前に必須 |
 | 中 | Canvasの代替データ表がない | スクリーンリーダー利用者が図形内容を把握しにくい |

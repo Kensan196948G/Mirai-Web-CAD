@@ -18,7 +18,7 @@ jobs:
     name: Nightly Neon production backup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Verify PRODUCTION_DATABASE_URL secret is configured
         id: guard
@@ -34,11 +34,11 @@ jobs:
       - name: Open reminder issue when secret is missing
         if: steps.guard.outputs.configured == 'false'
         run: |
-          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops --search "本番バックアップSecret未設定 in:title" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops --label backup-automation --state open --limit 1 --json number --jq '.[0].number // empty')"
           if [ -z "$number" ]; then
             gh issue create --repo "$GITHUB_REPOSITORY" \
               --title "[ops] 本番バックアップSecret未設定" \
-              --label ops \
+              --label ops --label backup-automation \
               --body $'PRODUCTION_DATABASE_URL Actions Secretが未設定のため、夜間本番バックアップを実行できません。\n\n設定手順は docs/operations.md の「本番バックアップ自動化」を参照してください。設定後、このIssueをcloseしてください。'
           fi
           echo "::warning::PRODUCTION_DATABASE_URL secret is not configured; skipping backup. See docs/operations.md"
@@ -46,7 +46,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: steps.guard.outputs.configured == 'true'
         with:
           node-version: "22"
@@ -73,14 +73,14 @@ jobs:
       - name: Notify failure (dedupe against an existing open backup-incident issue)
         if: failure() && steps.guard.outputs.configured == 'true'
         run: |
-          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label incident --state open --search 'in:title "本番バックアップ失敗"' --limit 1 --json number --jq '.[0].number // empty')"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label incident --label backup-automation --state open --limit 1 --json number --jq '.[0].number // empty')"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -n "$number" ]; then
             gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "本番バックアップが再度失敗しました。run: $run_url"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" \
               --title "[incident] 本番バックアップ失敗 $(date -u +%F)" \
-              --label incident \
+              --label incident --label backup-automation \
               --body "run: $run_url"
           fi
         env:

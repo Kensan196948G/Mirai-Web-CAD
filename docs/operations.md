@@ -102,8 +102,8 @@ Production実データのbackup/restoreは未実施である。実施には保�
 
 `.github/workflows/synthetic-monitor.yml`が15分毎(`workflow_dispatch`でも手動実行可)に、Pages既定URLとCustom Domainの両方でSPA/health/demo図面の200と、任意write APIの401 fail-closedを確認します。
 
-- 失敗時: `incident`ラベルの既存Open Issueがあれば追記コメント、なければ新規Issueを自動起票し、ジョブを失敗させてActionsの通知(既定のGitHub通知経路)を発報します。
-- 復旧時: 既存の`incident` Issueへ復旧コメントを追記してcloseします。
+- 失敗時: `incident`+`synthetic-monitor`両ラベルを持つ既存Open Issueがあれば追記コメント、なければ新規Issueを自動起票し、ジョブを失敗させてActionsの通知(既定のGitHub通知経路)を発報します。
+- 復旧時: 同条件で見つけたIssueへ復旧コメントを追記してcloseします。`synthetic-monitor`ラベルはこのworkflowが作成したIssueだけを対象にする識別子で、人が起票した`incident`ラベルのIssueを誤ってcloseしないようにしています。
 - Teams/Slack Webhook通知(任意): Actions Secret `MONITOR_WEBHOOK_URL`にIncoming Webhook URLを設定すると、失敗時にWebhook通知も送信します。未設定の場合はIssue起票のみで運用でき、追加のSecrets登録なしで機能します。
 
 GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれることがあるため、5分間隔の保証はされません(公式仕様)。7名のIT・DX部門での一次窓口として、Issue起票を主経路、Webhookを補助経路とします。
@@ -119,9 +119,9 @@ GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれ�
 1. Neon Consoleで本番DB用の読み取り専用ロールを作成する(推奨。既存roleを流用する場合は最小権限を確認する)。
 2. リポジトリ設定 → Secrets and variables → Actions → New repository secretで`PRODUCTION_DATABASE_URL`を登録する(`postgresql://<readonly-role>:<password>@<host>/mirai_web_cad_production?sslmode=require`形式)。
 3. `workflow_dispatch`で`Production Backup`を手動実行し、成功を確認する。
-4. 以後は日次自動実行を確認する。失敗時は`incident`ラベルでIssueが自動起票される。
+4. 以後は日次自動実行を確認する。失敗時は`incident`+`backup-automation`両ラベルでIssueが自動起票される(重複起票を避けるため、既存Open Issueがあれば追記コメント)。
 
-Secret未設定の間は、ジョブが`ops`ラベルのIssueを一度だけ起票してバックアップをスキップします(失敗扱いにはしません)。artifactの保存先をGitHub Actions外(Cloudflare R2やAzure Blob等の長期保管)へ拡張する場合、保存先・暗号鍵・保持期間・費用・復元責任者の合意が別途必要です。RPO/RTO目標は既存の「Backup / Restore」節を参照してください。
+Secret未設定の間は、ジョブが`ops`+`backup-automation`両ラベルのIssueを一度だけ起票してバックアップをスキップします(失敗扱いにはしません)。artifactの保存先をGitHub Actions外(Cloudflare R2やAzure Blob等の長期保管)へ拡張する場合、保存先・暗号鍵・保持期間・費用・復元責任者の合意が別途必要です。RPO/RTO目標は既存の「Backup / Restore」節を参照してください。
 
 ## Incident Response
 
