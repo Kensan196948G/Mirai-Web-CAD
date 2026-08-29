@@ -1,0 +1,90 @@
+{
+  "project": {
+    "name": "Mirai-Web-CAD",
+    "repository": "Kensan196948G/Mirai-Web-CAD",
+    "start_date": "2026-08-26",
+    "phase_mode": "development",
+    "production_url": "https://mirai-web-cad.mirai-dx-platform.com",
+    "pages_default_url": "https://mirai-web-cad.pages.dev"
+  },
+  "goal": "Issue #22(本番Neon DB認証失敗)を復旧し、health/demo APIを200へ回復する。次にIssue #5/#6/#7/#8の優先度付き改善を継続する",
+  "phase": "Verify",
+  "kpi": {
+    "success_rate_target": 0.9,
+    "ci_success_rate": 1.0,
+    "test_pass_rate": 1.0,
+    "unit_test_count": 44,
+    "e2e_test_count": 24,
+    "security_critical": 0,
+    "blocker_count": 1
+  },
+  "execution": {
+    "max_duration_minutes": 300,
+    "repair_count": 0,
+    "max_repair": 3,
+    "same_error_limit": 2
+  },
+  "automation": {
+    "auto_issue_generation": true,
+    "self_evolution": true,
+    "synthetic_monitor": "GitHub Actions .github/workflows/synthetic-monitor.yml (15分間隔)",
+    "backup_workflow": ".github/workflows/backup-production.yml (Secret未投入のため未稼働)"
+  },
+  "completed_issues": [
+    "P0-01 匿名閲覧と更新認証の分離",
+    "P0-02 DB更新の原子化",
+    "P0-03 CSP等の配信header",
+    "P0-04 JSON 1 MiB/Content-Type/CORS制限(Round8で複数オリジン許可リスト化)",
+    "P0-05 backup/restore drill",
+    "P0-09 合成監視・障害Issue自動起票(Round8、一部完了)",
+    "P0-10 監査ログのDB追記専用化",
+    "P0-11 監査ログCSV export・ページング",
+    "P0-12 本番バックアップworkflow基盤(Round8、Secret投入待ち)",
+    "P0-13 CORS複数オリジン対応(Round8)",
+    "GitHub Advanced Security機能有効化(vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updates)"
+  ],
+  "blocked_issues": [
+    {
+      "id": "#22",
+      "title": "本番Neon DB認証失敗(password authentication failed for user 'neondb_owner')",
+      "severity": "critical",
+      "detected_at": "2026-08-29T12:46:00Z",
+      "blocker_reason": "本セッションのNEON_API_KEY/CLOUDFLARE_API_TOKENが対象プロジェクトへの権限を持たず自律修復不可。人間によるNeon資格情報確認/リセットとCloudflare Pages DATABASE_URL更新が必要"
+    },
+    {
+      "id": "#5",
+      "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
+      "severity": "high",
+      "blocker_reason": "認証方式の変更は高リスク変更(Approval PR対象)。Entra ID管理者権限が未確認"
+    },
+    {
+      "id": "#6",
+      "title": "DWG往復と2D CAD中核機能を実案件で認定する",
+      "severity": "high",
+      "blocker_reason": "20〜40日規模。ODA/RealDWG等のSDK選定(ADR)から着手が必要"
+    },
+    {
+      "id": "#7",
+      "title": "100k図形/30fpsと暗号化offline復旧要件を満たす",
+      "severity": "medium",
+      "blocker_reason": "30日規模の性能改修"
+    },
+    {
+      "id": "#8",
+      "title": "本番バックアップ・監視・障害対応を自動化する",
+      "severity": "high",
+      "blocker_reason": "PRODUCTION_DATABASE_URL Secret投入(人間承認事項)待ちで一部未完了"
+    }
+  ],
+  "learning": {
+    "failure_patterns": [
+      "本番DBの資格情報(Neon)とCloudflare Pages環境変数の不整合が、コード変更を伴わずに発生し得る。post-deploy smokeをリリース必須ゲートとして扱わないと、CI成功だけでは本番稼働を保証できない",
+      "API未接続時にクライアント側だけでレビュー提出・承認・新版作成が完了してしまう設計は、サーバー権限を経由しない重大な整合性リスクになる(2026-08-29修正済み)"
+    ],
+    "success_patterns": [
+      "CodeRabbit等の自動レビューで指摘されたIssue誤close/重複作成リスクは、タイトル文字列一致ではなく専用ラベルの組合せで識別すると再現性高く防げる",
+      "Dependabot PRのbase更新競合は、隔離した一時clone上でconflict解消してpushすれば、対象PRブランチを汚さず安全に統合できる"
+    ]
+  },
+  "last_updated": "2026-08-29T13:10:00Z"
+}

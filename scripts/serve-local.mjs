@@ -14,6 +14,48 @@ const contentTypes = {
   ".svg": "image/svg+xml"
 };
 
+const headerRules = await loadHeaderRules(path.join(root, "_headers"));
+
+async function loadHeaderRules(file) {
+  let text;
+  try {
+    text = await readFile(file, "utf8");
+  } catch {
+    return [];
+  }
+  const rules = [];
+  let current = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line.trim()) continue;
+    if (!line.startsWith(" ") && !line.startsWith("\t")) {
+      current = { pattern: line.trim(), headers: {} };
+      rules.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1) continue;
+    const name = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (name) current.headers[name] = value;
+  }
+  return rules.map((rule) => ({ ...rule, regex: patternToRegExp(rule.pattern) }));
+}
+
+function patternToRegExp(pattern) {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+
+function headersForPath(pathname) {
+  const merged = {};
+  for (const rule of headerRules) {
+    if (rule.regex.test(pathname)) Object.assign(merged, rule.headers);
+  }
+  return merged;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
@@ -41,7 +83,8 @@ const server = createServer(async (req, res) => {
   const ext = path.extname(file);
   res.writeHead(200, {
     "content-type": contentTypes[ext] ?? "application/octet-stream",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headersForPath(url.pathname)
   });
   res.end(await readFile(file));
 });

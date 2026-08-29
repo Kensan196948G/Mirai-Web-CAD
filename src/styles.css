@@ -496,6 +496,19 @@ h2 {
   font-weight: 700;
 }
 
+.layout-viewport .paper-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.layout-titleblock .row.single {
+  grid-template-columns: 1fr;
+}
+
+.layout-titleblock .row.split {
+  grid-template-columns: 1fr 1fr;
+}
+
 .inspector,
 .dock {
   display: flex;

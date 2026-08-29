@@ -36,6 +36,17 @@ DATABASE_URL="postgresql://..." npm run db:verify
 - 既存本番データ削除は行いません
 - migrationは`create table if not exists`中心、Seedは`on conflict do nothing`で、既存業務データを上書きしません
 
+## リリース判定基準(2026-08-29追記)
+
+**`CI`ワークフロー(pull_request/push時のLint/Test/Build/E2E/A11y等)の成功は「コード品質が基準を満たしている」ことのみを保証し、「本番が正常稼働している」ことは保証しません。** CIはephemeralなPostgreSQLコンテナを使うため、実際のNeon本番DB接続・資格情報の健全性は検証できません(2026-08-29のIssue #22はこの盲点で発生し、CI全green・Production workflowのDeployジョブ成功後も`Verify public boundary`ステップの失敗で発覚しました)。
+
+本番の正常稼働は、必ず以下の**両方**で判定してください。
+
+1. `Production`ワークフロー(`main`へのpush後に自動実行)の`Deploy Cloudflare Pages`ジョブ、特に`Verify public boundary`ステップが成功していること(`gh run list --branch main`で直近のProduction run結果を確認)
+2. 15分間隔で実行される`Synthetic Monitor`ワークフロー(`.github/workflows/synthetic-monitor.yml`)が`incident`ラベルの未解決Issueを起票していないこと、または`https://mirai-web-cad.mirai-dx-platform.com/api/health`を直接確認して`{"ok":true}`(200)が返ること
+
+「mainへのマージが成功した」「CIが緑だった」だけをもって本番正常と報告しないでください。
+
 ## Rollback
 
 Cloudflare Pagesのrollbackは直前の成功Deploymentを再昇格します。DB migrationは破壊的変更を含めていないため、rollback時も既存テーブルを削除しません。静的SPAの公開設定とWorker APIの認証境界は別々に確認します。

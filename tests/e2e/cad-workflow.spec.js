@@ -322,3 +322,12 @@ test("レイアウト空間のプレビューに実データの表題欄が表�
   await expect(page.locator(".layout-titleblock")).toContainText("v1");
   await expect(page.locator(".layout-titleblock")).toContainText("1:100");
 });
+
+test("レイアウト用紙はCSP適用下でもcomputed width/heightが0にならない", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  const page1 = page.locator(".layout-page");
+  const box = await page1.boundingBox();
+  if (!box) throw new Error("layout-page bounding box is null");
+  expect(box.width).toBeGreaterThan(100);
+  expect(box.height).toBeGreaterThan(100);
+});
