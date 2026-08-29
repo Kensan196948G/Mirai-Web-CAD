@@ -95,7 +95,7 @@ drop trigger audit_logs_no_delete on audit_logs;
 
 ## Backup / Restore
 
-CIは一時PostgreSQLにMigration/Seedを適用し、custom archiveを空DBへ復元します(`.github/workflows/ci.yml`の`recovery`/`postgres-integration`ジョブ)。
+CIは一時PostgreSQLにMigration/Seedを適用し、custom archiveを空DBへ復元します(`.github/workflows/ci.yml`の`recovery`ジョブ)。同ワークフローの`postgres-integration`ジョブは復元は行わず、`db:verify`(migration適用)と`tests/data-store.pg.test.js`の実DB統合テストのみを実行します。
 
 ```bash
 DATABASE_URL="postgresql://source" \
