@@ -60,11 +60,11 @@ jobs:
           echo "failed=$fail" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Find open incident issue
+      - name: Find open incident issue created by this monitor
         if: always()
         id: existing
         run: |
-          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label incident --state open --limit 1 --json number --jq '.[0].number // empty')"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label incident --state open --search 'in:title "Synthetic monitor:"' --limit 1 --json number --jq '.[0].number // empty')"
           echo "number=$number" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
