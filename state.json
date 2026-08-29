@@ -5,9 +5,10 @@
     "start_date": "2026-08-26",
     "phase_mode": "development",
     "production_url": "https://mirai-web-cad.mirai-dx-platform.com",
-    "pages_default_url": "https://mirai-web-cad.pages.dev"
+    "production_host": "kensan1969 (local, systemd + Cloudflare Tunnel)",
+    "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)"
   },
-  "goal": "Issue #22(本番Neon DB認証失敗)を復旧し、health/demo APIを200へ回復する。次にIssue #5/#6/#7/#8の優先度付き改善を継続する",
+  "goal": "Issue #5/#6/#7/#8の優先度付き改善を継続する。当面はソーク運用(合成監視・バックアップ鮮度)を確認する",
   "phase": "Verify",
   "kpi": {
     "success_rate_target": 0.9,
@@ -15,8 +16,9 @@
     "test_pass_rate": 1.0,
     "unit_test_count": 44,
     "e2e_test_count": 28,
+    "postgres_integration_test_count": 7,
     "security_critical": 0,
-    "blocker_count": 1
+    "blocker_count": 0
   },
   "execution": {
     "max_duration_minutes": 300,
@@ -27,35 +29,33 @@
   "automation": {
     "auto_issue_generation": true,
     "self_evolution": true,
-    "synthetic_monitor": "GitHub Actions .github/workflows/synthetic-monitor.yml (15分間隔)",
-    "backup_workflow": ".github/workflows/backup-production.yml (Secret未投入のため未稼働)"
+    "synthetic_monitor": "GitHub Actions .github/workflows/synthetic-monitor.yml (15分間隔、Custom Domainのみ監視)",
+    "backup": "systemd timer mirai-web-cad-backup.timer(日次03:10 JST)+ mirai-web-cad-backup-check.timer(鮮度検証06:00 JST)"
   },
   "completed_issues": [
     "P0-01 匿名閲覧と更新認証の分離",
     "P0-02 DB更新の原子化",
     "P0-03 CSP等の配信header",
-    "P0-04 JSON 1 MiB/Content-Type/CORS制限(Round8で複数オリジン許可リスト化)",
+    "P0-04 JSON 1 MiB/Content-Type/CORS制限(複数オリジン許可リスト化)",
     "P0-05 backup/restore drill",
-    "P0-09 合成監視・障害Issue自動起票(Round8、一部完了)",
+    "P0-09 合成監視・障害Issue自動起票",
     "P0-10 監査ログのDB追記専用化",
     "P0-11 監査ログCSV export・ページング",
-    "P0-12 本番バックアップworkflow基盤(Round8、Secret投入待ち)",
-    "P0-13 CORS複数オリジン対応(Round8)",
-    "GitHub Advanced Security機能有効化(vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updates)"
+    "P0-12 本番バックアップ自動化(ローカルsystemd timerへ全面移行)",
+    "P0-13 CORS複数オリジン対応",
+    "P0-14 API未接続時のfail-open是正",
+    "P0-15 CSP起因のレイアウト崩壊修正",
+    "P0-16 README/トレーサビリティの3段階表記統一",
+    "P0-17 GitHub Advanced Security機能有効化",
+    "P0-18 state.json整備",
+    "P0-19 Neon PostgreSQL依存を完全除去しローカルPostgreSQL + Cloudflare Tunnelへ移行(Issue #22解決、ユーザー指示)"
   ],
   "blocked_issues": [
-    {
-      "id": "#22",
-      "title": "本番Neon DB認証失敗(password authentication failed for user 'neondb_owner')",
-      "severity": "critical",
-      "detected_at": "2026-08-29T12:46:00Z",
-      "blocker_reason": "本セッションのNEON_API_KEY/CLOUDFLARE_API_TOKENが対象プロジェクトへの権限を持たず自律修復不可。人間によるNeon資格情報確認/リセットとCloudflare Pages DATABASE_URL更新が必要"
-    },
     {
       "id": "#5",
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "high",
-      "blocker_reason": "認証方式の変更は高リスク変更(Approval PR対象)。Entra ID管理者権限が未確認"
+      "blocker_reason": "認証方式の変更は高リスク変更(Approval PR対象)。Entra ID管理者権限が未確認。Cloudflare Accessアプリ未作成のため書き込みAPIは現状全てfail-closedで401"
     },
     {
       "id": "#6",
@@ -72,19 +72,22 @@
     {
       "id": "#8",
       "title": "本番バックアップ・監視・障害対応を自動化する",
-      "severity": "high",
-      "blocker_reason": "PRODUCTION_DATABASE_URL Secret投入(人間承認事項)待ちで一部未完了"
+      "severity": "medium",
+      "blocker_reason": "バックアップ・合成監視は導入済み。残るは当番表・重大度別SLA・Cloudflare Access通知連携"
     }
   ],
   "learning": {
     "failure_patterns": [
-      "本番DBの資格情報(Neon)とCloudflare Pages環境変数の不整合が、コード変更を伴わずに発生し得る。post-deploy smokeをリリース必須ゲートとして扱わないと、CI成功だけでは本番稼働を保証できない",
-      "API未接続時にクライアント側だけでレビュー提出・承認・新版作成が完了してしまう設計は、サーバー権限を経由しない重大な整合性リスクになる(2026-08-29修正済み)"
+      "本番DBの資格情報とCloudflare Pages環境変数の不整合が、コード変更を伴わずに発生し得る。post-deploy smokeをリリース必須ゲートとして扱わないと、CI成功だけでは本番稼働を保証できない",
+      "API未接続時にクライアント側だけでレビュー提出・承認・新版作成が完了してしまう設計は、サーバー権限を経由しない重大な整合性リスクになる(2026-08-29修正済み)",
+      ".envファイルの中身をcatで直接画面出力すると秘密値が会話ログに露出する。値の存在確認はgrep -o '^KEY='等でキー名のみ出力し、値は絶対に出力しない(2026-08-30、一度露出させ直ちにローテーションした教訓)"
     ],
     "success_patterns": [
       "CodeRabbit等の自動レビューで指摘されたIssue誤close/重複作成リスクは、タイトル文字列一致ではなく専用ラベルの組合せで識別すると再現性高く防げる",
-      "Dependabot PRのbase更新競合は、隔離した一時clone上でconflict解消してpushすれば、対象PRブランチを汚さず安全に統合できる"
+      "Dependabot PRのbase更新競合は、隔離した一時clone上でconflict解消してpushすれば、対象PRブランチを汚さず安全に統合できる",
+      "大規模アーキテクチャ変更(Neon廃止)はEnterPlanModeで計画を確定させ、Phase 0〜2(完全可逆)を先に検証してからPhase 3(DNS切替、不可逆に近い)の直前でY/N確認する段階的アプローチが有効だった",
+      "Neon依存の実態はdata-store.js 1ファイルに集中しており、api-handler.js・migrations・DB運用スクリプトは無変更で移行できた。事前のExplore調査(3並列)で依存範囲を正確に把握したことが移行規模の見積り精度に直結した"
     ]
   },
-  "last_updated": "2026-08-29T13:10:00Z"
+  "last_updated": "2026-08-30T08:30:00+09:00"
 }

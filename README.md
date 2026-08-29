@@ -21,18 +21,18 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | 検査 | 限定対応 | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出。API未接続時は「検査不能」表示に切り替え、承認操作を無効化する(2026-08-29修正) |
 | 版/承認 | 限定対応 | 下書き、レビュー提出、承認、承認済み版の直接変更禁止、新版作成は動作。API接続確認(`state.apiStatus.state === "ok"`)が取れている場合のみ操作を許可し、未接続時はサーバー権限を経由しないローカル完結を行わない(2026-08-29修正) |
 | 権限 | 限定対応 | 閲覧者、作図者、レビュアー、承認者、CAD管理者の主要操作制御は動作。ロール切替はAPI接続確認後にサーバー実効権限へロックされる |
-| 保存 | 限定対応 | LocalStorage自動保存(平文)、JSON出力、デモ初期化。認証済みAPI接続時はNeonへ同期(現在Neon認証障害により同期不可、Issue #22参照) |
-| API | 試作 | Cloudflare Pages Functionsの`/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否を実装。**現在、本番Neon DB認証失敗により`/api/health`・`/api/drawings/demo`が500(Issue #22、未解消)** |
+| 保存 | 限定対応 | LocalStorage自動保存(平文)、JSON出力、デモ初期化。認証済みAPI接続時はローカルPostgreSQLへ同期(2026-08-30〜、Issue #22で移行完了) |
+| API | 限定対応 | `/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否を実装。本番はローカル常駐サーバー(`scripts/serve-production.mjs`)経由でCloudflare Tunnelから配信 |
 | 状態確認 | 限定対応 | 正常、空、Loading、Errorを画面内のState Reviewで切替 |
 | システム設定 | 限定対応 | 上部設定からグリッド表示、スナップ、間隔、コマンドログ行数をブラウザ単位で保存 |
-| DB | 試作 | Neon PostgreSQLへ接続し、図面、AI Run、監査、Idempotencyを永続化する設計。**現在、本番資格情報の不整合により接続失敗中(Issue #22)** |
+| DB | 限定対応 | ローカルPostgreSQL 16(このホスト常駐)へ接続し、図面、AI Run、監査、Idempotencyを永続化。2026-08-30にNeon PostgreSQLから移行完了(Issue #22) |
 
-## Preview
+## Preview / 本番
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
-| Cloudflare Pages | `https://mirai-web-cad.pages.dev/` | Production branchの配信先 |
-| Custom Domain | `https://mirai-web-cad.mirai-dx-platform.com/` | SPAと公開デモは匿名閲覧可。任意図面と全更新APIはAccess JWT必須 |
+| Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはAccess JWT必須(Cloudflare Accessアプリ未作成のため現状は全てfail-closedで401) |
+| Cloudflare Pages(参考、ロールバック用) | `https://mirai-web-cad.pages.dev/` | mainマージでは更新されない。SPAのみ200、`/api`は移行前のコードのままで機能しない |
 
 ## 起動
 
@@ -40,15 +40,9 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 npm run dev
 ```
 
-`http://localhost:4174` を開きます。
+`http://localhost:4174` を開きます。ローカルサーバーはSPAと`/api`を同一オリジンで提供します(既定はメモリストア)。
 
-ローカルサーバーはSPAと`/api`を同一オリジンで提供します。Cloudflare Pages Functions互換性は次で確認します。
-
-```bash
-npm run build
-wrangler pages dev dist --port=4176
-curl http://127.0.0.1:4176/api/health
-```
+本番相当のサーバー(`scripts/serve-production.mjs`)の詳細は[ローカルデプロイ運用メモ](docs/deployment-local.md)を参照してください。
 
 ## 検証
 
@@ -67,13 +61,13 @@ npm run verify
 
 ## DB初期化
 
-空のNeon PostgreSQLへ適用する場合:
+空のPostgreSQL(ローカルまたは検証用)へ適用する場合:
 
 ```bash
-npm run db:verify
+DATABASE_URL="postgresql://..." npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`から`0005_audit_log_immutability.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)を検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
+`db:verify`は`0001_initial.sql`から`0005_audit_log_immutability.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)を検証します。ローカルPostgreSQL 16での適用を確認済みです。
 
 バックアップ/復元ドリル:
 
@@ -94,7 +88,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 - 本番の`AUTH_MODE=access`ではAccess JWTの署名、issuer、audienceを検証し、ロールはサーバー設定から決定する
 - Custom DomainのSPA、health、`visibility=public`のデモ図面は一般公開し、任意図面取得と全更新は未認証401で拒否する
 - 図面、版、最新command event、監査、Idempotency、AI承認状態を単一DB文で確定する
-- `main`へのmerge後、`.github/workflows/production.yml`が全検証成功時のみPages productionへ配信する
+- `main`へのmerge後、`.github/workflows/production.yml`が全検証を実行する(実配信は`scripts/deploy-local.sh`の手動実行、[運用・復旧メモ](docs/operations.md)参照)
 
 ## CAD互換範囲
 

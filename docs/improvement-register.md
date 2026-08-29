@@ -12,12 +12,13 @@
 | P0-04 | JSON 1 MiB/Content-Type/CORS制限 | 運用/濫用低減 | API資源保護 | 低 1日 | P0 | 大容量Import方式 | 413/415/CORS test | 完了 |
 | P0-05 | backup/restore drill | 運用/消失対策 | 手順の機械検証 | 中 2日 | P0 | PG client | 空DB復元と件数検証 | 完了 |
 | P0-06 | Entra ID + Cloudflare Access再構成 | 社員/永続編集 | SSO/MFA/RBAC | 中 3-5日 | P0 | IdP管理者、HENNGE方針 | 社員3roleでE2E | 未着手 |
-| P0-07 | Neon main保護・復旧窓延長 | 運用/誤削除防止 | RPO改善 | 低 1日 | P0 | 復旧窓の費用承認 | protected、7日以上、復旧演習 | 一部完了: protected |
+| P0-07 | ~~Neon main保護・復旧窓延長~~ | ~~運用/誤削除防止~~ | ~~RPO改善~~ | — | — | — | — | **失効(2026-08-30)**: 2026-08-30にNeon PostgreSQL依存を完全に除去しローカルPostgreSQL + Cloudflare Tunnelへ移行したため、Neon側の保護設定は対象外になった。RPO/RTOはP0-12(ローカルバックアップ自動化)で別途管理する |
 | P0-08 | Production環境承認Gate | CTO/誤deploy防止 | 変更統制 | 低 1日 | P0 | GitHub権限 | reviewer必須、rollback確認 | 一部完了: branch protection必須check4件。required reviewerはプラン制約(Issue #9) |
 | P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 一部完了: healthにstatus/version/timestamp/503を実装(2026-08-27)。GitHub Actions 15分間隔の合成監視+`incident`+`synthetic-monitor`両ラベルIssue自動起票+復旧時自動close、Webhook通知(`MONITOR_WEBHOOK_URL`任意設定)を実装(2026-08-29、CodeRabbitレビュー対応で誤close防止の専用ラベルを追加)。schedule実行間隔はGitHub仕様上の保証なし、当番表・重大度別SLA・Cloudflare/Neon内部5xx相関は未着手 |
 | P0-10 | 監査ログのDB追記専用化 | 監査者/改ざん防止 | 権限保有者でも改変不可 | 低 0.5日 | P0 | 0005 migration | トリガー2件、UPDATE/DELETE拒否をCI・本番で検証 | 完了 (2026-08-27) |
 | P0-11 | 監査ログCSV export・ページング | 監査者/説明責任 | 監査データの棚卸が可能 | 低 1日 | P1 | 数式注入対策 | `?format=csv`が承認権限のみ、export自体を監査 | 完了 (2026-08-27) |
-| P0-12 | 本番バックアップ自動化(枠組み) | 運用/RPO改善 | 日次archiveの機械実行 | 低 1日 | P0 | `PRODUCTION_DATABASE_URL` Secret投入(人間承認) | 日次workflow成功、Secret未設定時は`ops`+`backup-automation`両ラベルIssueでスキップ通知 | 一部完了(2026-08-29): workflow実装済み(重複Issue防止・専用ラベル対応済み)。Secret未投入のため実運用は未開始 |
+| P0-12 | 本番バックアップ自動化 | 運用/RPO改善 | 日次archiveの機械実行 | 低 1日 | P0 | ローカルPostgreSQLへの移行(P0-19) | 日次バックアップ成功、鮮度検証成功 | **完了(2026-08-30)**: Neon依存の除去に伴いGitHub Actions版(`backup-production.yml`)を廃止し、`mirai-web-cad-backup.timer`(systemd、日次03:10 JST、読み取り専用ロール使用)+`mirai-web-cad-backup-check.timer`(鮮度検証06:00 JST)へ全面移行。実機で動作確認済み |
+| P0-19 | Neon PostgreSQL依存を完全除去 | 全利用者/ユーザー指示への対応 | ローカルPostgreSQL + Cloudflare Tunnelへ本番永続化を移行 | 高 1日 | P0 | ローカルPostgreSQL稼働、Cloudflare Tunnel権限 | 本番`/api/health`が`provider=postgres, mode=connected`を返す、Neonへの参照が0件 | **完了(2026-08-30)**: `src/data-store.js`を`postgres`(postgres.js)へ書き換え、`scripts/serve-production.mjs`新規、systemd化、Cloudflare Tunnel作成、DNS切替まで実施。本番実測でSPA/health/demo 200、write 401を確認。Issue #22はこれにより解決としてclose |
 | P0-13 | CORS複数オリジン対応 | 運用/Pages既定URLとCustom Domain両立 | 許可リスト外オリジンは反映しない安全な多origin対応 | 低 0.5日 | P1 | 既存単一origin利用者への影響確認 | 許可リスト内originのみ反映、リスト外は既定originを返すテストで確認 | 完了 (2026-08-29) |
 | P0-14 | API未接続時のfail-open是正 | 承認者/整合性 | 検査OK誤表示・ロール自己切替・ローカル完結承認を排除 | 中 1日 | P0 | 外部評価アドバイスの指摘(P0 #2〜#4) | roleLocked fail-safe化、検査不能表示、レビュー/承認/新版ボタンをAPI接続確認済みかつ権限ありのみ活性化 | 完了 (2026-08-29) |
 | P0-15 | レイアウト崩壊・CSP不整合の修正 | CAD担当/表示破綻防止 | inline styleのCSPブロックによるcomputed width/height=0を解消 | 中 1日 | P0 | 外部評価アドバイスの指摘(P0 #5) | CSSOM経由の動的スタイル設定へ変更。serve-local.mjsに`_headers`適用を追加しローカル/E2Eで回帰検出可能に | 完了 (2026-08-29) |

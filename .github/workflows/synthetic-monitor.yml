@@ -39,10 +39,6 @@ jobs:
             fi
           }
 
-          check "Pages default SPA" "https://mirai-web-cad.pages.dev/" GET 200
-          check "Pages default health" "https://mirai-web-cad.pages.dev/api/health" GET 200
-          check "Pages default demo drawing" "https://mirai-web-cad.pages.dev/api/drawings/demo" GET 200
-          check "Pages default write fail-closed" "https://mirai-web-cad.pages.dev/api/drawings" POST 401
           check "Custom domain SPA" "https://mirai-web-cad.mirai-dx-platform.com/" GET 200
           check "Custom domain health" "https://mirai-web-cad.mirai-dx-platform.com/api/health" GET 200
           check "Custom domain demo drawing" "https://mirai-web-cad.mirai-dx-platform.com/api/drawings/demo" GET 200

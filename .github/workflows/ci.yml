@@ -38,8 +38,9 @@ jobs:
     name: Empty PostgreSQL Migration
     runs-on: ubuntu-latest
     services:
+      # 本番(ローカルPostgreSQL 16.14)とメジャーバージョンを一致させる。
       postgres:
-        image: postgres:18-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: mirai
           POSTGRES_PASSWORD: mirai_ci_only
@@ -56,6 +57,36 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: npm run db:verify
+
+  postgres-integration:
+    name: PostgreSQL Data Store Integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mirai
+          POSTGRES_PASSWORD: mirai_ci_only
+          POSTGRES_DB: mirai_web_cad_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mirai -d mirai_web_cad_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_test
+      TEST_DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run db:verify
+      - run: npm test
 
   recovery:
     name: PostgreSQL Backup and Restore Drill

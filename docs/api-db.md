@@ -24,7 +24,7 @@
 - `drawings.revision`を比較更新し、古いクライアントからの更新を409で拒否する
 - `drawings.visibility`は既定`private`。匿名経路は`public`だけを取得する
 - 図面、版、command event、監査、Idempotency、AI承認状態は単一SQL statementで原子的に確定する
-- Localはメモリストア、Cloudflare Preview/Productionは`DATABASE_URL`またはHyperdriveでNeonへ接続する
+- Localは既定でメモリストア、`DATABASE_URL`(`LOCAL_DB=1`明示時)またはProduction(`scripts/serve-production.mjs`)はローカルPostgreSQL 16へ`postgres`(postgres.js)経由で接続する(2026-08-30〜、Issue #22でNeon/Hyperdriveから移行)
 
 ## セキュリティ方針
 
@@ -56,6 +56,6 @@ curl http://127.0.0.1:4176/api/health
 | `0005_audit_log_immutability.sql` | `audit_logs`をDBトリガーで追記専用化(UPDATE/DELETE拒否) |
 | `seeds/demo.sql` | 5レイヤー、4図形の再実行安全なデモ図面 |
 
-Neon Preview/Productionへ`0004`を適用し、デモだけがpublicであることを確認しました。Previewでは図面・監査・Idempotencyの原子更新後に別接続で件数を検証し、検証レコードを削除しました。
+Neon Preview/Productionへ`0004`を適用し、デモだけがpublicであることを確認しました(2026-08-27時点、Neon利用時代の記録)。2026-08-30の移行後は、ローカルPostgreSQL 16の本番DB(`mirai_web_cad`)へ全migrationを適用済みです。
 
 `0005`は`db:verify`の中で、トリガー2件の存在と、UPDATE/DELETEが`42501`で拒否されることを機械検証します。監査ログはDB権限保有者を含め改変・削除できません(物理的なリストアやテーブル再作成を除く)。

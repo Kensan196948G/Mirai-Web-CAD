@@ -12,4 +12,4 @@
 
 ## Secrets
 
-Cloudflare、Neon、GitHub、Entra IDの秘密値をGitへ保存しません。GitHub Actions SecretsまたはCloudflare Pages Secretsを使用し、用途別に最小権限で発行します。
+Cloudflare、GitHub、Entra IDの秘密値をGitへ保存しません。GitHub Actions SecretsまたはCloudflare Pages Secretsを使用し、用途別に最小権限で発行します。本番DB接続文字列は2026-08-30〜ローカルPostgreSQL(このホストのみ)を参照し、`~/.config/mirai-web-cad/*.env`(mode 0600、リポジトリ外)にのみ保存します。GitHub・Cloudflareいずれにも本番DB接続文字列を保存しません。
