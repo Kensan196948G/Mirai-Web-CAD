@@ -1,0 +1,81 @@
+name: Production Backup
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Nightly Neon production backup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify PRODUCTION_DATABASE_URL secret is configured
+        id: guard
+        run: |
+          if [ -z "${PRODUCTION_DATABASE_URL:-}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+
+      - name: Open reminder issue when secret is missing
+        if: steps.guard.outputs.configured == 'false'
+        run: |
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops --search "本番バックアップSecret未設定 in:title" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "[ops] 本番バックアップSecret未設定" \
+              --label ops \
+              --body $'PRODUCTION_DATABASE_URL Actions Secretが未設定のため、夜間本番バックアップを実行できません。\n\n設定手順は docs/operations.md の「本番バックアップ自動化」を参照してください。設定後、このIssueをcloseしてください。'
+          fi
+          echo "::warning::PRODUCTION_DATABASE_URL secret is not configured; skipping backup. See docs/operations.md"
+          exit 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/setup-node@v5
+        if: steps.guard.outputs.configured == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+        if: steps.guard.outputs.configured == 'true'
+
+      - name: Run backup
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          BACKUP_FILE: artifacts/mirai-web-cad-production.dump
+        run: npm run db:backup
+
+      - name: Upload backup artifact (encrypted at rest by GitHub, retained 35 days)
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backup-${{ github.run_id }}
+          path: artifacts/mirai-web-cad-production.dump
+          retention-days: 35
+
+      - name: Notify failure
+        if: failure() && steps.guard.outputs.configured == 'true'
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "[incident] 本番バックアップ失敗 $(date -u +%F)" \
+            --label incident \
+            --body "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

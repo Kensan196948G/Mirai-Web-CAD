@@ -32,7 +32,7 @@
 - Accessロールは`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`から決定し、クライアント指定を信頼しない
 - Custom Domainの静的SPA、health、公開デモは匿名可。任意図面取得と全更新は署名済みAccess JWTがなければ401
 - `Idempotency-Key`と`expected-version`を更新APIへ要求
-- POST本文は`application/json`かつ1 MiB以下、Production CORSはCustom Domainに限定
+- POST本文は`application/json`かつ1 MiB以下。Production CORSは既定でCustom Domain限定。`CORS_ORIGIN`にカンマ区切りで複数オリジンを設定すると、リクエストの`Origin`ヘッダが許可リスト内の場合のみそのオリジンを反映し(`Vary: Origin`付き)、リスト外や未指定時は許可リスト先頭のオリジンを返す(任意オリジンを無条件反映しない)
 - CSP、frame拒否、Permissions-Policy、nosniffを静的/API応答の両方へ設定
 - Tool CallはJSON Schema検証後、サーバー側で再認可
 - 図面内文字列はPrompt命令ではなく非信頼データとして扱う
