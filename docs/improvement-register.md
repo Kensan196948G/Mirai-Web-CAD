@@ -19,6 +19,11 @@
 | P0-11 | 監査ログCSV export・ページング | 監査者/説明責任 | 監査データの棚卸が可能 | 低 1日 | P1 | 数式注入対策 | `?format=csv`が承認権限のみ、export自体を監査 | 完了 (2026-08-27) |
 | P0-12 | 本番バックアップ自動化(枠組み) | 運用/RPO改善 | 日次archiveの機械実行 | 低 1日 | P0 | `PRODUCTION_DATABASE_URL` Secret投入(人間承認) | 日次workflow成功、Secret未設定時は`ops`+`backup-automation`両ラベルIssueでスキップ通知 | 一部完了(2026-08-29): workflow実装済み(重複Issue防止・専用ラベル対応済み)。Secret未投入のため実運用は未開始 |
 | P0-13 | CORS複数オリジン対応 | 運用/Pages既定URLとCustom Domain両立 | 許可リスト外オリジンは反映しない安全な多origin対応 | 低 0.5日 | P1 | 既存単一origin利用者への影響確認 | 許可リスト内originのみ反映、リスト外は既定originを返すテストで確認 | 完了 (2026-08-29) |
+| P0-14 | API未接続時のfail-open是正 | 承認者/整合性 | 検査OK誤表示・ロール自己切替・ローカル完結承認を排除 | 中 1日 | P0 | 外部評価アドバイスの指摘(P0 #2〜#4) | roleLocked fail-safe化、検査不能表示、レビュー/承認/新版ボタンをAPI接続確認済みかつ権限ありのみ活性化 | 完了 (2026-08-29) |
+| P0-15 | レイアウト崩壊・CSP不整合の修正 | CAD担当/表示破綻防止 | inline styleのCSPブロックによるcomputed width/height=0を解消 | 中 1日 | P0 | 外部評価アドバイスの指摘(P0 #5) | CSSOM経由の動的スタイル設定へ変更。serve-local.mjsに`_headers`適用を追加しローカル/E2Eで回帰検出可能に | 完了 (2026-08-29) |
+| P0-16 | README/トレーサビリティの実態同期 | 全利用者/文書正本の信頼性 | 「実装済み」一辺倒表記を試作/限定対応/実案件認定済みの3段階へ統一 | 低 0.5日 | P0 | 外部評価アドバイスの指摘(P0 #7) | 機能表に段階列と実装限界の注記を追加 | 完了 (2026-08-29) |
+| P0-17 | GitHub Advanced Security機能有効化 | セキュリティ/供給網統制 | vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updatesを有効化 | 低 0.1日 | P0 | Publicリポジトリのため無償 | `security_and_analysis`全項目enabled、vulnerability-alerts/private-vulnerability-reporting enabled | 完了 (2026-08-29) |
+| P0-18 | state.json整備 | 運用/セッション間の状態継承 | goal・blocked_issues・learningを機械可読で記録 | 低 0.2日 | P1 | 外部評価アドバイスの指摘(P0 #8) | state.json新規作成、Issue #22等のblockerを記録 | 完了 (2026-08-29)。専用GitHub Projects(v2)の整備は未着手 |
 
 ## 3か月以内
 
