@@ -1,6 +1,6 @@
 # 本番運用適合性評価書
 
-評価日: 2026-08-29(前回 2026-08-27)
+評価日: 2026-08-30(前回 2026-08-29)
 対象: Mirai Web CAD 0.1.0  
 前提: 従業員約600名、IT・DX部門7名、公共工事80%、民間工事20%
 
@@ -9,11 +9,13 @@
 - 改善前判定: **PoC**、総合 41.5/100、競合代替率 27%
 - 2026-08-26ラウンド改善後: **PoC**、総合 48.3/100、競合代替率 32%
 - 2026-08-27ラウンド改善後: **PoC**、総合 49.0/100、競合代替率 32%
-- 2026-08-29ラウンド(Round 8)改善後: **PoC**、総合 48.6/100、競合代替率 32%
-- **🚨 本番進行中障害(2026-08-29 12:46 UTC検出、未解消)**: 本番Neon DBへの認証が`password authentication failed for user 'neondb_owner'`で失敗し、両ドメイン(`mirai-web-cad.pages.dev`/`mirai-web-cad.mirai-dx-platform.com`)の`/api/health`と`/api/drawings/demo`が500を返している。SPA表示(200)と書込みAPIのfail-closed(401)は健全。原因はコード変更ではなくNeon資格情報とCloudflare Pages環境変数`DATABASE_URL`の不整合と推定されるが、本セッションが保有する`NEON_API_KEY`/`CLOUDFLARE_API_TOKEN`は対象プロジェクトへの権限がなく自律修復不可。**Issue #22**として起票し人間対応を依頼した。下記スコアと結論はこの進行中障害を反映済み
-- 本番導入可否: **現在停止中**(進行中障害により公開デモ閲覧を含む主要APIが機能不全)。障害解消後も、本番図面の正本、施工成果物作成、協力会社との共有には不可
-- 投資判断: **条件付き継続**。ただし直近の優先課題はIssue #22(本番DB認証復旧)。復旧確認後にDWG往復、寸法・レイアウト・PDF、案件単位RBAC、SSO再構成、バックアップ自動化(Secret投入含む本運用化)をPhase 1の継続条件とする
-- Round 8の要旨: 障害検知の一次経路(15分間隔合成監視+Issue自動起票+任意Webhook通知)を実装し、監視・障害対応のカバーを前進させた。この監視経路が稼働する前に、手動確認で本番進行中障害(上記)を検出できたこと自体が、監視強化の必要性を裏付ける実例となった。本番バックアップは日次自動実行のワークフロー基盤を実装したが、`PRODUCTION_DATABASE_URL` Secret投入(人間承認事項)が未完了のため実運用は未開始。CORSはPages既定URLとCustom Domainの複数オリジンを安全に両立できるよう改善した。DWG往復・案件RBAC・SSO再構成は本ラウンドでは着手しておらず、Issue #5/#6のスコープのまま。
+- 2026-08-29ラウンド(Round 8)改善後: **PoC**、総合 48.6/100、競合代替率 32%(この時点で本番進行中障害を検出)
+- 2026-08-30ラウンド(Round 9)改善後: **PoC**、総合 49.7/100、競合代替率 32%
+- **✅ Issue #22解消(2026-08-30)**: 8/29に検出した本番Neon DB認証障害(`password authentication failed for user 'neondb_owner'`)について、ユーザー指示「Neonは今後2度と利用しない」に基づき、Neon依存そのものを除去する方針で対応した。`src/data-store.js`を`postgres`(postgres.js)へ全面書き換え、ローカルPostgreSQL 16 + Cloudflare Tunnel構成へ移行し、人間による承認(Cloudflare Pages Custom Domain解除、DNS切替のY/N確認)を経て本番切替を完了。本番実測でSPA/health/demo 200、write 401(fail-closed)を確認した
+- **新たなリスク**: 本番の可用性が、Neonのマネージドサービスから、このホスト(kensan1969)単一障害点への依存へ変化した。ホスト停止・ネットワーク断で本番全体が停止する。オフサイトバックアップは未実施
+- 本番導入可否: 公開デモ閲覧と限定的な検証利用は可(Issue #22解消により復旧)。書き込みAPIはCloudflare Accessアプリ未作成のため現状全てfail-closedで401。本番図面の正本、施工成果物作成、協力会社との共有には不可
+- 投資判断: **条件付き継続**。Cloudflare Accessアプリの新規作成(Issue #5)、DWG往復、寸法・レイアウト・PDF、案件単位RBACをPhase 1の継続条件とする。バックアップのオフサイト化、ソーク運用後のCloudflare Pages関連ファイル削除・Neonプロジェクト削除(人間実施)も残課題
+- Round 9の要旨: Issue #22の根治(Neon依存の完全除去)に集中したラウンド。3件の並列調査でNeon依存範囲を実測(`src/data-store.js`に集約、他ファイルは無変更で移行可能と判明)し、EnterPlanModeで段階的な移行計画(Phase 0〜7、DNS切替のみ高リスク・要承認)を確定してから実行した。CodeRabbit 3ラウンドの指摘(本文サイズ制限のストリーム処理順序、本番DBへの統合テスト誤書込みリスク等)にも全て対応。作業中にDBパスワードを一度画面出力する誤りがあり、直ちにローテーションして対応した(教訓をstate.jsonへ記録)。
 
 評価点は18項目の単純平均である。実用上のカバー判定は、正常・異常系テスト、RBAC、監査、バックアップ、操作手順が揃う場合に限った。READMEの将来計画は実装済みとして数えていない。
 
@@ -27,35 +29,35 @@
 | 現在の価値 | インストール不要の公開デモ、基本作図、JSON/ASCII DXF取込、コマンド入力、レビュー、数量、AIルール提案 |
 | 完成段階 | MVP/PoC。AutoCAD/ARES相当の中核機能は未完成 |
 | 運用段階 | Production URLは公開済み。永続更新APIはAccess JWT必須だがAccess Applicationが存在せず、一般利用者は匿名閲覧のみ |
-| DB | Neon PostgreSQL。Preview/Production分離、Migration 0001-0005適用済み(監査追記専用トリガー含む) |
-| テスト | Unit/API 43件、Playwright E2E 24件、axe、型検査、Lint、空DB Migration(トリガー検証込み)、復旧ドリル |
+| DB | ローカルPostgreSQL 16(このホスト常駐、2026-08-30にNeonから移行)。Migration 0001-0005適用済み(監査追記専用トリガー含む) |
+| テスト | Unit/API 44件、Playwright E2E 28件、PostgreSQL統合テスト7件、axe、型検査、Lint、空DB Migration(トリガー検証込み)、復旧ドリル |
 | 未確認 | OpenDesign正本、GitHub Issue/PRの全過去議論、実ユーザー受入、契約・法務、DWG実案件互換、負荷100k/1m図形、RTO実測 |
 
 主なコード証拠は`src/cad-core.js`、`src/api-handler.js`、`src/data-store.js`、`tests/`、`migrations/`、`.github/workflows/ci.yml`、`.github/workflows/production.yml`。要求根拠はリポジトリ内の要件定義書・詳細仕様設計書を用いた。
 
 ## 3. 18項目評価
 
-| 評価軸 | 改善前 | 8/26後 | 8/27後 | 8/29後 | 根拠と残差 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| 業務適合性 | 32 | 34 | 34 | 34 | 土木デモ、数量、レビューあり。案件、工種、成果品、発注者様式なし |
-| 機能完成度 | 24 | 25 | 25 | 25 | 基本図形と編集の一部。寸法、ハッチ、ブロック、外部参照、レイアウト、DWG/PDFなし |
-| UI/UX | 48 | 52 | 52 | 52 | CAD配置とCLIあり。公開閲覧の権限表示を固定。大量操作・プロパティ編集は不足 |
-| アクセシビリティ | 70 | 71 | 71 | 71 | axe、キーボード、モバイルE2Eあり。Canvas図形の代替表現は不足 |
-| データ品質 | 38 | 44 | 44 | 44 | schema検証、重複ID検査、hash、明示的公開属性。座標系・単位変換・系譜監視なし |
-| AI有効性 | 22 | 22 | 22 | 22 | 人間承認と差分あり。外部AI/RAGではなく、土木判断を支援する根拠データなし |
-| 設計 | 45 | 51 | 51 | 51 | コマンドモデル、API/Store分離。更新原子化を追加。案件境界と非同期処理なし |
-| コード品質 | 68 | 74 | 74 | 74 | 小規模で型検査・Lintあり。巨大な単一UIモジュールとJSDoc型が残る |
-| 性能・拡張性 | 18 | 21 | 21 | 21 | Canvas単一描画、ページングなし。要求の100k図形/30fpsは未証明 |
-| セキュリティ | 42 | 58 | 61 | 61 | JWT fail-closed、RBAC、CSP、サイズ制限、公開属性、CORS許可リスト(複数オリジン対応)、監査追記専用DBトリガー(0005)。案件RBAC・WAF・SIEMなし |
-| 可用性・バックアップ | 20 | 38 | 38 | 25 | 復旧スクリプトと空DB復旧試験、日次本番バックアップworkflow基盤を実装(2026-08-29)。一方で同日、本番Neon DB認証失敗により`/api/health`・`/api/drawings/demo`が500で機能不全(Issue #22、未解消)という進行中の可用性欠如を実測したため減点。RTO試験なし |
-| 監視・障害対応 | 18 | 30 | 34 | 38 | request ID、5xxログ、公開health(status/version/timestamp/DB異常503)に加え、15分間隔の合成監視+`incident`Issue自動起票+復旧時自動close+任意Webhook通知を実装(2026-08-29)。schedule実行間隔の保証なし、当番表、重大度別SLA、Cloudflare/Neon内部5xx相関なし |
-| テスト | 67 | 73 | 74 | 74 | 44 Unit/API(CORS許可リストのテストを追加)、24 E2E、実Neon原子更新と0005トリガー拒否確認。性能・権限マトリクス・障害注入不足 |
-| CI/CD・リリース | 72 | 79 | 79 | 79 | Gate、Migration、Gitleaks、復旧Job、Preview/Production。手動承認保護とActions自動deployは権限待ち(Issue #9)。auto-merge機能はリポジトリ設定で無効(手動squash mergeで対応) |
-| 運用保守性 | 32 | 49 | 51 | 52 | runbook、復旧手順、改善台帳、監査CSV exportに加え、Secret未設定時のops Issue自動起票で一次窓口の負担を軽減。600名運用の管理UIはなし |
-| 文書 | 65 | 74 | 76 | 76 | README/API/試験/運用/評価/Roundログを更新。利用者手順とデータ辞書は不足 |
-| 費用対効果 | 48 | 54 | 54 | 54 | 小規模Web構成は安価。CADエンジン再実装コストが高く、当面は併用が合理的 |
-| 競合代替性 | 18 | 21 | 21 | 21 | 基本作図のみ。DWG忠実性、印刷、API拡張、オフライン、サポートで大差 |
-| **総合** | **41.5** | **48.3** | **49.0** | **48.6** | **PoC**(進行中障害Issue #22を反映) |
+| 評価軸 | 改善前 | 8/26後 | 8/27後 | 8/29後 | 8/30後 | 根拠と残差 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 業務適合性 | 32 | 34 | 34 | 34 | 34 | 土木デモ、数量、レビューあり。案件、工種、成果品、発注者様式なし |
+| 機能完成度 | 24 | 25 | 25 | 25 | 25 | 基本図形と編集の一部。寸法、ハッチ、ブロック、外部参照、レイアウト、DWG/PDFなし |
+| UI/UX | 48 | 52 | 52 | 52 | 52 | CAD配置とCLIあり。公開閲覧の権限表示を固定。大量操作・プロパティ編集は不足 |
+| アクセシビリティ | 70 | 71 | 71 | 71 | 71 | axe、キーボード、モバイルE2Eあり。Canvas図形の代替表現は不足 |
+| データ品質 | 38 | 44 | 44 | 44 | 44 | schema検証、重複ID検査、hash、明示的公開属性。座標系・単位変換・系譜監視なし |
+| AI有効性 | 22 | 22 | 22 | 22 | 22 | 人間承認と差分あり。外部AI/RAGではなく、土木判断を支援する根拠データなし |
+| 設計 | 45 | 51 | 51 | 51 | 51 | コマンドモデル、API/Store分離。更新原子化を追加。案件境界と非同期処理なし |
+| コード品質 | 68 | 74 | 74 | 74 | 74 | 小規模で型検査・Lintあり。巨大な単一UIモジュールとJSDoc型が残る |
+| 性能・拡張性 | 18 | 21 | 21 | 21 | 21 | Canvas単一描画、ページングなし。要求の100k図形/30fpsは未証明 |
+| セキュリティ | 42 | 58 | 61 | 61 | 63 | JWT fail-closed、RBAC、CSP、サイズ制限、公開属性、CORS許可リスト。2026-08-30にNeon依存を除去し、本番DB接続文字列がGitHub/Cloudflareいずれにも保存されなくなった(このホストの`~/.config/`のみ、mode 0600)。案件RBAC・WAF・SIEMなし |
+| 可用性・バックアップ | 20 | 38 | 38 | 25 | 40 | 2026-08-30にNeon依存を除去しローカルPostgreSQL + Cloudflare Tunnelへ移行。本番実測でSPA/health/demo 200を確認し、Issue #22(進行中障害)は解消。日次バックアップ(systemd timer)と鮮度検証を実機で動作確認。**新たなリスク**: 本番がこのホスト(kensan1969)単一障害点に依存するようになった(Neonのマネージド高可用性からの後退)。RTO実測・オフサイトバックアップは未実施 |
+| 監視・障害対応 | 18 | 30 | 34 | 38 | 38 | request ID、5xxログ、公開health、15分間隔の合成監視+Issue自動起票+復旧時自動close+任意Webhook通知。Custom Domainのみを対象に整理(`pages.dev`は移行後更新されないため監視対象から除外)。当番表、重大度別SLAなし |
+| テスト | 67 | 73 | 74 | 74 | 75 | 44 Unit/API、24 E2E(その後28件へ拡充)に加え、実PostgreSQLに対する統合テスト7件(`tests/data-store.pg.test.js`、本番DBへの誤書込み防止機構付き)を追加。性能・権限マトリクス・障害注入不足 |
+| CI/CD・リリース | 72 | 79 | 79 | 79 | 80 | Gate、Migration(本番と同じpostgres:16-alpineへ統一)、Gitleaks、復旧Job、実DB統合テストジョブを追加。Cloudflare Pagesへの自動デプロイは廃止し、`scripts/deploy-local.sh`の手動実行+health確認+自動ロールバックへ移行。auto-merge機能はリポジトリ設定で無効(手動squash mergeで対応) |
+| 運用保守性 | 32 | 49 | 51 | 52 | 53 | runbook、復旧手順、改善台帳、監査CSV exportに加え、`docs/deployment-local.md`(セットアップ・日常運用・ロールバック手順)を新設。600名運用の管理UIはなし。self-hosted runner化は未着手 |
+| 文書 | 65 | 74 | 76 | 76 | 77 | README/API/試験/運用/評価/Roundログ/デプロイ運用メモを更新し、Neon関連の古い記述を一掃。利用者手順とデータ辞書は不足 |
+| 費用対効果 | 48 | 54 | 54 | 54 | 54 | 小規模Web構成は安価。Neonのマネージド費用が不要になった一方、ホストの電源・ネットワークという新たな運用コストが生じた。CADエンジン再実装コストが高く、当面は併用が合理的 |
+| 競合代替性 | 18 | 21 | 21 | 21 | 21 | 基本作図のみ。DWG忠実性、印刷、API拡張、オフライン、サポートで大差 |
+| **総合** | **41.5** | **48.3** | **49.0** | **48.6** | **49.7** | **PoC**(Issue #22解消、Neon依存除去を反映) |
 
 ## 4. 強み
 
@@ -75,13 +77,16 @@
 14. PreviewとProductionのDB・認証モードが分離されている。
 15. Gitleaksとnpm auditで秘密値・既知依存脆弱性を検査できる。
 16. バックアップアーカイブ検証と空DB復元をCIで反復できる。
-17. Neon mainをprotectedにし、branch/project/computeの誤削除とresetを防止した。
+17. ~~Neon mainをprotectedにし、branch/project/computeの誤削除とresetを防止した。~~ → 2026-08-30にNeon依存自体を除去したため対象外。ローカルPostgreSQLは専用ロール・専用DBで権限分離済み(state.json blocked_issues参照)。
 18. `audit_logs`をDBトリガーで追記専用化し、DB権限保有者でもUPDATE/DELETE不可(0005)。CIと本番の両方で拒否を実測(2026-08-27)。
 19. 監査ログを承認者権限でCSV exportでき、export自体が`audit.exported`として記録される。数式注入ガード付き(2026-08-27)。
 20. `/api/health`がstatus/version/timestampとDB異常時503を返し、合成監視が非2xxで検知できる(2026-08-27)。
 21. GitHub Actions合成監視が15分間隔で公開境界を検査し、失敗時に`incident`Issueを自動起票、復旧時に自動closeする(2026-08-29)。
 22. 日次本番バックアップworkflowを実装し、Secret未投入時は`ops`Issueで一次窓口へ知らせる安全側設計にした(2026-08-29)。
 23. CORSを許可リスト方式の複数オリジン対応にし、Pages既定URLとCustom Domainを任意オリジン反映なしで両立できる(2026-08-29)。
+24. Neon PostgreSQL依存を完全に除去し、本番DB接続文字列がGitHub・Cloudflareいずれにも保存されない構成(このホストの`~/.config/`のみ、mode 0600)へ移行した(2026-08-30)。
+25. 本番用サーバー(`scripts/serve-production.mjs`)は必須環境変数の欠落時に起動そのものを拒否するfail-fast設計で、Issue #22のような「気づかれない障害」の再発を構造的に防いでいる(2026-08-30)。
+26. 日次バックアップと鮮度検証がsystemd timerとして実機で動作確認済み(2026-08-30)。
 
 権限マトリクス:
 
@@ -99,15 +104,16 @@
 
 | 影響度 | リスク | 影響・証拠 |
 | --- | --- | --- |
-| 重大(進行中・未解消) | 本番Neon DB認証失敗 | 2026-08-29 12:46 UTC検出。両ドメインの`/api/health`・`/api/drawings/demo`が`password authentication failed for user 'neondb_owner'`で500。SPA表示・write fail-closedは健全。原因はNeon資格情報とCloudflare Pages `DATABASE_URL`の不整合と推定。本セッションの`NEON_API_KEY`/`CLOUDFLARE_API_TOKEN`は対象プロジェクト権限がなく自律修復不可。**Issue #22**で人間対応を依頼中 |
+| ~~重大~~ | ~~本番Neon DB認証失敗~~ | ~~2026-08-29 12:46 UTC検出、500エラー~~ → **解消(2026-08-30)**: Neon依存を完全に除去しローカルPostgreSQL + Cloudflare Tunnelへ移行。本番実測でhealth/demo 200を確認 |
 | 重大 | DWG入出力がない | 既存図面の忠実な往復ができず、成果物正本にできない |
-| 重大 | 永続編集用SSO経路がない | Access Application削除済みのため、Productionは匿名閲覧のみ |
+| 重大 | 永続編集用SSO経路がない(Access Application未作成) | 書き込みAPIは現状全てfail-closedで401(閲覧・デモは匿名可)。2026-08-30のDB移行に伴い新設が必要になった |
 | 重大 | 案件/図面単位RBACがない | Access利用者はIDを知れば任意図面を取得し得る。project_idも固定 |
-| 重大 | 本番バックアップ自動化・本番復元試験なし | 現在のNeon履歴保持は1日。RPO/RTO未合意。日次自動archiveのworkflowは実装済み(2026-08-29)だが、`PRODUCTION_DATABASE_URL` Secret投入(人間承認事項)待ちで実運用は未開始 |
+| 重大(新規、2026-08-30) | 本番がこのホスト(kensan1969)の単一障害点に依存する | Neonのマネージド高可用性から、ローカルマシン常時稼働への依存に変化した。ホスト停止・ネットワーク断・ディスク故障で本番全体が停止する。オフサイトバックアップ・複数ホスト冗長化は未実施 |
+| ~~重大~~ | ~~本番バックアップ自動化・本番復元試験なし~~ | ~~Neon履歴保持1日、RPO/RTO未合意~~ → **解消(2026-08-30)**: `mirai-web-cad-backup.timer`(systemd、日次03:10 JST、読み取り専用ロール)と鮮度検証timerを実機で動作確認。RTO実測とオフサイト転送は引き続き未実施 |
 | 高 | 寸法、ハッチ、ブロック、外部参照、レイアウト、PDFがない | 日常2D CADフローが完結しない |
 | 高 | 100k図形/30fps要件が未達・未計測 | 単一Canvas全件描画で大図面停止の可能性 |
-| 高 | Neon projectが他用途と共用 | Project管理権限と障害のblast radiusがCAD専用に分離されていない |
-| 高 | DBが米国リージョン | 公共工事・個人情報のデータ所在判断が未確認 |
+| ~~高~~ | ~~Neon projectが他用途と共用~~ | ~~Project管理権限と障害のblast radiusがCAD専用に分離されていない~~ → **解消(2026-08-30)**: Neon依存自体を除去し、専用ロール・専用DBを持つローカルPostgreSQLへ移行 |
+| ~~高~~ | ~~DBが米国リージョン~~ | ~~公共工事・個人情報のデータ所在判断が未確認~~ → **解消(2026-08-30)**: DBはこのホスト(国内)上のローカルPostgreSQLへ移行し、データ所在の懸念自体が解消 |
 | 高 | LocalStorageが平文 | ローカル作業図面が端末利用者・スクリプトから読める |
 | ~~高~~ | ~~監査ログが追記専用としてDB権限分離されていない~~ | ~~DB権限保有者による改変を抑止できない~~ → **解消(2026-08-27)**: 0005トリガーでUPDATE/DELETE拒否、CI・本番実測済み |
 | ~~高~~ | ~~自動監視と通知がない~~ | ~~障害発見が利用者申告依存~~ → **一部解消(2026-08-29)**: 15分間隔の合成監視workflowが公開境界(SPA/health/demo 200、write 401)を検査し、失敗時に`incident`Issueを自動起票・復旧時自動close。Webhook通知は`MONITOR_WEBHOOK_URL`任意設定。schedule実行間隔の保証なし、当番表・重大度別SLA・内部5xx相関は未着手のため残課題として維持 |
@@ -182,6 +188,6 @@
 
 ## 10. 外部基盤の判断
 
-Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)
+Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで全応答へ適用しており、この制約自体が解消している。
 
-Neonの履歴保持は復旧窓に依存し、保護branchは削除/reset/compute削除を防ぐ。本ラウンドでmainをprotectedにしたが、履歴は1日のため、本番基準の7-35日へ延長するにはプラン・費用・RPO合意が必要である。[Neon restore window](https://neon.com/docs/manage/projects) / [Protected branches](https://neon.com/docs/guides/protected-branches)
+(2026-08-30以前の記録)Neonの履歴保持は復旧窓に依存し、保護branchは削除/reset/compute削除を防ぐ。履歴は1日のため、本番基準の7-35日へ延長するにはプラン・費用・RPO合意が必要だった。[Neon restore window](https://neon.com/docs/manage/projects) / [Protected branches](https://neon.com/docs/guides/protected-branches)。2026-08-30にNeon依存自体を除去したため、この制約は対象外になった。ローカルPostgreSQLのRPO/RTOは`docs/deployment-local.md`・`docs/operations.md`の「Backup / Restore」節を参照。

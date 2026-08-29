@@ -5,8 +5,8 @@
 | Gate | コマンド | 主な検査 |
 | --- | --- | --- |
 | Lint | `npm run lint` | 必須成果物、JavaScript構文、未解決マーカー |
-| Type | `npm run typecheck` | `checkJs`によるUI、CAD Core、API、Neon層の型整合 |
-| Unit/API | `npm test` | CAD不変条件、CLI、Import、公開/private境界、JWT、RBAC、本文制限、原子更新、AI承認、10k図形Core baseline |
+| Type | `npm run typecheck` | `checkJs`によるUI、CAD Core、API、PostgreSQL層の型整合 |
+| Unit/API | `npm test` | CAD不変条件、CLI、Import、公開/private境界、JWT、RBAC、本文制限、原子更新、AI承認、10k図形Core baseline。`TEST_DATABASE_URL`(DB名に"test"を含む場合のみ)設定時は実PostgreSQLに対する統合テスト(`tests/data-store.pg.test.js`)も実行 |
 | A11y static | `npm run a11y` | lang、ARIA、focus-visible、Responsive規則 |
 | Build | `npm run build` | Cloudflare Pages配信物生成 |
 | E2E | `npm run test:e2e` | desktop/mobile UI、新規作成、CLI、Undo/Redo、Import、Canvas、API同期、AI承認、Keyboard、axe |

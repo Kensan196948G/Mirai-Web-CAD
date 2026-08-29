@@ -263,3 +263,22 @@
 | Verify | `npm run verify`全成功。Unit 44/44、E2E **28/28**(用紙サイズ・レイアウトサイズ検証テストを新規追加) |
 | Merge | PR #25、merge commit `13935ef` |
 | Production | Verify Release成功、`Verify public boundary`はIssue #22(未解消)により引き続き失敗。本PRの変更起因ではないことを確認 |
+
+## Round 9 / 2026-08-30 Neon PostgreSQL依存の完全除去(ローカルPostgreSQL + Cloudflare Tunnel移行)
+
+ユーザーから「Neonは今後2度と利用しない、削除してほしい」「Mirai-Web-CAD、CivilDraft-Web-CADも両方残す」「本番機は`https://mirai-web-cad.mirai-dx-platform.com/`のまま」との明示的な指示を受け、Issue #22(Neon DB認証失敗)の根治対応として、アーキテクチャそのものをNeon非依存へ移行した。姉妹プロジェクトCivilDraft-Web-CADは調査対象からも変更対象からも除外(ユーザー指示による)。
+
+| 項目 | 内容 |
+| --- | --- |
+| Monitor/Plan | EnterPlanModeで計画立案。3件のExplore調査(Neon依存範囲の実測、CivilDraftのsystemd/Tunnelパターン、ローカルPostgreSQL環境の実測)+ 1件のPlan設計を並列実行し、実装計画を`.claude/plans/proud-wandering-glade.md`として確定・ユーザー承認を得た。調査で判明した重要な訂正: 想定していたポート18811は他プロジェクト使用中のため18812を採用、CivilDraftの`IPAddressDeny=any`設定をそのまま踏襲すると本番のCloudflare Access JWKS取得がブロックされ全書き込みAPIが恒久401になることが判明し不採用とした |
+| Development(Phase 1、PR #29) | `src/data-store.js`を`@neondatabase/serverless`から`postgres`(postgres.js)へ全面書き換え(tagged templateは無変更、`sql.transaction`を`sql.begin`へ、モジュールレベルでの接続プールメモ化を追加)。`scripts/serve-production.mjs`新規(常時稼働本番サーバー、必須環境変数のfail-fast検証、起動時DB probe、graceful shutdown、本文サイズ上限)。`scripts/lib/http-bridge.mjs`で共通ロジック抽出。`tests/data-store.pg.test.js`新規(`TEST_DATABASE_URL`かつDB名に"test"を含む場合のみ実行、本番DBへの誤書込みを防止)。systemdユニット6種・Cloudflare Tunnel config例・`deploy-local.sh`/`backup-local.sh`/`check-backup-freshness.sh`を追加 |
+| Review | CodeRabbit 3ラウンド、計8件の指摘全てに対応(監査トリガー判定の見落とし、タイムゾーン未指定、本文サイズ無制限によるメモリ枯渇リスク、個人情報のログ出力、本番DBへの統合テスト誤書込みリスク、ストリームdestroy順序による413応答未達等)。特に本文サイズ制限の実装では、CodeRabbitが提示したNode.js `Readable.prototype.resume()`の内部動作の指摘を受け、`req.iterator({ destroyOnReturn: false })`のクリーンアップ完了後に`resume()`を呼ぶよう2段階で修正し、再現テストで検証した |
+| Database(Phase 0) | ローカルPostgreSQL 16(このホスト常駐)に専用DB`mirai_web_cad`・ロール`mirai_web_cad_app`・バックアップ用読み取り専用ロール`mirai_web_cad_backup`を作成。migration 0001〜0005を適用(8テーブル、seed 1件、監査トリガー2件を確認) |
+| Infrastructure(Phase 2) | systemdユニット6本(`mirai-web-cad.service`、`mirai-web-cad-cloudflared.service`、バックアップ・鮮度チェックのtimer×2組)を配置・起動。Cloudflare Tunnel(`mirai-web-cad`)を新規作成しコネクタ4本を登録(この段階ではDNS未変更、公開影響ゼロを維持) |
+| Release(Phase 3、★高リスク) | ユーザーがCloudflare Pages Custom Domainを解除、DNSレコード消失を3つのリゾルバ(system/1.1.1.1/8.8.8.8)で独立確認後、ユーザーの明示的なY/N承認を得て`cloudflared tunnel route dns`を実行。本番実測でSPA 200、`/api/health` 200(`provider:postgres, mode:connected, migrated:true`)、demo 200、write 401(fail-closed)を確認 |
+| CI/CD(Phase 4) | `production.yml`のdeployジョブ(Cloudflare Pages)を削除しverifyのみに縮小。`ci.yml`のmigrationジョブをpostgres:16-alpineへ統一、`postgres-integration`ジョブを新設(TEST_DATABASE_URL経由の統合テスト)。`synthetic-monitor.yml`から`pages.dev`向け4チェックを削除(Custom Domainのみ監視)。`backup-production.yml`(GitHub Actions版、未稼働だった)を削除 |
+| Incident | 作業中に`~/.config/mirai-web-cad/production.env`をcatで直接画面出力し、DBパスワードを誤って露出させた。直ちにロールのパスワードをローテーションして対応。以後は`grep -o '^KEY='`等でキー名のみ確認する方針に変更(state.json learningへ記録) |
+| Verify | `npm run verify`全成功。`TEST_DATABASE_URL`設定時のnpm testで統合テスト7件を含む51件成功、本番用`DATABASE_URL`設定時は統合テストが実行されないことを確認(誤書込み防止の実効性を検証) |
+| 事後対応 | Issue #22を解決としてclose。改善台帳P0-07(Neon main保護)を失効、P0-12(バックアップ自動化)を完了、P0-19(本項目)を新規完了として記録。`docs/operations.md`/`README.md`/`docs/api-db.md`/`docs/testing.md`/`SECURITY.md`のNeon関連記述を本番アーキテクチャに合わせて更新 |
+| 残課題 | Cloudflare Accessアプリ未作成のため書き込みAPIは全てfail-closedで401(Issue #5、別途対応)。当番表・重大度別SLA未整備(Issue #8残課題)。ソーク運用(1〜2週間)後にCloudflare Pages関連ファイル削除・Neonプロジェクト自体の削除(人間実施)を予定 |
+
