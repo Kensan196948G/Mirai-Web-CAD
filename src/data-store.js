@@ -88,8 +88,13 @@ class MemoryDataStore {
     memory.auditLogs.push(clone(entry));
   }
 
-  async listAuditLogs(limit = 100) {
-    return memory.auditLogs.slice(-limit).reverse().map(clone);
+  async listAuditLogs(limit = 100, offset = 0) {
+    const ordered = memory.auditLogs.slice().reverse();
+    return ordered.slice(offset, offset + limit).map(clone);
+  }
+
+  async countAuditLogs() {
+    return memory.auditLogs.length;
   }
 
   async claimIdempotency(key) {
@@ -379,13 +384,15 @@ class NeonDataStore {
     `;
   }
 
-  async listAuditLogs(limit = 100) {
-    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 100));
+  async listAuditLogs(limit = 100, offset = 0) {
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 100));
+    const safeOffset = Math.max(0, Number(offset) || 0);
     const rows = await this.sql`
       select id, actor_id, action, target_type, target_id, detail, created_at
       from audit_logs
       order by created_at desc
       limit ${safeLimit}
+      offset ${safeOffset}
     `;
     return rows.map((row) => ({
       id: row.id,
@@ -397,6 +404,11 @@ class NeonDataStore {
       detail: row.detail,
       createdAt: new Date(row.created_at).toISOString()
     }));
+  }
+
+  async countAuditLogs() {
+    const rows = await this.sql`select count(*)::int as total from audit_logs`;
+    return rows[0].total;
   }
 
   async claimIdempotency(key, actorId, route) {

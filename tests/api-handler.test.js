@@ -279,6 +279,84 @@ test("successful mutation commits drawing and audit as one logical operation", a
   assert.equal(auditBody.auditLogs.filter((entry) => entry.action === "drawing.transaction").length, 1);
 });
 
+test("audit log export requires approver capability and returns CSV with injection guarding", async () => {
+  resetMemoryStore();
+  await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "drafter",
+        "idempotency-key": "csv-export-seed",
+        "expected-version": "1"
+      },
+      body: JSON.stringify({ label: "=cmd|'/c calc'!A1", commands: [] })
+    }),
+    env
+  );
+
+  const forbidden = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "drafter" } }),
+    env
+  );
+  assert.equal(forbidden.status, 403);
+
+  const csvResponse = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  assert.equal(csvResponse.status, 200);
+  assert.equal(csvResponse.headers.get("content-type"), "text/csv; charset=utf-8");
+  assert.match(csvResponse.headers.get("content-disposition") ?? "", /attachment; filename="audit-logs-/);
+  const csvText = await csvResponse.text();
+  assert.match(csvText, /^id,createdAt,actorId,role,action,targetType,targetId,detail\r\n/);
+  // detail に含まれる数式風文字列は "'"" でガードされ、生の "=" 始まりで出力されない。
+  assert.doesNotMatch(csvText, /[^"']=cmd\|/);
+
+  const exportAudit = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const exportAuditBody = await exportAudit.json();
+  assert.ok(exportAuditBody.auditLogs.some((entry) => entry.action === "audit.exported"));
+  assert.equal(typeof exportAuditBody.total, "number");
+});
+
+test("audit log listing supports limit and offset pagination", async () => {
+  resetMemoryStore();
+  for (let i = 0; i < 3; i += 1) {
+    await handleApiRequest(
+      new Request("https://example.test/api/drawings/dwg_demo_001/transactions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-demo-role": "drafter",
+          "idempotency-key": `page-${i}`,
+          "expected-version": String(i + 1)
+        },
+        body: JSON.stringify({ label: `page ${i}`, commands: [] })
+      }),
+      env
+    );
+  }
+  const page1 = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs?limit=1&offset=0", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const page1Body = await page1.json();
+  assert.equal(page1Body.auditLogs.length, 1);
+  assert.equal(page1Body.limit, 1);
+  assert.equal(page1Body.offset, 0);
+
+  const page2 = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs?limit=1&offset=1", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const page2Body = await page2.json();
+  assert.equal(page2Body.auditLogs.length, 1);
+  assert.notEqual(page1Body.auditLogs[0].id, page2Body.auditLogs[0].id);
+});
+
 test("stale revision cannot overwrite a newer transaction", async () => {
   resetMemoryStore();
   const send = (key) =>

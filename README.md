@@ -9,10 +9,14 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | 領域 | 状態 | 内容 |
 | --- | --- | --- |
 | 図面作成 | 実装済み | 空図面/デモ図面の新規作成、図面名、単位（mm/m） |
-| 作図 | 実装済み | 選択、線、矩形、円、ポリライン、文字、移動、複写、削除、Undo/Redo |
-| コマンドライン | 実装済み | `LINE`、`RECT`、`CIRCLE`、`PLINE`、`TEXT`、`ERASE`、`MOVE`、`COPY`、`UNDO`、`REDO`、`SELECT`、`LAYER`、`ZOOM`、`NEW`、`IMPORT` |
+| 作図 | 実装済み | 基本図形、パン・ズーム、寸法、ハッチ、移動、複写、回転、尺度、オフセット、トリム、延長、計測、面積、ID点、ブロック、Undo/Redo |
+| UI | 実装済み | リボン（ホーム/挿入/注釈/表示/レイヤー/レビュー承認/AI提案/出力）、モデル/レイアウト空間タブ、タブ式右ドック（プロパティ/レイヤー/AI提案/検査承認）、ステータスバー |
+| 作図補助 | 実装済み | グリッド表示・スナップに加え、直交モード（水平/垂直拘束）、OSnap（既存図形の頂点・中心への吸着） |
+| コマンドライン | 実装済み | 基本作図に加え`DIM`、`HATCH`、`ROTATE`、`SCALE`、`OFFSET`、`TRIM`、`EXTEND`、`DIST`、`AREA`、`ID`、`BLOCK`、`PAN`、`PLOT` |
 | Import | 実装済み | Mirai JSON、ASCII DXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTをCAD Transactionとして読込 |
-| レイヤー | 実装済み | 表示切替、ロック、現在レイヤー指定、ロック時の変更拒否 |
+| レイヤー | 実装済み | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更 |
+| プロパティ | 実装済み | 選択図形の種類・ID確認、レイヤー・線幅編集 |
+| レイアウト | 実装済み | A4～A1、縦横、縮尺、余白、表題、ブラウザ印刷/PDF保存、実データを反映した用紙プレビュー（レイアウト空間） |
 | AI提案 | 実装済み | Promptから構造化コマンドを生成し、Canvasへプレビュー後、人の承認で適用 |
 | 検査 | 実装済み | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出 |
 | 版/承認 | 実装済み | 下書き、レビュー提出、承認、承認済み版の直接変更禁止、新版作成 |
@@ -20,6 +24,7 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | 保存 | 実装済み | LocalStorage自動保存、JSON出力、デモ初期化。認証済みAPI接続時はNeonへ同期 |
 | API | 実装済み | Cloudflare Pages Functionsの`/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否 |
 | 状態確認 | 実装済み | 正常、空、Loading、Errorを画面内のState Reviewで切替 |
+| システム設定 | 実装済み | 上部設定からグリッド表示、スナップ、間隔、コマンドログ行数をブラウザ単位で保存 |
 | DB | 実装済み | Neon PostgreSQLへ接続し、図面、AI Run、監査、Idempotencyを永続化 |
 
 ## Preview
@@ -68,7 +73,7 @@ npm run verify
 npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`から`0004_drawing_visibility.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なしを検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
+`db:verify`は`0001_initial.sql`から`0005_audit_log_immutability.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)を検証します。Neonの空DBからの適用とCloudflare Preview接続を確認済みです。
 
 バックアップ/復元ドリル:
 
@@ -93,7 +98,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 
 ## CAD互換範囲
 
-現段階はAutoCAD/Ares Standardの完全互換ではありません。2D基本作図、主要編集、コマンドライン、JSON/ASCII DXF読込を優先実装しています。DWG、DXF書出し、寸法、ハッチ、ブロック、外部参照、レイアウト/印刷は今後の対象です。
+現段階はAutoCAD/Ares Standardの完全互換ではありません。土木施工図向け2D作図、主要幾何編集、寸法、ハッチ、ブロック、レイヤー、レイアウト/PDF印刷を実装しています。DWG、DXF書出し、外部参照、3D、業界固有アドオンは対象外です。
 
 ## 関連文書
 
