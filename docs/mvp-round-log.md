@@ -249,3 +249,17 @@
 | 障害の先行時期 | 確認 | 同一障害はRound 8の最初のdependabot deploy(PR #2、run `33252235370`、12:20 UTC)から連続4回のProduction run全てで再現しており、本ラウンドのCORS/workflow変更が原因ではないことを示す。直近の正常確認はRound 7(2026-08-27T11:42 UTC) |
 | 対応 | ISSUE化・人間対応依頼 | Issue #22を起票。本セッションの`NEON_API_KEY`(Neonプロジェクト`Mirai-Info`のみ参照可)、`CLOUDFLARE_API_TOKEN`(`wrangler pages project list`が`Authentication error`)はいずれも対象プロジェクトへの権限がなく自律修復不可と判断し、Neon資格情報の確認/リセットとCloudflare Pages `DATABASE_URL`更新を人間へ依頼 |
 | 評価反映 | 完了 | `production-readiness-assessment.md`の可用性・バックアップを40→25、総合49.4→48.6へ修正し、進行中障害を重大リスクとして追記 |
+
+## Round 8 追補 / 2026-08-29 外部評価アドバイス対応(fail-open是正・CSP修正)
+
+ユーザーが提示した外部評価アドバイス(P0 #1〜#10)を精査し、Mirai-Web-CADのコード変更のみで完結できる範囲(#2〜#4, #5, #7〜#9)をPR #25で実装した。#1(Neon認証復旧)と#10(バックアップSecret投入)はIssue #22と同じ理由で引き続きblocked。#6は`docs/operations.md`のリリース判定基準明記で対応。
+
+| 項目 | 内容 |
+| --- | --- |
+| 重大発見1 | `checkApiHealth()`がAPI Health手動ボタン押下時のみ実行され、ページロード時は一切API接続を検証していなかった。API未接続時、`roleLocked`が`false`のままロール自己切替が可能で、`changeReviewState()`がサーバー権限を経由せずローカルのみでレビュー提出・承認・新版作成を完了させていた(外部評価の指摘12・13番と一致) |
+| 重大発見2 | レイアウト用紙のinline style属性(`style="width:...px;height:...px"`等)が本番CSP(`style-src 'self'`)でブロックされ、computed width/heightが0になっていた。ローカル開発サーバー(`serve-local.mjs`)とE2EテストがCSPヘッダーを一切送信していなかったため、このバグはテストで検出不能だった(外部評価の指摘10・11番と一致) |
+| Development | fail-open是正4件(roleLocked、自動health確認、検査不能表示、レビュー/承認/新版ボタンのAPI接続+権限条件disabled化)。CSP修正(CSSOM経由のスタイル設定、`_headers`適用によるローカル/E2Eでの回帰検出)。README/トレーサビリティの3段階表記統一。GitHub Advanced Security全項目有効化。state.json新規作成 |
+| Review | CodeRabbit 3ラウンド。用紙サイズがA4/A2/A1選択時も常にA3寸法だった実装漏れ、`_headers`読み込み失敗時のfail-open、SPAフォールバックのキャッシュヘッダー誤付与、監視判定がmainブランチのschedule実行に限定されていない、等の指摘に全て対応 |
+| Verify | `npm run verify`全成功。Unit 44/44、E2E **28/28**(用紙サイズ・レイアウトサイズ検証テストを新規追加) |
+| Merge | PR #25、merge commit `13935ef` |
+| Production | Verify Release成功、`Verify public boundary`はIssue #22(未解消)により引き続き失敗。本PRの変更起因ではないことを確認 |
