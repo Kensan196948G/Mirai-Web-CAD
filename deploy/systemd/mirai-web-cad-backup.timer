@@ -1,0 +1,10 @@
+[Unit]
+Description=Mirai Web CAD nightly PostgreSQL backup timer
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

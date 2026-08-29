@@ -104,6 +104,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 
 - [Roundログ](docs/mvp-round-log.md)
 - [運用・復旧メモ](docs/operations.md)
+- [ローカルデプロイ運用メモ](docs/deployment-local.md)
 - [API/DBメモ](docs/api-db.md)
 - [テスト方針](docs/testing.md)
 - [要件・設計トレーサビリティ](docs/mvp-traceability.md)

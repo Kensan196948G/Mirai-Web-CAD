@@ -1,0 +1,16 @@
+[Unit]
+Description=Mirai Web CAD backup freshness check
+
+[Service]
+Type=oneshot
+User=kensan
+Group=kensan
+WorkingDirectory=/home/kensan/Projects/Mirai-DX-Project/Mirai-Web-CAD
+Environment=BACKUP_DIR=/var/backups/mirai-web-cad/postgres
+Environment=MAX_AGE_HOURS=36
+ExecStart=/usr/bin/bash scripts/check-backup-freshness.sh
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only

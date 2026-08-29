@@ -1,0 +1,14 @@
+[Unit]
+Description=Mirai Web CAD Cloudflare Tunnel (mirai-web-cad.mirai-dx-platform.com)
+After=network-online.target mirai-web-cad.service
+Wants=network-online.target mirai-web-cad.service
+
+[Service]
+Type=simple
+User=kensan
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config /home/kensan/.cloudflared/mirai-web-cad-config.yml tunnel run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
