@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 import { seedDrawing } from "./cad-core.js";
 
 const memory = {
@@ -8,11 +8,41 @@ const memory = {
   idempotencyKeys: new Set()
 };
 
+// connectionString単位でプールをメモ化する。createDataStore(env)はAPIリクエスト毎に
+// 呼ばれるため、メモ化しないとリクエスト毎に新規TCPプールが生成され、
+// このホストを共有する他プロジェクトを巻き込む接続枯渇を招く。
+const pools = new Map();
+
+function getPool(connectionString, poolMax) {
+  let sql = pools.get(connectionString);
+  if (!sql) {
+    sql = postgres(connectionString, {
+      max: poolMax,
+      idle_timeout: 30,
+      connect_timeout: 10,
+      onnotice: () => {}
+    });
+    pools.set(connectionString, sql);
+  }
+  return sql;
+}
+
 export function createDataStore(env = {}) {
   if (env.DATA_STORE) return env.DATA_STORE;
-  const connectionString = env.DATABASE_URL ?? env.HYPERDRIVE?.connectionString;
-  if (connectionString) return new NeonDataStore(connectionString);
+  const connectionString = env.DATABASE_URL;
+  if (connectionString) {
+    const poolMax = Number.isFinite(Number(env.PG_POOL_MAX)) && env.PG_POOL_MAX ? Number(env.PG_POOL_MAX) : 8;
+    return new PostgresDataStore(getPool(connectionString, poolMax));
+  }
   return new MemoryDataStore();
+}
+
+// serve-production.mjsのSIGTERMハンドラから呼び、コネクションプールを
+// graceful に閉じる。テストやローカルdemoモードでは呼ばれないため無害。
+export async function closeDataStorePool() {
+  const instances = [...pools.values()];
+  pools.clear();
+  await Promise.allSettled(instances.map((sql) => sql.end({ timeout: 5 })));
 }
 
 export function resetMemoryStoreData() {
@@ -108,9 +138,9 @@ class MemoryDataStore {
   }
 }
 
-class NeonDataStore {
-  constructor(connectionString) {
-    this.sql = neon(connectionString);
+class PostgresDataStore {
+  constructor(sql) {
+    this.sql = sql;
   }
 
   async probe() {
@@ -128,14 +158,20 @@ class NeonDataStore {
              ) and exists (
                select 1 from information_schema.columns
                where table_schema = 'public' and table_name = 'drawings' and column_name = 'visibility'
+             ) and exists (
+               select 1 from information_schema.triggers
+               where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_update'
+             ) and exists (
+               select 1 from information_schema.triggers
+               where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_delete'
              ) as migrated
     `;
     return {
-      provider: "neon-postgres",
+      provider: "postgres",
       mode: "connected",
       database: rows[0].database,
       migrated: rows[0].migrated,
-      migration: "0004_drawing_visibility.sql"
+      migration: "0005_audit_log_immutability.sql"
     };
   }
 
@@ -218,19 +254,19 @@ class NeonDataStore {
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
     const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
     try {
-      await this.sql.transaction((transaction) => [
-        transaction`
+      await this.sql.begin(async (tx) => {
+        await tx`
           insert into idempotency_keys (key, actor_id, route)
           values (${idempotencyKey}, ${actorId}, ${route})
-        `,
-        transaction`
+        `;
+        await tx`
           insert into drawings (id, project_id, name, unit, current_version, revision, state)
           values (
             ${drawing.id}, 'prj_demo_road_001', ${drawing.name}, ${drawing.unit},
             ${drawing.version}, ${drawing.revision}, ${drawing.state}
           )
-        `,
-        transaction`
+        `;
+        await tx`
           insert into drawing_versions (
             id, drawing_id, version_no, state, content, content_hash, created_by
           )
@@ -238,8 +274,8 @@ class NeonDataStore {
             ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
             ${content}::jsonb, ${contentHash}, ${actor}
           )
-        `,
-        transaction`
+        `;
+        await tx`
           insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
           values (
             ${auditEntry.id}, ${auditEntry.actorId}, ${auditEntry.action},
@@ -247,8 +283,8 @@ class NeonDataStore {
             ${JSON.stringify({ role: auditEntry.role, ...auditEntry.detail })}::jsonb,
             ${auditEntry.createdAt}
           )
-        `
-      ]);
+        `;
+      });
       return true;
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "23505") return false;

@@ -60,7 +60,7 @@ async function jsFiles(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) files.push(...(await jsFiles(full)));
-    if (entry.isFile() && entry.name.endsWith(".js")) files.push(full);
+    if (entry.isFile() && (entry.name.endsWith(".js") || entry.name.endsWith(".mjs"))) files.push(full);
   }
   return files;
 }
