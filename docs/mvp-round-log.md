@@ -236,3 +236,16 @@
 | Verify | `npm run verify`(lint/typecheck/a11y/unit/build/e2e)全成功。Unit 44/44(CORS許可リストのテスト1件追加)、E2E desktop/mobile 24/24。追加した2つのworkflow YAMLは`yaml.safe_load`で構文検証済み |
 | 事前準備 | `incident`ラベル・`ops`ラベルをリポジトリへ作成済み |
 | 残課題 | `PRODUCTION_DATABASE_URL` Secret投入(人間承認事項、Neon読み取り専用roleの発行を推奨)、`MONITOR_WEBHOOK_URL`任意設定、当番表・重大度別SLA、Cloudflare/Neon内部5xxログとの相関、案件RBAC(Issue #5)、DWG往復(Issue #6)、SSO再構成(Issue #5、Entra ID管理者権限待ち) |
+
+## Round 8 Release / 2026-08-29
+
+| 項目 | 結果 | 証跡 |
+| --- | --- | --- |
+| Dependabot統合 | PASS | PR #2(merge `371e408`)、PR #4(merge、`actions/upload-artifact@v7`)、PR #3(base更新競合を`/tmp`隔離clone上で解消、merge)。squash mergeで統合、branchはGitHub側で削除 |
+| CodeRabbit | PASS(2件指摘・対応済み) | 1回目レビューでbackup Issue重複作成・synthetic-monitorの誤close懸念を指摘 → dedupeロジック追加で対応。2回目レビューで「タイトル一致だけでは不十分」「旧CORSリスク記述が残存」を再指摘 → `synthetic-monitor`/`backup-automation`専用ラベル導入、評価書の該当行を解消済みに更新。3回目レビューは組織のレビュー上限(spending cap)に到達し`rate limited`。必須4チェックは全pass のため、既対応の指摘内容を確認のうえsquash mergeで進行 |
+| Merge | PASS | PR #21、merge commit `c1d3edab58efda4d22139c1acdcadf66d14058e2` |
+| CI | PASS | run `33253315955`: Lint/Test/Build/E2E/A11y、Empty PostgreSQL Migration、PostgreSQL Backup and Restore Drill、Secret Scan 全成功 |
+| 🚨 Production Deploy | **DEPLOY成功・境界検証FAIL** | run `33253315950`: `Verify Release`成功、`Deploy Cloudflare Pages`のコード配信は成功したが`Verify public boundary`が失敗。手動確認で`/api/health`・`/api/drawings/demo`が両ドメインとも500(`password authentication failed for user 'neondb_owner'`)。SPA(200)・write fail-closed(401)は健全 |
+| 障害の先行時期 | 確認 | 同一障害はRound 8の最初のdependabot deploy(PR #2、run `33252235370`、12:20 UTC)から連続4回のProduction run全てで再現しており、本ラウンドのCORS/workflow変更が原因ではないことを示す。直近の正常確認はRound 7(2026-08-27T11:42 UTC) |
+| 対応 | ISSUE化・人間対応依頼 | Issue #22を起票。本セッションの`NEON_API_KEY`(Neonプロジェクト`Mirai-Info`のみ参照可)、`CLOUDFLARE_API_TOKEN`(`wrangler pages project list`が`Authentication error`)はいずれも対象プロジェクトへの権限がなく自律修復不可と判断し、Neon資格情報の確認/リセットとCloudflare Pages `DATABASE_URL`更新を人間へ依頼 |
+| 評価反映 | 完了 | `production-readiness-assessment.md`の可用性・バックアップを40→25、総合49.4→48.6へ修正し、進行中障害を重大リスクとして追記 |
