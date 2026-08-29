@@ -130,10 +130,15 @@ export async function nodeRequestToFetchRequest(req, url, options = {}) {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const chunks = [];
   let total = 0;
-  for await (const chunk of req) {
+  // for await...ofは例外による早期終了時にreqを自動destroyする(既定の
+  // destroyOnReturn: true)。ここでdestroyOnReturn: falseを指定し、上限超過時も
+  // TCP接続とレスポンス送信経路を破壊しないようにする。destroy済みだと呼び出し側
+  // が書き込む413レスポンスがクライアントに届かない可能性があるため。
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     total += chunk.length;
     if (total > maxBodyBytes) {
-      req.destroy();
+      // 送信中の残りのリクエストボディを読み捨てて接続を再利用可能な状態に保つ。
+      req.resume();
       throw new RequestBodyTooLargeError(maxBodyBytes);
     }
     chunks.push(chunk);
