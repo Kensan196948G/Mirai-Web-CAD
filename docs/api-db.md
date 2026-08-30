@@ -12,7 +12,9 @@
 | `POST` | `/api/drawings/:drawingId/agent-runs` | 実装済み。AI提案作成 |
 | `POST` | `/api/agent-runs/:runId/approve` | 実装済み。AI提案を人の承認で適用 |
 | `POST` | `/api/drawings/:drawingId/review` | 実装済み。レビュー提出、承認、新版 |
+| `POST` | `/api/drawings/:drawingId/comments` | 実装済み。`canComment`権限(reviewerも可)。コメント追加、監査ログに本文は記録しない |
 | `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ。`limit`/`offset`ページング、`?format=csv`でCSV export(数式注入ガード付き) |
+| `GET` | `/api/ai/status` | 実装済み。`canRunAi`権限。`AI_PROVIDER`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`AI_MODEL`環境変数から有効状態・プロバイダ名・モデル名のみ返す(APIキー自体は返さない)。APIキーはブラウザに一切保存・送信しない |
 
 ## DB設計方針
 

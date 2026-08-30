@@ -238,40 +238,22 @@ test("上部設定から作図補助とコマンドライン表示を保存で�
   await expect(page.getByLabel("ログ表示行数")).toHaveValue("1");
 });
 
-test("AIモデル接続設定を保存・クリアでき、APIキー欄は伏せ字表示される", async ({ page }) => {
+test("AIモデル連携はサーバー管理の読み取り専用状態として表示され、ブラウザにキー入力欄がない", async ({ page }) => {
   await page.getByRole("button", { name: "システム設定" }).click();
-  const apiKeyInput = page.locator("#aiApiKeyInput");
-  await expect(apiKeyInput).toHaveAttribute("type", "password");
+  await expect(page.getByText("AIモデル連携はサーバーの環境変数のみで管理されます。")).toBeVisible();
+  await expect(page.getByText("未設定（ルールベースAIのみ動作）")).toBeVisible();
 
-  const endpointInput = page.locator("#aiCustomEndpoint");
-  await expect(endpointInput).toBeDisabled();
-  await page.locator("#aiProviderSelect").selectOption("custom");
-  await expect(endpointInput).toBeEnabled();
-  await endpointInput.fill("https://example.com/v1/models");
-
-  await apiKeyInput.fill("sk-test-dummy-key");
-  await page.locator("#saveAiKeyBtn").click();
-  await expect(page.getByLabel("コマンドログ")).toContainText("AIモデル接続設定を保存しました");
-
-  await page.reload();
-  await page.getByRole("button", { name: "システム設定" }).click();
-  await expect(page.locator("#aiApiKeyInput")).toHaveValue("sk-test-dummy-key");
-  await expect(page.locator("#aiProviderSelect")).toHaveValue("custom");
-  await expect(page.locator("#aiCustomEndpoint")).toHaveValue("https://example.com/v1/models");
-
-  await page.locator("#clearAiKeyBtn").click();
-  await expect(page.locator("#aiApiKeyInput")).toHaveValue("");
-  await expect(page.locator("#aiProviderSelect")).toHaveValue("openai");
-
-  await page.reload();
-  await page.getByRole("button", { name: "システム設定" }).click();
-  await expect(page.locator("#aiApiKeyInput")).toHaveValue("");
+  await expect(page.locator("#aiApiKeyInput")).toHaveCount(0);
+  await expect(page.locator("#aiProviderSelect")).toHaveCount(0);
+  await expect(page.locator("#saveAiKeyBtn")).toHaveCount(0);
+  await expect(page.locator("#clearAiKeyBtn")).toHaveCount(0);
 });
 
-test("AIモデル接続テストはAPIキー未入力時にエラー表示する", async ({ page }) => {
-  await page.getByRole("button", { name: "システム設定" }).click();
-  await page.locator("#testAiKeyBtn").click();
-  await expect(page.locator(".ai-test-status.error")).toContainText("APIキーが未入力です");
+test("旧バージョンのブラウザ側AI設定キーが残っていても起動時に削除される", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("mirai-web-cad-ai-settings", JSON.stringify({ apiKey: "sk-leftover" })));
+  await page.reload();
+  const remaining = await page.evaluate(() => localStorage.getItem("mirai-web-cad-ai-settings"));
+  expect(remaining).toBeNull();
 });
 
 test("狭い画面でも主要操作領域が表示範囲を破綻させない", async ({ page }) => {

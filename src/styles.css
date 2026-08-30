@@ -711,35 +711,6 @@ select {
   line-height: 1.5;
 }
 
-.ai-settings-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.ai-test-status {
-  margin: 0;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  font-size: 12px;
-}
-
-.ai-test-status.ok {
-  border-color: #bfe5d7;
-  background: #eefaf5;
-  color: var(--green);
-}
-
-.ai-test-status.error {
-  border-color: #efc6c6;
-  background: #fff3f3;
-  color: var(--red);
-}
-
-.ai-test-status.loading {
-  border-color: #c9d9e6;
-  background: #f2f7fb;
-  color: var(--muted);
-}
-
 .wide {
   width: 100%;
   margin-top: 8px;
