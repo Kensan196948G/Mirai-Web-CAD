@@ -13,6 +13,7 @@ import {
   seedDrawing,
   validateDrawing
 } from "../src/cad-core.js";
+import { dimensionEntity } from "../src/cad-advanced.js";
 
 test("seed drawing has editable entities and no critical validation errors", () => {
   const drawing = seedDrawing();
@@ -110,4 +111,13 @@ test("boundsIntersect detects overlap, disjoint and touching boxes", () => {
   assert.equal(boundsIntersect(null, viewport), true);
   assert.equal(boundsIntersect(entityBounds(circle("layer-temporary", [10000, 10000], 5)), viewport), false);
   assert.equal(boundsIntersect(entityBounds(line("layer-temporary", [10, 10], [50, 50])), viewport), true);
+});
+
+test("entityBounds for a dimension includes the offset extension line, not just its endpoints", () => {
+  // 端点はy=200(viewport外)にあるが、offset=-200で寸法線本体はy=0(viewport内)まで伸びる。
+  const dimension = dimensionEntity("layer-annotation", [0, 200], [300, 200], { offset: -200 });
+  const bounds = entityBounds(dimension);
+  assert.equal(bounds.minY <= 0, true);
+  const viewport = { minX: -50, minY: -50, maxX: 400, maxY: 50 };
+  assert.equal(boundsIntersect(bounds, viewport), true);
 });

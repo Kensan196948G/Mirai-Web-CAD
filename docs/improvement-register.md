@@ -33,7 +33,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | P1-01 | 案件/組織/図面ACL | 全利用者/最小権限 | 高 15日 | P0 | Entra group、DB設計 | 横断IDOR test、監査、管理手順 |
 | P1-02 | 案件・図面一覧/検索 | 現場・本社/主要flow | 中 10日 | P1 | P1-01 | empty/error/page test、1万件検索 |
-| P1-03 | DWG/DXF round-trip engine選定 | CAD担当/正本互換 | 高 20-40日 | P0 | SDK契約・license | 実案件100図面の許容差合格。**一部完了(2026-08-30)**: 選定ADR([ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md))作成。ハイブリッド案(DXF正本+ODA File Converter CLIブリッジ、短期)とODA Drawings SDK正式契約(中期候補)を推奨、P1-03a〜dへサブタスク分解。契約・実装着手は人間承認待ち |
+| P1-03 | DWG/DXF round-trip engine選定 | CAD担当/正本互換 | 高 20-40日 | P0 | SDK契約・license | 実案件100図面の許容差合格。**一部完了(2026-08-30)**: 選定ADR([ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md))作成。ハイブリッド案(DXF正本+ODA File Converter CLIブリッジ、短期)とODA Drawings SDK正式契約(中期候補)を推奨、P1-03a〜dへサブタスク分解。**CodeRabbitレビュー対応でODA File Converterの商用利用許諾取得を実装着手の前提条件として明記、P1-03cの受入条件にentity/layer/layout保持を追加**。契約・実装着手は人間承認待ち |
 | P1-04 | 寸法・公差・尺度 | CAD担当/日常作図 | 高 15日 | P1 | CAD kernel | linear/aligned/angular test、PDF一致 |
 | P1-05 | hatch/block属性 | CAD担当/図面標準 | 高 20日 | P1 | DWG model | round-trip、編集、異常系 |
 | P1-06 | layout/plot/PDF | CAD担当・承認者/成果物 | 高 20日 | P0 | font/plot style | A1-A4、尺度、線幅、font受入 |

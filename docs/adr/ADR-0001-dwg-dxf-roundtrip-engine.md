@@ -30,17 +30,17 @@ DWG/DXFは土木・建設業界の正本フォーマットであり、AutoCAD系
 
 Web調査(2026年8月時点の公開情報)に基づく比較。**ライセンス費用は変動が大きく、契約時に必ず一次情報(ODA公式、Tech Soft 3D、Autodesk APS)で再確認すること。**
 
-| 選択肢 | ライセンス費用(概算) | Web/Node.js適合性 | DWG完全対応度 | 実装工数への影響 | 主なリスク |
+| 選択肢 | ライセンス費用(概算、要一次情報確認) | Web/Node.js適合性 | DWG完全対応度 | 実装工数への影響 | 主なリスク |
 |---|---|---|---|---|---|
-| ①ODA Drawings SDK(旧Teigha) | 年会費制。目安: Non-Commercial $375(初年)/$150(継続)。Commercial Sustaining Member初年$11K/以後$8.6K〜、Founding Member初年$40K/以後$24.4K〜(未確認、要ODA公式照会) | C++ SDKのためNode.js/ブラウザから直接使えない。ネイティブアドオンまたはマイクロサービス化が必要 | 業界標準、DWG完全対応の実績が豊富 | 高(SDKバインディング開発・ビルド環境整備・保守が別途必要) | 非会員規約・監査条項あり。契約解除時のコード扱い、再配布制限を精査要。会費は継続コスト |
+| ①ODA Drawings SDK(旧Teigha) | 年会費制。複数のWeb調査で金額に相違があり(調査元により Sustaining初年$11K前後、または$7,500前後など)、**いずれも未確認の二次情報**。区分(Non-Commercial/Commercial/Sustaining/Founding)ごとの対象権利・通貨・価格表版・確認日を含め、契約前に必ずODA公式(https://www.opendesign.com/pricing)で最新版を取得すること | C++ SDKのためNode.js/ブラウザから直接使えない。ネイティブアドオンまたはマイクロサービス化が必要 | 業界標準、DWG完全対応の実績が豊富 | 高(SDKバインディング開発・ビルド環境整備・保守が別途必要) | 非会員規約・監査条項あり。契約解除時のコード扱い、再配布制限を精査要。会費は継続コスト |
 | ②Autodesk RealDWG | Autodeskとの直接契約(非公開)。手続きはTech Soft 3Dが代行 | 配布制限が極めて厳しく、通常はAutoCADベース製品への組込みのみ許諾。独立Web SPA構成には原則そぐわない | 純正実装のため最も確実 | 契約交渉自体に時間を要し、承認プロセスも重い | パートナー審査・用途制限があり、本プロジェクトの想定用途に適合しない可能性が高い。事実上の除外候補 |
-| ③オープンソース(LibreDWG等) | 無償(GPLv3) | Node.jsからはネイティブバインディングかCLI呼び出しが必要。npm(`dxf-parser`等)はDXF ASCIIのみでDWGバイナリ非対応 | LibreDWG 0.13.4時点でreadは約99%(r1.2〜2018対応)、writeはR1.1〜R2000程度が安定域。R2010以降の一部entityは非対応 | 中(DXF書出しは比較的低コスト。DWG対応はLibreDWGの成熟度次第で工数増大) | GPLv3のためリンク方式次第で自社コードへのcopyleft波及リスク。要法務確認。完了基準未達の可能性 |
-| ④クラウドAPI型(Autodesk Platform Services Model Derivative API) | 従量課金(Consumption Credits)。目安1.5CC/変換程度(要確認) | 自前実装不要。HTTPS API呼び出しのみで親和性が高い | Autodesk公式サービスのため高精度 | 低(薄いAPIクライアントのみ) | 図面データを外部SaaSへ送信する必要があり、公共工事図面等の機密保持・データ主権の観点で懸念。従量課金・外部依存の可用性リスク |
-| ⑤ハイブリッド案(DXFを正本+ODA File Converter CLIでDWGブリッジ) | ODA File Converterは無償・会員登録不要 | CLIツールをNode.jsサーバーからサブプロセス起動する構成 | DWG↔DXF変換自体はODA製で高精度(R12〜2018対応)。ただし自社側のDXF round-trip完成度がボトルネック | 中(CLIラッパーは小さいが、自社側のDXF書出し実装が別途必要。P1-04/P1-05と一部重複) | 商用配布・再頒布条件やSLA非保証は要確認。バッチCLIのためプロセス管理設計が必要。DWGの完全ネイティブ往復ではない |
+| ③オープンソース(LibreDWG等) | 無償(GPLv3) | Node.jsからはネイティブバインディングかCLI呼び出しが必要。npm(`dxf-parser`等)はDXF ASCIIのみでDWGバイナリ非対応 | LibreDWG 0.13.4時点で**DWG読み込み**は約99%(r1.2〜2018対応)。**DWG書き込み**はR2004以降が実験的で、R2007は直接非対応(R2010へフォールバック)、他バージョンも他CADでCRC/audit失敗の可能性あり安定域とは言えない。**DXF書き出し**はR13〜R2021対応と幅広いが、対象バージョンごとの実測検証なしに安定と断定しない | 中(DXF書出しは比較的低コスト。DWG対応はLibreDWGの成熟度次第で工数増大) | GPLv3のためリンク方式次第で自社コードへのcopyleft波及リスク。要法務確認。DWG書き込みの完成度不足により完了基準未達の可能性 |
+| ④クラウドAPI型(Autodesk Platform Services Model Derivative API) | 従量課金。旧Cloud Credit体系(1.5CC/変換等)は2025年12月のAPS価格体系刷新(Free/Paidの二層、Flex tokens)で置き換えられており**廃止済みの情報**。現行の処理対象別単価は公式(https://aps.autodesk.com/aps-sales)で要確認 | 自前実装不要。HTTPS API呼び出しのみで親和性が高い | Autodesk公式サービスのため高精度 | 低(薄いAPIクライアントのみ) | 図面データを外部SaaSへ送信する必要があり、公共工事図面等の機密保持・データ主権の観点で懸念。従量課金・外部依存の可用性リスク |
+| ⑤ハイブリッド案(DXFを正本+ODA File Converter CLIでDWGブリッジ) | ODA File Converter自体は無償・会員登録不要で入手可能。**ただし非会員の利用は非商用の評価・参照用途に限定され、商用アプリケーションへの組込み・再配布は許諾されない**(ODA公式FAQ)。商用利用には別途ODA会員契約または明示的な許諾が必要 | CLIツールをNode.jsサーバーからサブプロセス起動する構成 | DWG↔DXF変換自体はODA製で高精度(R12〜2018対応)。ただし自社側のDXF round-trip完成度がボトルネック | 中(CLIラッパーは小さいが、自社側のDXF書出し実装が別途必要。P1-04/P1-05と一部重複) | **商用利用許諾が未取得の状態では採用不可**。取得後もSLA非保証・バッチCLIのプロセス管理設計が必要。DWGの完全ネイティブ往復ではない |
 
 ## 決定(推奨案)
 
-**選択肢⑤「ハイブリッド案」を短期の実務解として推奨し、並行して選択肢①「ODA Drawings SDK正式契約」を中期(6〜12か月)の本命候補として並走評価する。** 選択肢②(RealDWG)は用途不適合のため除外、選択肢④(クラウドAPI)はデータ主権懸念により当面除外、選択肢③(LibreDWG単独)はDWG完成度不足によりメインエンジンとしては非推奨とする。
+**選択肢⑤「ハイブリッド案」を短期の実務解として推奨し、並行して選択肢①「ODA Drawings SDK正式契約」を中期(6〜12か月)の本命候補として並走評価する。ただし選択肢⑤は、ODA File Converterの商用利用について会員契約または明示的な許諾を取得することを実装着手の前提条件とする(非会員は非商用評価用途限定のため、許諾未取得のまま商用プロダクトへ組み込むことはできない)。** 選択肢②(RealDWG)は用途不適合のため除外、選択肢④(クラウドAPI)はデータ主権懸念により当面除外、選択肢③(LibreDWG単独)はDWG書き込みの完成度不足によりメインエンジンとしては非推奨とする。
 
 ### 理由
 
@@ -61,7 +61,7 @@ Web調査(2026年8月時点の公開情報)に基づく比較。**ライセン�
 - P1-03自体を以下のサブタスクへ分解することを推奨:
   - P1-03a: DXF書出し実装
   - P1-03b: ODA File Converter CLIラッパー(DWG⇔DXF変換マイクロサービス)
-  - P1-03c: 実案件100図面での許容差検証・回帰テスト整備
+  - P1-03c: 実案件100図面での許容差検証・回帰テスト整備。**幾何許容差だけでなく、entity種別(現状`parseDxfImport`が`normalizeDxfEntity`未対応のHATCH/DIMENSION/INSERT等を警告のみで破棄している)、entity属性、layer詳細属性、layout情報の保持を受入条件に含める。未対応entityは明示的に入力を拒否するか、非破壊のopaque dataとして保持する方式のいずれかを選定する**
   - P1-03d(条件付き): ODA Drawings SDK正式契約・ネイティブDWG対応(③検証で不足が判明した場合のみ)
 - 依存関係にあるP1-04・P1-05・P1-06はDXF書出しの完成を前提にするため、着手順序としてP1-03a→P1-04/P1-05→P1-03bが現実的。
 
@@ -69,7 +69,7 @@ Web調査(2026年8月時点の公開情報)に基づく比較。**ライセン�
 
 グローバルポリシー(SDKライセンス契約・費用発生を伴う意思決定は人間承認必須)に基づき、以下は本ADRの範囲外とし、人間(CTO/経営)の承認を要する。
 
-1. ODA File Converter(無償ツール)の商用利用条件の最終確認(配布・再頒布・SLA条件をODA公式に照会)
+1. **ODA File Converterの商用利用許諾の取得(P1-03bの着手前提条件)**: 非会員は非商用評価用途限定のため、商用プロダクトへ組み込む前にODA会員契約または明示的な許諾をODA公式に照会・取得すること。許諾が得られない場合、選択肢⑤は成立しないため選択肢①の前倒し検討に切り替える
 2. ODA Drawings SDK正式契約の予算化判断(年間コスト概算: 初年100〜170万円規模、継続80〜130万円規模、Founding Memberはさらに数倍。契約前に最新見積りを要取得)
 3. LibreDWG等GPLライセンスコードを自社製品に組み込む場合の法務確認(現時点では非推奨のため不要だが、将来の方針転換時に必須)
 4. 実案件図面データの外部送信可否のポリシー確認(選択肢④を将来再検討する場合)
@@ -79,6 +79,8 @@ Web調査(2026年8月時点の公開情報)に基づく比較。**ライセン�
 
 - Open Design Alliance Pricing / Membership FAQ: https://www.opendesign.com/pricing , https://www.opendesign.com/faq/membership
 - ODA File Converter: https://www.opendesign.com/guestfiles/oda_file_Converter
+- ODA FAQ「What are ODA Viewer and ODA File Converter」(非会員は非商用限定): https://www.opendesign.com/faq/question/what-are-oda-viewer-and-oda-file-converter
 - LibreDWG Manual (v0.13.4): https://www.gnu.org/software/libredwg/manual/LibreDWG.html
+- Autodesk Platform Services 価格体系(2025年12月〜、Free/Paid二層・Flex tokens): https://aps.autodesk.com/blog/aps-business-model-evolution , https://aps.autodesk.com/aps-sales
 - Autodesk Platform Services Model Derivative API: https://aps.autodesk.com/model-derivative-api-2d-3d-conversions
 - Autodesk AutoCAD OEM / RealDWG (Tech Soft 3D経由): https://aps.autodesk.com/developer/overview/autocad-oem
