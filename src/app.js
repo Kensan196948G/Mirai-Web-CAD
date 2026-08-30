@@ -259,6 +259,7 @@ const app = document.querySelector("#app");
 function render() {
   const drawing = activeDrawing();
   const selected = drawing.entities.find((entity) => entity.id === state.selectedId);
+  const policy = ROLE_POLICIES[drawing.currentRole] ?? ROLE_POLICIES.viewer;
   const commandLogClass = `command-log-${state.settings.commandLogLines}`;
   app.className = `app-shell ${commandLogClass}`;
   app.innerHTML = `
@@ -269,10 +270,10 @@ function render() {
           <h1>Mirai Web CAD</h1>
         </div>
         <div class="quick-access" role="group" aria-label="クイックアクセス">
-          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面" aria-label="新規図面">${icon("newfile")}</button>
-          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）" aria-label="開く">${icon("open")}</button>
+          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面" aria-label="新規図面" ${policy.canEdit ? "" : "disabled"}>${icon("newfile")}</button>
+          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）" aria-label="開く" ${policy.canEdit ? "" : "disabled"}>${icon("open")}</button>
           <input id="importFile" type="file" accept=".json,.dxf,application/json" hidden />
-          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存" aria-label="上書き保存">${icon("save")}</button>
+          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存" aria-label="上書き保存" ${policy.canEdit ? "" : "disabled"}>${icon("save")}</button>
           <button id="undoBtn" class="quick-btn" type="button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>${icon("undo")}</button>
           <button id="redoBtn" class="quick-btn" type="button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>${icon("redo")}</button>
           <button id="quickPrintBtn" class="quick-btn" type="button" title="印刷 / レイアウト" aria-label="印刷">${icon("print")}</button>
@@ -313,7 +314,7 @@ function render() {
         .map(
           (group) => `
         <div class="ribbon-group">
-          <div class="ribbon-group-buttons">${group.buttons.map((entry) => ribbonButtonHtml(entry)).join("")}</div>
+          <div class="ribbon-group-buttons">${group.buttons.map((entry) => ribbonButtonHtml(entry, policy)).join("")}</div>
           <div class="ribbon-group-label">${escapeHtml(group.label)}</div>
         </div>
       `
@@ -384,12 +385,23 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 }
 
-function ribbonButtonHtml(entry) {
+const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "polyline", "hatch", "dimension", "text"]);
+const RIBBON_EDIT_ACTIONS = new Set(["beginOperation", "deleteSelected", "undoLastTransaction", "triggerImport"]);
+
+function ribbonButtonDisabled(entry, policy) {
+  if (entry.tool) return RIBBON_EDIT_TOOLS.has(entry.tool) && !policy.canEdit;
+  if (entry.act === "changeReviewState") return entry.arg === "submit" ? !policy.canEdit : !policy.canApprove;
+  if (entry.act && RIBBON_EDIT_ACTIONS.has(entry.act)) return !policy.canEdit;
+  return false;
+}
+
+function ribbonButtonHtml(entry, policy) {
   const active = entry.tool ? state.tool === entry.tool : false;
   const attrs = entry.tool
     ? `data-tool="${escapeHtml(entry.tool)}"`
     : `data-act="${escapeHtml(entry.act)}"${entry.arg !== undefined ? ` data-arg="${escapeHtml(String(entry.arg))}"` : ""}`;
-  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(entry.title)}" aria-label="${escapeHtml(entry.title)}">${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
+  const disabled = ribbonButtonDisabled(entry, policy);
+  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(entry.title)}" aria-label="${escapeHtml(entry.title)}" ${disabled ? "disabled" : ""}>${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
 }
 
 function modelSpaceHtml(drawing) {
@@ -875,6 +887,8 @@ function bindEvents() {
   document.querySelector("#propertyForm")?.addEventListener("submit", updateSelectedProperties);
   document.querySelector("#layerForm")?.addEventListener("submit", createLayerFromForm);
   document.querySelector("#layoutForm")?.addEventListener("submit", updateLayoutFromForm);
+  document.querySelector("#layoutForm")?.addEventListener("input", previewLayoutFromForm);
+  document.querySelector("#layoutForm")?.addEventListener("change", previewLayoutFromForm);
   document.querySelector("#printBtn")?.addEventListener("click", printDrawing);
 
   /** @type {NodeListOf<HTMLInputElement>} */
@@ -1328,6 +1342,15 @@ async function updateLayoutFromForm(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
   await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+}
+
+function previewLayoutFromForm(event) {
+  const form = /** @type {HTMLFormElement} */ (event.currentTarget);
+  const data = new FormData(form);
+  const previewDrawing = { ...state.drawing, layout: { ...state.drawing.layout, ...Object.fromEntries(data) } };
+  const stage = document.querySelector(".layout-stage");
+  if (stage) stage.innerHTML = layoutPreviewHtml(previewDrawing);
+  applyLayoutGeometry(previewDrawing);
 }
 
 function printDrawing() {

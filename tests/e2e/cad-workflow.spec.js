@@ -95,9 +95,11 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   await expect(page.locator("[data-layer-visible]").first()).toBeChecked();
   await expect(page.getByLabel("コマンドログ")).toContainText("図面を変更できません");
 
-  await page.getByRole("button", { name: "線", exact: true }).click();
-  await page.getByLabel("作図キャンバス").click({ position: { x: 200, y: 200 } });
-  await expect(page.getByLabel("コマンドログ")).toContainText("閲覧者は作図できません");
+  await expect(page.getByRole("button", { name: "線", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "新規図面" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "上書き保存" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "選択", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "計測", exact: true })).toBeEnabled();
 
   await page.getByLabel("作図キャンバス").press("Escape");
   await expect(page.getByLabel("コマンドログ")).toContainText("取消");
@@ -348,4 +350,18 @@ test("用紙サイズ選択(A4/A1)がレイアウト用紙のサイズへ反映�
 
   expect(a1Box.width).toBeGreaterThan(a4Box.width);
   expect(a1Box.height).toBeGreaterThan(a4Box.height);
+});
+
+test("用紙サイズ選択は「設定保存」を押す前でもプレビューへ即時反映される", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  const paper = page.locator(".layout-page");
+  const beforeBox = await paper.boundingBox();
+  if (!beforeBox) throw new Error("layout-page bounding box is null (initial)");
+
+  await page.locator("#layoutForm select[name=paper]").selectOption("A1");
+  await expect(page.locator(".paper-note")).toContainText("A1");
+  const previewBox = await paper.boundingBox();
+  if (!previewBox) throw new Error("layout-page bounding box is null (unsaved preview)");
+  expect(previewBox.width).toBeGreaterThan(beforeBox.width);
+  expect(previewBox.height).toBeGreaterThan(beforeBox.height);
 });
