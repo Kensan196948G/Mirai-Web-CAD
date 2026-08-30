@@ -172,6 +172,17 @@ test("add_comment references a missing entity with a warning and nulls the entit
   assert.match(result.warnings[0], /コメント対象の図形が見つかりません/);
 });
 
+test("add_comment strips C0 and C1 control characters from the body", () => {
+  const drawing = seedDrawing();
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "comment with control characters",
+    commands: [{ op: "add_comment", body: "before\u0007\u0080\u009fafter" }]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.drawing.comments[0].body, "beforeafter");
+});
+
 test("approved drawings reject new comments", () => {
   const drawing = { ...seedDrawing(), state: "approved" };
   const result = applyTransaction(drawing, {

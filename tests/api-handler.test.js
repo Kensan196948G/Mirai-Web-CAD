@@ -528,6 +528,24 @@ test("reviewer can post a comment without canEdit, and it is audited without lea
   assert.equal(JSON.stringify(commentAudit.detail).includes("この寸法"), false);
 });
 
+test("comments endpoint rejects a null JSON body with 400 instead of a 500", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/comments", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "drafter",
+        "idempotency-key": "idem-comment-null-body",
+        "expected-version": "1"
+      },
+      body: "null"
+    }),
+    env
+  );
+  assert.equal(response.status, 400);
+});
+
 test("viewer cannot post comments", async () => {
   resetMemoryStore();
   const response = await handleApiRequest(

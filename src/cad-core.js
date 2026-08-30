@@ -720,7 +720,7 @@ function inferSkillId(label) {
 
 function sanitizeCommentBody(value) {
   if (typeof value !== "string") return "";
-  return value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 1000);
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim().slice(0, 1000);
 }
 
 function withoutKeys(objectValue, keys) {

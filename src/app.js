@@ -643,7 +643,12 @@ function propsDockHtml(drawing, selected) {
 
 function commentsSectionHtml(drawing, selected, policy) {
   const comments = (drawing.comments ?? []).slice().reverse();
-  const disabledReason = policy.canComment ? "" : `（${policy.label}は利用できません）`;
+  const canComment = policy.canComment && drawing.state !== "approved";
+  const disabledReason = canComment
+    ? ""
+    : drawing.state === "approved"
+      ? "（承認済み図面にはコメントを追加できません）"
+      : `（${policy.label}は利用できません）`;
   return `
     ${
       comments.length
@@ -663,13 +668,13 @@ function commentsSectionHtml(drawing, selected, policy) {
         : `<p class="empty-note">コメントはまだありません。</p>`
     }
     <form id="commentForm" class="compact-form">
-      <label>本文<textarea name="body" rows="2" maxlength="1000" placeholder="コメントを入力" ${policy.canComment ? "" : "disabled"}></textarea></label>
+      <label>本文<textarea name="body" rows="2" maxlength="1000" placeholder="コメントを入力" ${canComment ? "" : "disabled"}></textarea></label>
       ${
         selected
-          ? `<label><input type="checkbox" name="attachToSelected" checked ${policy.canComment ? "" : "disabled"} /> 選択図形（${escapeHtml(selected.id)}）に紐付け</label>`
+          ? `<label><input type="checkbox" name="attachToSelected" checked ${canComment ? "" : "disabled"} /> 選択図形（${escapeHtml(selected.id)}）に紐付け</label>`
           : ""
       }
-      <button type="submit" title="コメントを追加${disabledReason}" aria-label="コメントを追加${disabledReason}" ${policy.canComment ? "" : "disabled"}>コメントを追加</button>
+      <button type="submit" title="コメントを追加${disabledReason}" aria-label="コメントを追加${disabledReason}" ${canComment ? "" : "disabled"}>コメントを追加</button>
     </form>
   `;
 }

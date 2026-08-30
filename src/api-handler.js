@@ -124,6 +124,9 @@ export async function handleApiRequest(request, env = {}) {
       authorize(actor.actor, "canComment");
       const drawing = withActor(await getDrawing(store, commentsMatch[1]), actor.actor);
       const body = await readJson(request);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw httpError("JSON本文はオブジェクトである必要があります。", 400);
+      }
       const idempotencyKey = requireIdempotency(request);
       await rejectClaimedIdempotency(store, idempotencyKey);
       requireExpectedVersion(request, drawing);
