@@ -249,6 +249,11 @@ export function applyTransaction(drawing, transaction) {
         title: typeof patch.title === "string" ? patch.title.slice(0, 100) : next.layout?.title ?? ""
       };
     }
+
+    if (command.op === "update_drawing_meta") {
+      const patch = command.patch ?? {};
+      if (typeof patch.name === "string" && patch.name.trim()) next.name = patch.name.trim().slice(0, 120);
+    }
   }
 
   next.updatedAt = new Date().toISOString();

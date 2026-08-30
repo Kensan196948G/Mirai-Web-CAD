@@ -87,6 +87,11 @@ canvas:focus-visible {
   gap: 10px;
 }
 
+.brand-mark {
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
 .eyebrow {
   margin: 0;
   color: #91e3ec;
@@ -118,8 +123,8 @@ h2 {
 }
 
 .quick-btn {
-  width: 30px;
-  min-height: 30px;
+  width: 40px;
+  min-height: 40px;
   display: grid;
   place-items: center;
   border: none;
@@ -151,6 +156,16 @@ h2 {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--navy);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 12px;
 }
 
 .topbar-command {
@@ -1020,6 +1035,14 @@ dialog label {
 
   .drawing-meta {
     flex: 1;
+  }
+
+  .topbar-brand {
+    flex-wrap: wrap;
+  }
+
+  .quick-access {
+    flex-wrap: wrap;
   }
 
   .ribbon-group-label {

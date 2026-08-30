@@ -88,6 +88,7 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   }
 
   await page.getByLabel("権限を切替").selectOption("viewer");
+  await expect(page.locator(".role-badge")).toHaveText("閲覧者");
   await openDock(page, "レイヤー");
   const firstLayer = page.locator("[data-layer-visible]").first();
   await expect(firstLayer).toBeChecked();
@@ -142,6 +143,7 @@ test("新規図面、コマンドライン、JSON Importを連続操作できる
   });
   await expect(quantity).toHaveText("2");
   await expect(page.getByLabel("コマンドログ")).toContainText("Import完了: 1/1図形");
+  await expect(page.getByLabel("図面状態")).toContainText("survey");
 
   await openDock(page, "レイヤー");
   await expect(page.getByLabel("図面情報パネル").getByText("測量", { exact: true })).toBeVisible();
