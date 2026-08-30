@@ -9,14 +9,14 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "ユーザー明示依頼(AI操作履歴UI・図面コメント機能・外部LLM統合)に基づく4PR(#44 AI操作履歴ドックタブ、#45 図面コメント機能、#46 ブラウザ側APIキー廃止・サーバー管理移行、#47 OpenAI/Anthropicサーバー側プロキシ統合)を2026-08-30に全て実装・CI成功・CodeRabbit対応・main反映・本番反映まで完了(P0-32〜P0-35)。本番のAI_PROVIDER等環境変数は未設定のまま据え置き、ルールベースAIのみでfail-soft動作を継続中。実際の有効化(APIキー投入・AI_MODEL確定・学習利用オフ設定)は人間判断で別途実施が必要。次は80-90%代替方針のPhase 0(代替率測定基盤、100図面台帳・比較器設計)への移行、または残る#1〜#8の未着手項目(閲覧者の選択/計測/プロパティ参照導線、保存正本の統一表示P0-25等)への着手を検討する",
+  "goal": "2026-08-30、以下を全てmain反映・本番反映まで完了: (1)AI操作履歴UI・図面コメント機能・外部LLM統合4PR(#44-#47、P0-32〜P0-35)。本番AI_PROVIDER=anthropic/AI_MODEL=claude-sonnet-5を人間が投入しCTOが実プロバイダ疎通確認・2件のバグ修正(#49、P0-36)を経て実際に稼働開始。(2)Issue #7着手: 描画ループへ空間インデックス導入(#50、P0-37)。(3)Issue #4: 保存正本の統一表示(#51、P0-25)。(4)80-90%代替方針Phase 0(代替率測定基盤): 比較器・採点表(#52)、100図面台帳(#53)、対象/対象外定義文書・実装状態表示の是正(#54)の3PR完了(P0-38)。実案件100図面の収集自体は人間側のタスクとして継続、台帳は0件で待機中。残る未着手: Issue #5(Entra ID連携、認証情報を後日提供予定)、#6(DWG往復、ODAライセンス未着手のため見送り)、#8(当番実名、まだ未共有)、importers.jsの未対応entity非破棄L2化(P0-39)、実装状態表示のさらなる同期(P0-40相当は本セッションで一部対応済み)",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 122,
-    "e2e_test_count": 40,
+    "unit_test_count": 129,
+    "e2e_test_count": 44,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
     "blocker_count": 0
