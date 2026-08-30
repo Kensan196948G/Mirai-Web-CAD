@@ -21,7 +21,7 @@
 | 1 | DWG／DXFの読込・編集・書出し | 限定対応(DXF読込: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTの7種、未対応は警告付きスキップ)。**DXF書出し・DWG読込は実装予定**(Phase 1、[ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)でODA File Converter商用ライセンス取得を前提条件とする短期案を推奨、契約未着手のため未実装) | README「Import」行 |
 | 2 | 主要2D図形と精密編集 | 限定対応。TRIM/EXTENDは境界交点でなく線端座標移動、ポリラインOFFSETは真の平行曲線でなく重心基準の放射移動のため精密編集に形状誤差が生じ得る | README「作図」行 |
 | 3 | 寸法、文字、ハッチ、ブロック、レイヤー | 限定対応。`DIM`は2点間簡易寸法のみ、`HATCH`は島・境界探索なし、`BLOCK`は簡易構造(定義/参照分離・属性再定義・ライブラリ未対応) | README「コマンドライン」「レイヤー」行 |
-| 4 | レイアウトと尺度保証PDF | 限定対応。`window.print()`ベースの印刷は動作するが、ベクタ・尺度保証PDF出力は未実装(Phase 1、方針文書のP1-06相当) | README「作図補助」行 |
+| 4 | レイアウトと尺度保証PDF | 限定対応。`window.print()`ベースの印刷は動作するが、ベクタ・尺度保証PDF出力は未実装(Phase 1、方針文書のP1-06相当) | README「レイアウト」「CAD互換範囲」行 |
 | 5 | 案件・図面権限 | 限定対応。5ロール(閲覧者/作図者/レビュアー/承認者/CAD管理者)のRBACは実装済み。案件・工区・組織単位の管理は未実装(Phase 2) | README「権限」行 |
 | 6 | 版、差戻し、承認、監査 | 限定対応。下書き/レビュー提出/承認/新版作成、DB追記専用の監査ログ、CSV exportは実装済み | README「版/承認」行 |
 | 7 | 大規模図面の実用性能 | 一部対応。viewportカリング・空間インデックス(uniform grid)による描画最適化は実装済み。`hitTest`・OSnap・窓選択への適用、差分描画、Web Worker化、fps実測は未着手(Phase 2) | state.json blocked_issues #7 |
@@ -40,13 +40,14 @@
 
 高度な3Dモデリング / BIM authoring全般 / レンダリング / 機械・電気専用CAD機能 / AutoLISP・ARX等の完全互換 / AutoCAD全業種向け機能の網羅
 
+3Dソリッドを含む図面(内部CADモデルが2D entityのみ対応のため)はここに該当し、Phaseによる再評価対象ではない。台帳(`docs/compat-corpus/ledger.json`)では`scope: "out-of-scope"`、`outOfScopeReason`にこの節を引用して登録する(4.2の再評価対象とは区別する)。
+
 ### 4.2 Phase 0時点での比較器・採点の測定対象外(本書で新規に定義)
 
 以下は個々の図面属性として、Phase 0の比較器([drawing-compare.js](../src/drawing-compare.js))による採点対象から除外する。恒久的対象外ではなく、各Phaseでの再評価対象。
 
 | 属性 | 対象外の理由 | 再評価Phase |
 |---|---|---|
-| 3Dソリッドを含む図面 | 内部CADモデルが2D entityのみ対応 | 対象外(§2.3) |
 | XREF依存図 | 外部参照は90%要件(§2.2)、現行はimport時に単一図面へフラット化する設計がない | Phase 2 |
 | SHXカスタムフォント埋め込み | フォント埋め込みの解釈は未実装、日本語フォントは別途Phase 1のPDF出力で対応予定 | Phase 1 |
 | プロキシ・カスタムオブジェクト | DXF/DWGの非標準entity、ADR-0001が「非破壊のopaque保持」を受入条件として要求(P1-03c) | Phase 1 |
@@ -63,7 +64,7 @@
 |---|---|---|
 | entity | 期待側entity件数 | 件数一致、欠落(critical)/余剰(major)の検出 |
 | coordinate | ペア成立entityの座標点数+スカラー量(半径・幅高さ・回転等) | 各点の位置偏差が許容差以内か |
-| layer | レイヤー属性数(4)×レイヤー件数 + entity帰属件数 | 名称・color・visible・locked・printable、entity→layer帰属の保存 |
+| layer | レイヤー属性数(4: color/visible/locked/printable)×レイヤー件数 + entity帰属件数 | color・visible・locked・printableの一致、entity→layer帰属の保存。名称(name)はレイヤーの対応付け(マッチング)に用い、分母には含めない |
 | block | ペア成立block entity件数×5 | name・insertion・rotation・scale・children/attributes |
 | text | ペア成立text entity件数×3 | value(正規化後完全一致)・at・size |
 | dimension | ペア成立dimension entity件数×5 | 2点・offset・precision・suffix |
