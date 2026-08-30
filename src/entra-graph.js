@@ -13,12 +13,15 @@ const DEFAULT_GROUP_CACHE_TTL_MINUTES = 15;
 
 // モジュールスコープのインメモリキャッシュ。単一プロセス(このアプリはホスト常駐の単一
 // systemdサービスとして動作)内で共有し、リクエスト毎にMicrosoft Graphを呼ばないようにする。
+// tokenCacheは"tenantId:clientId"をキーにしたMapとし、テナント/クライアントが異なる
+// トークンが誤って再利用される(テナント跨ぎの混同)ことを構造的に防ぐ。本番は単一テナント
+// 構成のためキーは実質1件のみだが、テストや将来の設定変更でも安全側に倒す設計とする。
 // テストではresetEntraGraphCache()で初期化すること。
-let tokenCache = null; // { accessToken, expiresAt }
+let tokenCache = new Map(); // "tenantId:clientId" -> { accessToken, expiresAt }
 let groupCache = new Map(); // email(lowercase) -> { groupIds, expiresAt }
 
 export function resetEntraGraphCache() {
-  tokenCache = null;
+  tokenCache = new Map();
   groupCache = new Map();
 }
 
@@ -80,7 +83,9 @@ function resolveCacheTtlMs(value) {
 
 async function getAppAccessToken({ tenantId, clientId, clientSecret, fetchImpl }) {
   const now = Date.now();
-  if (tokenCache && tokenCache.expiresAt > now) return tokenCache.accessToken;
+  const cacheKey = `${tenantId}:${clientId}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.accessToken;
 
   const url = `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`;
   const body = new URLSearchParams({
@@ -103,7 +108,7 @@ async function getAppAccessToken({ tenantId, clientId, clientSecret, fetchImpl }
   }
   const expiresIn = Number(payload.expires_in);
   const ttlMs = (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 60 * 60 * 1000) - TOKEN_EXPIRY_SAFETY_MARGIN_MS;
-  tokenCache = { accessToken, expiresAt: now + Math.max(ttlMs, 0) };
+  tokenCache.set(cacheKey, { accessToken, expiresAt: now + Math.max(ttlMs, 0) });
   return accessToken;
 }
 

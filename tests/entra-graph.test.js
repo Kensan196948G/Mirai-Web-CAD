@@ -78,6 +78,29 @@ test("a second call for a different email reuses the cached app token but still 
   assert.equal(fetchImpl.calls.length, callsAfterFirst + 1); // only the graph call, token reused
 });
 
+test("the app token cache does not leak across different tenant/client configurations", async () => {
+  resetEntraGraphCache();
+  const tokensIssued = [];
+  const fetchImpl = async (url) => {
+    if (url.includes("login.microsoftonline.com")) {
+      const token = `token-for-${url}`;
+      tokensIssued.push(token);
+      return mockResponse(200, { access_token: token, expires_in: 3600 });
+    }
+    return groupsOk(["group-a"]);
+  };
+  const resolveTenantA = createEntraGroupResolver(BASE_ENV, fetchImpl);
+  const resolveTenantB = createEntraGroupResolver({ ...BASE_ENV, ENTRA_TENANT_ID: "tenant-2" }, fetchImpl);
+  // Distinct emails to isolate this test from the per-email group cache: the point here is
+  // whether the *token* cache is tenant-scoped, not whether the group cache is.
+  await resolveTenantA("user-a@example.com");
+  await resolveTenantB("user-b@example.com");
+  // Each tenant must obtain its own token (distinct login.microsoftonline.com/{tenant}/... URL),
+  // proving the cache key includes the tenant and a tenant-B request never reuses tenant-A's token.
+  assert.equal(tokensIssued.length, 2);
+  assert.notEqual(tokensIssued[0], tokensIssued[1]);
+});
+
 test("resetEntraGraphCache forces a fresh token and group lookup", async () => {
   resetEntraGraphCache();
   const fetchImpl = makeFetch({ token: tokenOk, graph: () => groupsOk(["group-a"]) });
