@@ -28,6 +28,7 @@ const USER_SETTINGS_KEY = "mirai-web-cad-settings";
 const GRID_INTERVALS = new Set([100, 250, 500, 1000]);
 const DOCK_WIDTH_MIN = 260;
 const DOCK_WIDTH_MAX = 380;
+const THEMES = new Set(["system", "light", "dark"]);
 const DEFAULT_USER_SETTINGS = Object.freeze({
   showGrid: true,
   snapEnabled: false,
@@ -38,7 +39,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   dimensionOffset: 350,
   dimensionPrecision: 0,
   dimensionSuffix: "",
-  dockWidth: 300
+  dockWidth: 300,
+  theme: "system"
 });
 
 const RIBBON_TABS = [
@@ -779,6 +781,14 @@ function settingsDialogHtml(drawing) {
                 .join("")}
             </select>
           </label>
+          <label>
+            表示テーマ
+            <select id="themeSelect" name="theme">
+              <option value="system" ${state.settings.theme === "system" ? "selected" : ""}>システム設定に合わせる</option>
+              <option value="light" ${state.settings.theme === "light" ? "selected" : ""}>ライトモード</option>
+              <option value="dark" ${state.settings.theme === "dark" ? "selected" : ""}>ダークモード</option>
+            </select>
+          </label>
         </fieldset>
         <dl class="system-summary">
           <dt>保存先</dt><dd>このブラウザ</dd>
@@ -824,6 +834,13 @@ function bindEvents() {
   document.querySelector("#closeSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#cancelSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#resetSettingsBtn").addEventListener("click", resetUserSettings);
+  document.querySelector("#themeSelect")?.addEventListener("change", (event) => {
+    const theme = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+    if (!THEMES.has(theme)) return;
+    state.settings = { ...state.settings, theme };
+    saveUserSettings();
+    applyTheme(theme);
+  });
   bindDockResize();
 
   /** @type {NodeListOf<HTMLButtonElement>} */
@@ -1030,9 +1047,11 @@ function saveSettingsFromForm(event) {
     dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
     dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
     dimensionSuffix: String(data.get("dimensionSuffix") ?? "").slice(0, 12),
-    dockWidth: state.settings.dockWidth
+    dockWidth: state.settings.dockWidth,
+    theme: THEMES.has(String(data.get("theme"))) ? String(data.get("theme")) : DEFAULT_USER_SETTINGS.theme
   };
   saveUserSettings();
+  applyTheme(state.settings.theme);
   log("システム設定を更新");
   /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
   render();
@@ -1041,6 +1060,7 @@ function saveSettingsFromForm(event) {
 function resetUserSettings() {
   state.settings = { ...DEFAULT_USER_SETTINGS };
   saveUserSettings();
+  applyTheme(state.settings.theme);
   log("システム設定を初期化");
   /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
   render();
@@ -2265,7 +2285,8 @@ function loadUserSettings() {
       dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
       dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
       dimensionSuffix: typeof stored?.dimensionSuffix === "string" ? stored.dimensionSuffix.slice(0, 12) : DEFAULT_USER_SETTINGS.dimensionSuffix,
-      dockWidth: Number.isFinite(dockWidth) ? Math.min(DOCK_WIDTH_MAX, Math.max(DOCK_WIDTH_MIN, dockWidth)) : DEFAULT_USER_SETTINGS.dockWidth
+      dockWidth: Number.isFinite(dockWidth) ? Math.min(DOCK_WIDTH_MAX, Math.max(DOCK_WIDTH_MIN, dockWidth)) : DEFAULT_USER_SETTINGS.dockWidth,
+      theme: THEMES.has(stored?.theme) ? stored.theme : DEFAULT_USER_SETTINGS.theme
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
@@ -2276,5 +2297,14 @@ function saveUserSettings() {
   localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
+function applyTheme(theme) {
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.dataset.theme = theme;
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+}
+
+applyTheme(state.settings.theme);
 render();
 checkApiHealth();

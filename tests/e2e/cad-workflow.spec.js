@@ -163,6 +163,28 @@ test("CriticalまたはSeriousのアクセシビリティ違反がない", async
   expect(blocking).toEqual([]);
 });
 
+test("ダークモード(システム設定)でもCriticalまたはSeriousのアクセシビリティ違反がない", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.reload();
+  await page.getByRole("button", { name: "デモ初期化" }).click();
+  const results = await new AxeBuilder({ page }).analyze();
+  const blocking = results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact));
+  expect(blocking).toEqual([]);
+});
+
+test("設定ダイアログでダークモードへその場で切り替えられ、再読込後も保持される", async ({ page }) => {
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await page.locator("#themeSelect").selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await page.locator("#themeSelect").selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
+
 test("URLと保存図面の文字列をHTMLとして実行しない", async ({ page }) => {
   await page.evaluate(() => {
     const drawing = JSON.parse(localStorage.getItem("mirai-web-cad-mvp"));
