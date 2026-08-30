@@ -57,6 +57,20 @@ test("agent proposal requires human approval before mutating drawing", () => {
   assert.equal(result.drawing.entities.length, drawing.entities.length + proposal.impact.add);
 });
 
+test("AI由来のトランザクションはcommandEventsにsource=agentとして記録される", () => {
+  const drawing = seedDrawing();
+  const beforeAgentEvents = drawing.commandEvents.filter((event) => event.source === "agent").length;
+  const proposal = buildAiProposal(drawing, "クレーンの重機範囲を追加");
+  const result = applyTransaction(drawing, proposalToTransaction(proposal, "drafter"));
+  assert.equal(result.ok, true);
+  const agentEvents = result.drawing.commandEvents.filter((event) => event.source === "agent");
+  assert.equal(agentEvents.length, beforeAgentEvents + 1);
+  assert.equal(agentEvents.at(-1).label, proposal.label);
+
+  const userEvent = result.drawing.commandEvents.find((event) => event.source === "user");
+  assert.equal(userEvent, undefined);
+});
+
 test("approval is rejected when role lacks approval permission", () => {
   const drawing = seedDrawing();
   const result = approveDrawing(drawing, "drafter");

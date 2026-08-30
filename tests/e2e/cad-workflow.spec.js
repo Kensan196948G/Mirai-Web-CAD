@@ -73,6 +73,10 @@ test("主要CAD画面は描画済みでAPI HealthとAI承認を操作できる",
   await expect(quantity).toHaveText(String(beforeCount + 3));
   await expect(page.getByLabel("コマンドログ")).toContainText("サーバー同期");
 
+  await openDock(page, "AI履歴");
+  await expect(page.locator(".ai-history-list li").first()).toContainText("クレーン作業範囲を追加");
+  await expect(page.locator(".ai-history-list li").first()).toContainText("追加 2");
+
   await testInfo.attach("cad-desktop", {
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png"
