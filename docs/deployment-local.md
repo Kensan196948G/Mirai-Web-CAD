@@ -62,7 +62,7 @@ ENTRA_GROUP_CACHE_TTL_MINUTES=15   # 任意、既定15分。グループ変更�
 - `ENTRA_GROUP_ROLE_MAP`の値も`ACCESS_ROLE_MAP`と同じくROLE_POLICIESに存在するロール名のみ許容。1人が複数のマッピング済みグループへ所属する場合は`cad_admin > approver > reviewer > drafter > viewer`の順で最も権限の強いロールを採用する(`src/api-handler.js`の`ROLE_PRECEDENCE`)
 - App Registration側でMicrosoft Graphの**Application permissions**(Delegatedではない)`GroupMember.Read.All`または`Group.Read.All`にテナント管理者のadmin consentが必要
 - グループGUIDはEntra管理センターの「グループ」詳細画面の「オブジェクトID」で確認できる
-- Client Secretには有効期限がある(登録時に選択。運用チームは2026-08-30時点で6ヶ月以内の期限を設定済み)。期限切れ前にEntra管理センターで再発行し、`production.env`を更新して`systemctl restart mirai-web-cad.service`すること。期限切れ後はEntra解決が失敗し続けるが、fail-softにより`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`へ縮退するだけでサービス全体は停止しない
+- Client Secretには有効期限がある(登録時に選択。運用チームは2026-08-30時点で1年の期限を設定済み)。期限切れ前にEntra管理センターで再発行し、`production.env`を更新して`systemctl restart mirai-web-cad.service`すること。期限切れ後はEntra解決が失敗し続けるが、fail-softにより`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`へ縮退するだけでサービス全体は停止しない
 - Entra解決の失敗(タイムアウト・認証エラー・応答不正)はいずれもログへメールアドレスを出力せずfail-softで`ACCESS_DEFAULT_ROLE`(既定`viewer`)へ縮退する。過大な権限へは決して昇格しない
 - グループ所属変更の反映には最大`ENTRA_GROUP_CACHE_TTL_MINUTES`分の遅延がある(インメモリキャッシュ、プロセス再起動で即時クリアされる)
 - キャッシュが空(プロセス起動直後・TTL切れ直後)の状態で複数利用者が同時にアクセスすると、各リクエストが独立してMicrosoft Graphへ問い合わせるため(リクエスト合流は未実装)、Entra ID側が輻輳中の場合に一時的な負荷集中が起き得る。7名規模のIT/DX部門での利用スケールでは実害は小さいと判断し、本実装では対応していない。将来の利用者数拡大時は再検討する

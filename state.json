@@ -71,7 +71,7 @@
       "id": "#5",
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "medium",
-      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。同日、利用者ログイン自体はOne-Time PINを維持しEntra IDへ差し替えない、案件単位RBACのためのグループ所属取得のみMicrosoft Graph APIへ非対話式(client credentials/app-only)でアクセスする方針にスコープを確定。ユーザーがEntra ID App Registrationを作成しTenant ID/Client ID/Client Secretを本番へ投入済み(P0-42で実装完了)。残るは(1)`ENTRA_GROUP_ROLE_MAP`への実際のグループGUID投入(グループ⇔ロール対応表は実装と並行して決める方針のため未確定)、(2)Client Secret 6ヶ月ローテーション運用の当番体制側の整備、(3)本番でのEntra ID実疎通確認(人間側タスク)"
+      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。同日、利用者ログイン自体はOne-Time PINを維持しEntra IDへ差し替えない、案件単位RBACのためのグループ所属取得のみMicrosoft Graph APIへ非対話式(client credentials/app-only)でアクセスする方針にスコープを確定。ユーザーがEntra ID App Registrationを作成しTenant ID/Client ID/Client Secretを本番へ投入済み(P0-42で実装完了)。残るは(1)`ENTRA_GROUP_ROLE_MAP`への実際のグループGUID投入(グループ⇔ロール対応表は実装と並行して決める方針のため未確定)、(2)Client Secret 1年ローテーション運用の当番体制側の整備、(3)本番でのEntra ID実疎通確認(人間側タスク)"
     },
     {
       "id": "#7",
