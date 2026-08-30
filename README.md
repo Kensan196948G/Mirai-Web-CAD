@@ -92,7 +92,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 
 ## CAD互換範囲
 
-現段階はAutoCAD/Ares Standardの完全互換ではありません。土木施工図向け2D作図、主要幾何編集、寸法、ハッチ、ブロック、レイヤー、レイアウト/PDF印刷を実装しています。DWG、DXF書出し、外部参照、3D、業界固有アドオンは対象外です。
+現段階はAutoCAD/Ares Standardの完全互換ではありません。土木施工図向け2D作図、主要幾何編集、寸法、ハッチ、ブロック、レイヤー、レイアウト/PDF印刷(`window.print()`ベース、ベクタ・尺度保証PDFは未実装)を実装しています。**DWG読込・DXF書出しは実装予定**(80-90%代替方針Phase 1、ADR-0001でODA File Converter商用ライセンス取得を前提条件とする短期案を推奨、現時点で契約未着手)であり、恒久的な対象外ではありません。外部参照(XREF)、3D、業界固有アドオンは現行ロードマップで対象外です。対象/限定対応/対象外の詳細な線引きと再校正手順は[代替範囲・採点基準](docs/compat-scope-and-scoring.md)を参照してください。
 
 ## 関連文書
 
