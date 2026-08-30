@@ -48,7 +48,7 @@ sudo systemctl restart mirai-web-cad.service
 echo "health check待機中..."
 ok=0
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT:-18812}/api/health" | grep -q '"ok":true'; then
+  if curl -fsS "http://127.0.0.1:${PORT:-18812}/api/health" | grep -qE '"ok":[[:space:]]*true'; then
     ok=1
     break
   fi
