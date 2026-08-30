@@ -117,6 +117,27 @@ sudo systemctl restart mirai-web-cad.service
 
 Cloudflare Tunnel/DNSに問題がある場合は、Cloudflare Pages Custom Domainを再アタッチする(Pagesプロジェクト・`functions/`・`wrangler.toml`はロールバック手段として当面残置している)。
 
+## Cloudflareエッジキャッシュ(リポジトリ外設定、重要)
+
+2026-08-30、UI更新を本番反映してもブラウザに変化が反映されない障害が発生した(P0-30参照)。原因はCloudflareのZone設定`Browser Cache TTL`が`14400`(4時間、固定値)になっており、`_headers`でオリジンが`/src/*`に`Cache-Control: no-cache, must-revalidate`を送っても、CloudflareがこれをZone設定のTTLで上書きしていたため。
+
+対応として、`mirai-web-cad.mirai-dx-platform.com`ホスト名限定(他サブドメイン非対象)のCache Rule(`http_request_cache_settings`フェーズ、式`(http.host eq "mirai-web-cad.mirai-dx-platform.com" and starts_with(http.request.uri.path, "/src/"))`、アクション`set_cache_settings` / `cache: false`)をCloudflare API経由で追加し、`/src/*`をエッジキャッシュから完全にバイパスするよう設定した。**この設定はGitリポジトリ管理外(Cloudflareダッシュボード/APIのみ)であり、コードやCIから再現できない。** Zoneを作り直す場合や他ホスト名へ切り替える場合は、このCache Ruleを再作成すること。
+
+確認方法:
+
+```bash
+curl -sI https://mirai-web-cad.mirai-dx-platform.com/src/app.js | grep -i "cache-control\|cf-cache-status"
+# cache-control: no-cache, must-revalidate
+# cf-cache-status: DYNAMIC (bypassされていることを示す。HITが出たら要調査)
+```
+
+デプロイ後に古いUIが表示される場合の緊急対応(Cache Ruleが機能していない・別途キャッシュ層が挟まった等の異常時のみ):
+
+```bash
+# Cloudflare API経由でキャッシュを強制パージ(mcp__cloudflare-api__executeまたはdashboardから)
+# 対象: https://mirai-web-cad.mirai-dx-platform.com/ 、/src/app.js 、/src/styles.css 等
+```
+
 ## 既知の制約
 
 - 本番サービスがこのホスト(kensan1969)の稼働に依存する。ホスト停止・ネットワーク断で本番が停止する
