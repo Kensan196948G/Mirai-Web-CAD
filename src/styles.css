@@ -1038,10 +1038,16 @@ dialog label {
   }
 
   .topbar-brand {
+    width: 100%;
+    min-width: 0;
     flex-wrap: wrap;
   }
 
   .quick-access {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     flex-wrap: wrap;
   }
 
