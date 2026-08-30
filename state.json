@@ -70,7 +70,7 @@
       "id": "#5",
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "medium",
-      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。残るはEntra ID/HENNGE ONE連携(IdP管理者権限が必要)と、複数利用者・案件単位RBACの本格運用"
+      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。残るはEntra ID/HENNGE ONE連携と、複数利用者・案件単位RBACの本格運用。2026-08-30、スコープをユーザーが確定: 利用者ログイン自体はCloudflare Access One-Time PINを維持しEntra IDへ差し替えない。案件単位RBACのためのグループ所属取得のみ、Microsoft Graph APIへ非対話式(client credentials/app-only、Application permissions `GroupMember.Read.All`等)でアクセスし、Access JWTのメールアドレスをキーにグループ→ロールへマッピングする設計とする。実装にはEntra ID管理者からTenant ID/Client ID/client secretまたはcertificate/グループ⇔ロール対応表の提供が必要(未提供、後日予定)"
     },
     {
       "id": "#7",
