@@ -8,7 +8,7 @@
     "production_host": "kensan1969 (local, systemd + Cloudflare Tunnel)",
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)"
   },
-  "goal": "Cloudflare Access新設(2026-08-30)後のソーク運用(合成監視・バックアップ鮮度)を確認する。次点でEntra ID連携・複数利用者展開(Issue #5)、DWG往復(#6)、性能改善(#7)、当番表・SLA(#8)を優先度順に継続する",
+  "goal": "Cloudflare Access新設(2026-08-30)後のソーク運用(合成監視・バックアップ鮮度)を確認する。DWG往復(#6)はADR選定完了・SDK契約は人間承認待ち、性能改善(#7)はviewportカリング着手・空間index等は未着手、当番表・SLA(#8)は枠組み整備済み・実名割当は人間入力待ち。Entra ID連携(#5)は最後の展開として保留",
   "phase": "Verify",
   "kpi": {
     "success_rate_target": 0.9,
@@ -62,19 +62,19 @@
       "id": "#6",
       "title": "DWG往復と2D CAD中核機能を実案件で認定する",
       "severity": "high",
-      "blocker_reason": "20〜40日規模。ODA/RealDWG等のSDK選定(ADR)から着手が必要"
+      "blocker_reason": "選定ADR(docs/adr/ADR-0001-dwg-dxf-roundtrip-engine.md、2026-08-30)完了。短期はDXF正本+ODA File Converter CLIブリッジ、中期はODA SDK正式契約を推奨。契約・予算化・実装着手(P1-03a〜d)は人間承認待ち"
     },
     {
       "id": "#7",
       "title": "100k図形/30fpsと暗号化offline復旧要件を満たす",
       "severity": "medium",
-      "blocker_reason": "30日規模の性能改修"
+      "blocker_reason": "viewportカリング(boundsIntersect/entityBounds)を2026-08-30に実装し描画コストを軽減。hitTest等のO(n)検索の空間index化、差分描画、Web Worker化、fps/入力遅延の性能テストは未着手。30日規模の残作業のためスコープ確定が必要"
     },
     {
       "id": "#8",
       "title": "本番バックアップ・監視・障害対応を自動化する",
       "severity": "medium",
-      "blocker_reason": "バックアップ・合成監視は導入済み。残るは当番表・重大度別SLA・Cloudflare Access通知連携"
+      "blocker_reason": "バックアップ・合成監視は導入済み。重大度定義・SLA目標・エスカレーション経路・当番表テンプレートをdocs/operations.mdに追加(2026-08-30)。残るは当番の実名・連絡先割当(人手入力)"
     }
   ],
   "learning": {
@@ -87,8 +87,9 @@
       "CodeRabbit等の自動レビューで指摘されたIssue誤close/重複作成リスクは、タイトル文字列一致ではなく専用ラベルの組合せで識別すると再現性高く防げる",
       "Dependabot PRのbase更新競合は、隔離した一時clone上でconflict解消してpushすれば、対象PRブランチを汚さず安全に統合できる",
       "大規模アーキテクチャ変更(Neon廃止)はEnterPlanModeで計画を確定させ、Phase 0〜2(完全可逆)を先に検証してからPhase 3(DNS切替、不可逆に近い)の直前でY/N確認する段階的アプローチが有効だった",
-      "Neon依存の実態はdata-store.js 1ファイルに集中しており、api-handler.js・migrations・DB運用スクリプトは無変更で移行できた。事前のExplore調査(3並列)で依存範囲を正確に把握したことが移行規模の見積り精度に直結した"
+      "Neon依存の実態はdata-store.js 1ファイルに集中しており、api-handler.js・migrations・DB運用スクリプトは無変更で移行できた。事前のExplore調査(3並列)で依存範囲を正確に把握したことが移行規模の見積り精度に直結した",
+      "20〜40日規模の大型Issue(#6 DWG往復、#7 性能改善)は、いきなり全体実装を試みず、契約判断を要する部分はADR化(選定調査・推奨案の提示に限定し契約自体は人間承認待ちとする)、コード実装を要する部分は非破壊的な最初の一歩(viewportカリング等、既存動作を壊さず単体テスト可能な範囲)に絞ることで、1セッションでも安全に前進できた"
     ]
   },
-  "last_updated": "2026-08-30T09:35:00+09:00"
+  "last_updated": "2026-08-30T10:55:00+09:00"
 }

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   applyTransaction,
   approveDrawing,
+  boundsIntersect,
   buildAiProposal,
   circle,
+  entityBounds,
   line,
   measurements,
   proposalToTransaction,
@@ -97,4 +99,15 @@ test("layer updates use the audited transaction path", () => {
   assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").name, "施工構造");
   assert.equal(result.drawing.layers.find((layer) => layer.id === "layer-structure").color, "#1574b8");
   assert.equal(result.drawing.commandEvents.at(-1).label, "lock layer");
+});
+
+test("boundsIntersect detects overlap, disjoint and touching boxes", () => {
+  const viewport = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+  assert.equal(boundsIntersect({ minX: 10, minY: 10, maxX: 20, maxY: 20 }, viewport), true);
+  assert.equal(boundsIntersect({ minX: -50, minY: -50, maxX: 150, maxY: 150 }, viewport), true);
+  assert.equal(boundsIntersect({ minX: 100, minY: 0, maxX: 120, maxY: 10 }, viewport), true);
+  assert.equal(boundsIntersect({ minX: 200, minY: 200, maxX: 220, maxY: 220 }, viewport), false);
+  assert.equal(boundsIntersect(null, viewport), true);
+  assert.equal(boundsIntersect(entityBounds(circle("layer-temporary", [10000, 10000], 5)), viewport), false);
+  assert.equal(boundsIntersect(entityBounds(line("layer-temporary", [10, 10], [50, 50])), viewport), true);
 });

@@ -1,6 +1,7 @@
 import {
   ROLE_POLICIES,
   applyTransaction,
+  boundsIntersect,
   buildAiProposal,
   createDrawing,
   circle,
@@ -1778,7 +1779,9 @@ function drawCanvas(pointerWorld = null) {
   drawGrid(ctx, canvas);
   drawPaper(ctx);
 
+  const viewport = worldViewportBounds(canvas);
   for (const entity of drawing.entities) {
+    if (!boundsIntersect(entityBounds(entity), viewport)) continue;
     drawEntity(ctx, entity, entity.id === state.selectedId ? "#ff8a00" : null);
   }
 
@@ -1949,6 +1952,17 @@ function screenToWorld(x, y) {
   return {
     x: (x - state.camera.x) / state.camera.scale,
     y: (y - state.camera.y) / state.camera.scale
+  };
+}
+
+function worldViewportBounds(canvas) {
+  const topLeft = screenToWorld(0, 0);
+  const bottomRight = screenToWorld(canvas.width, canvas.height);
+  return {
+    minX: Math.min(topLeft.x, bottomRight.x),
+    minY: Math.min(topLeft.y, bottomRight.y),
+    maxX: Math.max(topLeft.x, bottomRight.x),
+    maxY: Math.max(topLeft.y, bottomRight.y)
   };
 }
 

@@ -525,6 +525,11 @@ export function entityBounds(entity) {
   return null;
 }
 
+export function boundsIntersect(a, b) {
+  if (!a || !b) return true;
+  return a.maxX >= b.minX && a.minX <= b.maxX && a.maxY >= b.minY && a.minY <= b.maxY;
+}
+
 export function entityLength(entity) {
   if (entity.type === "line") return distance(entity.points[0], entity.points[1]);
   if (entity.type === "polyline") {
