@@ -261,7 +261,7 @@ const state = {
   pendingOperation: null,
   layoutDraft: null,
   aiStatus: { known: false, enabled: false, provider: null, model: null },
-  saveConflict: false
+  saveStatus: "idle"
 };
 
 function activeLayoutDrawing(drawing) {
@@ -1436,6 +1436,7 @@ function resetAuthoringState() {
   state.pendingOperation = null;
   state.space = "model";
   state.layoutDraft = null;
+  state.saveStatus = "idle";
 }
 
 async function applyOperationForm(event) {
@@ -1592,8 +1593,10 @@ async function changeReviewState(action) {
       body: JSON.stringify({ action })
     });
     state.drawing = body.drawing;
+    state.saveStatus = "synced";
     persist({ submit: "レビュー提出", approve: "承認完了", new_version: "新版作成" }[action]);
   } catch (error) {
+    state.saveStatus = error instanceof Error && "status" in error && error.status === 409 ? "conflict" : "unsynced";
     log(`API操作失敗: ${errorMessage(error)}`);
     render();
   }
@@ -1926,10 +1929,12 @@ async function applyAiProposal() {
         body: JSON.stringify({ drawingId: state.drawing.id, proposal: state.previewProposal })
       });
       state.drawing = body.drawing;
+      state.saveStatus = "synced";
       state.previewProposal = null;
       state.previewRunId = null;
       persist("AI提案を承認適用 / サーバー同期");
     } catch (error) {
+      state.saveStatus = error instanceof Error && "status" in error && error.status === 409 ? "conflict" : "unsynced";
       log(`AI適用失敗: ${errorMessage(error)}`);
       render();
     }
@@ -1943,6 +1948,7 @@ async function applyAiProposal() {
     return;
   }
   state.drawing = result.drawing;
+  state.saveStatus = "unsynced";
   state.previewProposal = null;
   persist("AI提案を承認適用");
 }
@@ -1952,6 +1958,7 @@ async function commitCommands(label, commands, options = {}) {
   const path = options.path ?? `/api/drawings/${state.drawing.id}/transactions`;
   const requestBody = options.body ?? { label, commands };
   if (state.apiStatus.connected) {
+    state.saveStatus = "syncing";
     try {
       const body = await apiRequest(path, {
         method: "POST",
@@ -1959,12 +1966,12 @@ async function commitCommands(label, commands, options = {}) {
         body: JSON.stringify(requestBody)
       });
       state.drawing = body.drawing;
-      state.saveConflict = false;
+      state.saveStatus = "synced";
       recordDrawingHistory(before, options);
       persist(`${label} / サーバー同期`);
       return true;
     } catch (error) {
-      state.saveConflict = error instanceof Error && "status" in error && error.status === 409;
+      state.saveStatus = error instanceof Error && "status" in error && error.status === 409 ? "conflict" : "unsynced";
       log(`${label}失敗: ${errorMessage(error)}`);
       render();
       return false;
@@ -1983,6 +1990,7 @@ async function commitCommands(label, commands, options = {}) {
     return false;
   }
   state.drawing = result.drawing;
+  state.saveStatus = "unsynced";
   recordDrawingHistory(before, options);
   persist(label);
   return true;
@@ -2243,7 +2251,7 @@ async function checkApiHealth() {
     const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
     if (drawingBody.drawing.id !== state.drawing.id) state.layoutDraft = null;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
-    state.saveConflict = false;
+    state.saveStatus = "synced";
     saveDrawing(state.drawing);
     state.apiStatus = {
       state: "ok",
@@ -2315,15 +2323,22 @@ function stateLabel(value) {
 }
 
 function saveStatusInfo() {
-  if (state.saveConflict) {
+  if (state.saveStatus === "conflict") {
     return {
       key: "conflict",
       label: "競合",
       description: "サーバー側の版と競合しました。API Healthで最新の状態を再取得してください。"
     };
   }
-  if (state.apiStatus.state === "loading") {
+  if (state.saveStatus === "syncing" || state.apiStatus.state === "loading") {
     return { key: "syncing", label: "同期中", description: "サーバーと同期しています。" };
+  }
+  if (state.saveStatus === "unsynced") {
+    return {
+      key: "offline",
+      label: "保存に失敗しました",
+      description: "直前の変更がサーバーへ反映されていません。変更はこのブラウザにのみ保存されています。再試行するかAPI Healthで状態を確認してください。"
+    };
   }
   if (state.apiStatus.connected) {
     return {
