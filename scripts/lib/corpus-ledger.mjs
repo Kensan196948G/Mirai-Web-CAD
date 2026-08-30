@@ -85,6 +85,8 @@ export function validateLedger(ledger) {
       errors.push(`${prefix}.file.relativePath: 必須です。`);
     } else if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes("..")) {
       errors.push(`${prefix}.file.relativePath: 絶対パスまたは".."を含めることはできません: ${relativePath}`);
+    } else if (!relativePath.toLowerCase().endsWith(".dxf")) {
+      errors.push(`${prefix}.file.relativePath: Phase 0は.dxf拡張子のみ受入です: ${relativePath}`);
     }
 
     if (typeof entry.file?.sha256 !== "string" || !SHA256_PATTERN.test(entry.file.sha256)) {

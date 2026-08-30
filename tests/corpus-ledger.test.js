@@ -98,6 +98,13 @@ test("validateLedger rejects a file.format other than dxf, matching the Phase 0 
   assert.ok(result.errors.some((error) => error.includes("file.format")));
 });
 
+test("validateLedger rejects a relativePath whose extension is not .dxf even if format claims dxf", () => {
+  const ledger = baseLedger([grantedEntry({ file: { ...grantedEntry().file, relativePath: "a/b.dwg" } })]);
+  const result = validateLedger(ledger);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes(".dxf拡張子")));
+});
+
 test("validateLedger rejects an unparsable license.expiresAt instead of silently treating it as unmeasurable-safe", () => {
   const ledger = baseLedger([grantedEntry({ license: { ...grantedEntry().license, expiresAt: "not-a-date" } })]);
   const result = validateLedger(ledger);
