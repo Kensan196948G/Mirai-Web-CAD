@@ -309,7 +309,12 @@ function render() {
           <label>
             権限
             <span class="role-badge">${escapeHtml(policy.label)}</span>
-            <select id="roleSelect" aria-label="権限を切替" ${state.apiStatus.roleLocked ? "disabled" : ""}>
+            <select
+              id="roleSelect"
+              aria-label="権限を切替${state.apiStatus.roleLocked ? `（認証済みの権限「${policy.label}」に固定されています。変更するにはCloudflare Accessでログインし直してください）` : ""}"
+              title="${state.apiStatus.roleLocked ? `認証済みの権限「${policy.label}」に固定されています。変更するにはログインが必要です。` : "権限を切替"}"
+              ${state.apiStatus.roleLocked ? "disabled" : ""}
+            >
               ${Object.entries(ROLE_POLICIES)
                 .map(
                   ([role, policy]) =>
