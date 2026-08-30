@@ -38,6 +38,8 @@ test("主要CAD画面は描画済みでAPI HealthとAI承認を操作できる",
   await page.getByRole("button", { name: "API Health" }).click();
   await expect(page.locator(".api-status")).toContainText("mirai-web-cad-api");
   await expect(page.locator(".api-status")).toContainText("同期済み");
+  await expect(page.locator(".save-status")).toHaveText("サーバー同期済み");
+  await expect(page.locator(".save-status")).toHaveClass(/synced/);
 
   if (testInfo.project.name === "mobile-chromium") {
     await testInfo.attach("cad-mobile", {
@@ -254,6 +256,15 @@ test("旧バージョンのブラウザ側AI設定キーが残っていても起
   await page.reload();
   const remaining = await page.evaluate(() => localStorage.getItem("mirai-web-cad-ai-settings"));
   expect(remaining).toBeNull();
+});
+
+test("サーバー接続に失敗すると保存状態バッジがオフラインを示す", async ({ page }) => {
+  await page.route("**/api/health", (route) => route.abort("failed"));
+  await openDock(page, "検査/承認");
+  await page.getByRole("button", { name: "API Health" }).click();
+  await expect(page.locator(".save-status")).toHaveText("オフライン");
+  await expect(page.locator(".save-status")).toHaveClass(/offline/);
+  await expect(page.locator(".save-status")).toHaveAttribute("title", /このブラウザにのみ保存/);
 });
 
 test("狭い画面でも主要操作領域が表示範囲を破綻させない", async ({ page }) => {

@@ -260,7 +260,8 @@ const state = {
   dock: "props",
   pendingOperation: null,
   layoutDraft: null,
-  aiStatus: { known: false, enabled: false, provider: null, model: null }
+  aiStatus: { known: false, enabled: false, provider: null, model: null },
+  saveConflict: false
 };
 
 function activeLayoutDrawing(drawing) {
@@ -304,6 +305,9 @@ function render() {
           <strong>${escapeHtml(drawing.name)}</strong>
           <span>Version ${escapeHtml(drawing.version)}</span>
           <span>${escapeHtml(stateLabel(drawing.state))}</span>
+          <span class="save-status ${saveStatusInfo().key}" title="${escapeHtml(saveStatusInfo().description)}" aria-label="保存状態: ${escapeHtml(
+            saveStatusInfo().label
+          )}（${escapeHtml(saveStatusInfo().description)}）">${escapeHtml(saveStatusInfo().label)}</span>
           <label>
             権限
             <span class="role-badge">${escapeHtml(policy.label)}</span>
@@ -921,8 +925,7 @@ function settingsDialogHtml(drawing) {
           </dl>
         </fieldset>
         <dl class="system-summary">
-          <dt>保存先</dt><dd>このブラウザ</dd>
-          <dt>API</dt><dd>${escapeHtml(state.apiStatus.connected ? "接続済み" : "未確認")}</dd>
+          <dt>保存状態</dt><dd>${escapeHtml(saveStatusInfo().label)}（${escapeHtml(saveStatusInfo().description)}）</dd>
           <dt>バージョン</dt><dd>0.1.0</dd>
         </dl>
         <div class="dialog-actions settings-actions">
@@ -1956,10 +1959,12 @@ async function commitCommands(label, commands, options = {}) {
         body: JSON.stringify(requestBody)
       });
       state.drawing = body.drawing;
+      state.saveConflict = false;
       recordDrawingHistory(before, options);
       persist(`${label} / サーバー同期`);
       return true;
     } catch (error) {
+      state.saveConflict = error instanceof Error && "status" in error && error.status === 409;
       log(`${label}失敗: ${errorMessage(error)}`);
       render();
       return false;
@@ -2238,6 +2243,7 @@ async function checkApiHealth() {
     const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
     if (drawingBody.drawing.id !== state.drawing.id) state.layoutDraft = null;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
+    state.saveConflict = false;
     saveDrawing(state.drawing);
     state.apiStatus = {
       state: "ok",
@@ -2272,7 +2278,9 @@ async function apiRequest(pathname, options = {}) {
     }
   });
   const body = await response.json();
-  if (!response.ok || !body.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  if (!response.ok || !body.ok) {
+    throw Object.assign(new Error(body.error ?? `HTTP ${response.status}`), { status: response.status });
+  }
   return body;
 }
 
@@ -2304,6 +2312,38 @@ function stateLabel(value) {
     approved: "承認済み",
     rejected: "差戻し"
   }[value] ?? value;
+}
+
+function saveStatusInfo() {
+  if (state.saveConflict) {
+    return {
+      key: "conflict",
+      label: "競合",
+      description: "サーバー側の版と競合しました。API Healthで最新の状態を再取得してください。"
+    };
+  }
+  if (state.apiStatus.state === "loading") {
+    return { key: "syncing", label: "同期中", description: "サーバーと同期しています。" };
+  }
+  if (state.apiStatus.connected) {
+    return {
+      key: "synced",
+      label: "サーバー同期済み",
+      description: "この図面はサーバーに保存され、他の利用者と共有されています。"
+    };
+  }
+  if (state.apiStatus.state === "error") {
+    return {
+      key: "offline",
+      label: "オフライン",
+      description: "サーバーに接続できません。変更はこのブラウザにのみ保存され、他の利用者と共有されません。"
+    };
+  }
+  return {
+    key: "local-only",
+    label: "ブラウザのみ保存",
+    description: "サーバー同期が未確認です。変更はこのブラウザにのみ保存されます。"
+  };
 }
 
 function layerName(layerId) {

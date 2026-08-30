@@ -257,6 +257,32 @@ h2 {
   margin-left: 4px;
 }
 
+.save-status {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.save-status.synced {
+  background: #1e946f33;
+  border-color: #1e946f88;
+}
+
+.save-status.local-only,
+.save-status.offline {
+  background: #a26a1d33;
+  border-color: #a26a1d88;
+}
+
+.save-status.syncing {
+  background: #1574b833;
+  border-color: #1574b888;
+}
+
+.save-status.conflict {
+  background: #d14f4f33;
+  border-color: #d14f4f88;
+}
+
 .ribbon-tabs {
   display: flex;
   align-items: flex-end;
