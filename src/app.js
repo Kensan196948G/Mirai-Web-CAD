@@ -239,6 +239,9 @@ const state = {
   draftPoints: [],
   previewProposal: null,
   previewRunId: null,
+  aiBusy: false,
+  aiError: null,
+  aiEngine: null,
   camera: { x: 50, y: 40, scale: 0.075 },
   commandLog: ["起動: Mirai Web CAD"],
   commandHistory: [],
@@ -708,11 +711,22 @@ function aiDockHtml() {
   return `
     <section>
       <h2>AI Agent</h2>
-      <textarea id="aiPrompt" rows="3" placeholder="例: クレーンの重機範囲を追加"></textarea>
+      ${
+        state.aiStatus.known && !state.aiStatus.enabled
+          ? `<p class="empty-note">外部LLMは未設定です。「重機/クレーン」「標準/整理」「注記/寸法」等のルールベース提案のみ動作します。</p>`
+          : ""
+      }
+      <textarea id="aiPrompt" rows="3" placeholder="例: クレーンの重機範囲を追加" ${state.aiBusy ? "disabled" : ""}></textarea>
       <div class="button-row">
-        <button id="planAiBtn">Preview</button>
-        <button id="applyAiBtn" ${state.previewProposal?.status === "planned" ? "" : "disabled"}>承認して適用</button>
+        <button id="planAiBtn" ${state.aiBusy ? "disabled" : ""}>${state.aiBusy ? "生成中..." : "Preview"}</button>
+        <button id="applyAiBtn" ${state.previewProposal?.status === "planned" && !state.aiBusy ? "" : "disabled"}>承認して適用</button>
       </div>
+      ${state.aiError ? `<p class="ai-preview-error">${escapeHtml(state.aiError)}</p>` : ""}
+      ${
+        state.aiEngine === "llm" && state.previewProposal
+          ? `<p class="empty-note">エンジン: LLM(${escapeHtml(state.previewProposal.provider ?? "-")} / ${escapeHtml(state.previewProposal.model ?? "-")})</p>`
+          : ""
+      }
       <div id="aiPreview" class="preview-box">${proposalHtml()}</div>
     </section>
   `;
@@ -1864,6 +1878,9 @@ function snapshotCommands(current, target) {
 async function planAiProposal() {
   const promptInput = /** @type {HTMLTextAreaElement} */ (document.querySelector("#aiPrompt"));
   const promptValue = promptInput.value;
+  state.aiBusy = true;
+  state.aiError = null;
+  render();
   if (state.apiStatus.connected) {
     try {
       const body = await apiRequest(`/api/drawings/${state.drawing.id}/agent-runs`, {
@@ -1872,7 +1889,10 @@ async function planAiProposal() {
       });
       state.previewProposal = body.run.proposal;
       state.previewRunId = body.run.id;
+      state.aiEngine = body.run.proposal?.engine ?? "rule";
     } catch (error) {
+      state.aiBusy = false;
+      state.aiError = errorMessage(error);
       log(`AI Preview失敗: ${errorMessage(error)}`);
       render();
       return;
@@ -1880,7 +1900,9 @@ async function planAiProposal() {
   } else {
     state.previewProposal = buildAiProposal(state.drawing, promptValue);
     state.previewRunId = null;
+    state.aiEngine = "rule";
   }
+  state.aiBusy = false;
   log(state.previewProposal.status === "planned" ? `AI Preview生成: ${state.previewProposal.label}` : "AI追加入力が必要");
   render();
 }
@@ -2325,16 +2347,16 @@ function drawStateOverlay(ctx, canvas, mode) {
 function proposalHtml() {
   const proposal = state.previewProposal;
   if (!proposal) return "<p>AI提案はまだありません。Previewで差分を生成します。</p>";
-  if (proposal.status === "needs_input") return `<p class="warn">${escapeHtml(proposal.question)}</p>`;
+  if (proposal.status === "needs_input") return `<p class="warn">${escapeHtml(proposal.question ?? "追加の情報が必要です。")}</p>`;
   return `
     <dl>
-      <dt>Skill</dt><dd>${escapeHtml(proposal.skill.id)}@${escapeHtml(proposal.skill.version)}</dd>
-      <dt>Impact</dt><dd>追加 ${escapeHtml(proposal.impact.add)} / 更新 ${escapeHtml(proposal.impact.update)} / 削除 ${escapeHtml(
-        proposal.impact.delete
+      <dt>Skill</dt><dd>${escapeHtml(proposal.skill?.id ?? "-")}@${escapeHtml(proposal.skill?.version ?? "-")}</dd>
+      <dt>Impact</dt><dd>追加 ${escapeHtml(proposal.impact?.add ?? 0)} / 更新 ${escapeHtml(proposal.impact?.update ?? 0)} / 削除 ${escapeHtml(
+        proposal.impact?.delete ?? 0
       )}</dd>
-      <dt>Gate</dt><dd>${escapeHtml(proposal.postconditions.join(", "))}</dd>
+      <dt>Gate</dt><dd>${escapeHtml((proposal.postconditions ?? []).join(", "))}</dd>
     </dl>
-    ${proposal.warnings.map((warning) => `<p class="warn">${escapeHtml(warning)}</p>`).join("")}
+    ${(proposal.warnings ?? []).map((warning) => `<p class="warn">${escapeHtml(warning)}</p>`).join("")}
   `;
 }
 

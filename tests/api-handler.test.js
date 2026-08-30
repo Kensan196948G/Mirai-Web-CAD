@@ -496,6 +496,135 @@ test("agent run preview then explicit approval mutates drawing", async () => {
   assert.equal(approveBody.drawing.entities.length, before.drawing.entities.length + 2);
 });
 
+test("agent-runs prefers the rule-based engine and never calls the LLM stub when a rule matches", async () => {
+  resetMemoryStore();
+  let called = false;
+  const envWithStub = { ...env, AI_COMPLETION: async () => { called = true; return { status: "planned", commands: [] }; } };
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/agent-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "drafter" },
+      body: JSON.stringify({ prompt: "クレーンの重機範囲を追加" })
+    }),
+    envWithStub
+  );
+  const body = await response.json();
+  assert.equal(body.run.proposal.status, "planned");
+  assert.equal(called, false);
+});
+
+test("agent-runs falls back to the LLM stub when the rule engine needs input, and normalizes commands without leaking the prompt in audit logs", async () => {
+  resetMemoryStore();
+  const envWithStub = {
+    ...env,
+    AI_COMPLETION: async () => ({
+      status: "planned",
+      label: "LLM提案: 仮設フェンス追加",
+      commands: [
+        { op: "add", entityType: "line", layerId: "layer-temporary", start: { x: 100, y: 100 }, end: { x: 500, y: 100 } },
+        { op: "delete_layer", id: "layer-structure" }
+      ]
+    })
+  };
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/agent-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "drafter", "idempotency-key": "llm-fallback" },
+      body: JSON.stringify({ prompt: "仮設フェンスをここに追加して欲しい機密パスワードsk-leak-me" })
+    }),
+    envWithStub
+  );
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(body.run.proposal.status, "planned");
+  assert.equal(body.run.proposal.engine, "llm");
+  assert.equal(body.run.proposal.commands.length, 1);
+  assert.equal(body.run.proposal.commands[0].op, "add");
+  assert.match(body.run.proposal.warnings.join(" "), /不正または未対応の操作/);
+
+  const auditResponse = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const auditBody = await auditResponse.json();
+  const plannedAudit = auditBody.auditLogs.find((entry) => entry.action === "agent.planned" && entry.targetId === body.run.id);
+  assert.ok(plannedAudit);
+  assert.equal(plannedAudit.detail.engine, "llm");
+  assert.equal(JSON.stringify(plannedAudit.detail).includes("機密パスワードsk-leak-me"), false);
+});
+
+test("agent-runs rejects LLM commands that add entities outside the paper bounds or reference a nonexistent layer", async () => {
+  resetMemoryStore();
+  const envWithStub = {
+    ...env,
+    AI_COMPLETION: async () => ({
+      status: "planned",
+      commands: [
+        { op: "add", entityType: "circle", layerId: "layer-temporary", center: { x: 999999, y: 0 }, radius: 100 },
+        { op: "add", entityType: "circle", layerId: "layer-does-not-exist", center: { x: 100, y: 100 }, radius: 50 }
+      ]
+    })
+  };
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/agent-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "drafter", "idempotency-key": "llm-bounds" },
+      body: JSON.stringify({ prompt: "円をたくさん置いて" })
+    }),
+    envWithStub
+  );
+  const body = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(body.run.proposal.status, "needs_input");
+  assert.match(body.run.proposal.warnings.join(" "), /用紙範囲外/);
+});
+
+test("agent-runs fails soft to rule-based needs_input when the LLM stub throws", async () => {
+  resetMemoryStore();
+  const envWithStub = { ...env, AI_COMPLETION: async () => { throw new Error("upstream exploded with a secret key sk-123"); } };
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/agent-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "drafter", "idempotency-key": "llm-fail-soft" },
+      body: JSON.stringify({ prompt: "この線を5m延長して" })
+    }),
+    envWithStub
+  );
+  const body = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(body.run.proposal.status, "needs_input");
+  assert.equal(JSON.stringify(body).includes("sk-123"), false);
+});
+
+test("agent-runs enforces the AI rate limit only for LLM-backed requests", async () => {
+  resetMemoryStore();
+  const envWithStub = {
+    ...env,
+    AI_RATE_LIMIT_PER_MINUTE: "2",
+    AI_COMPLETION: async () => ({ status: "needs_input", question: "もっと具体的に教えてください。" })
+  };
+  const attempt = (key) =>
+    handleApiRequest(
+      new Request("https://example.test/api/drawings/dwg_demo_001/agent-runs", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-demo-role": "drafter",
+          "x-demo-actor": "rate-limit-tester@example.com",
+          "idempotency-key": key
+        },
+        body: JSON.stringify({ prompt: "この線を5m延長して" })
+      }),
+      envWithStub
+    );
+  const first = await attempt("rate-1");
+  const second = await attempt("rate-2");
+  const third = await attempt("rate-3");
+  assert.equal(first.status, 202);
+  assert.equal(second.status, 202);
+  assert.equal(third.status, 429);
+});
+
 test("reviewer can post a comment without canEdit, and it is audited without leaking the body", async () => {
   resetMemoryStore();
   const response = await handleApiRequest(

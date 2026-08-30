@@ -46,7 +46,12 @@ const server = createServer(async (req, res) => {
       ACCESS_DEFAULT_ROLE: process.env.ACCESS_DEFAULT_ROLE,
       CF_ACCESS_TEAM_DOMAIN: process.env.CF_ACCESS_TEAM_DOMAIN,
       CF_ACCESS_AUD: process.env.CF_ACCESS_AUD,
-      CORS_ORIGIN: process.env.CORS_ORIGIN
+      CORS_ORIGIN: process.env.CORS_ORIGIN,
+      AI_PROVIDER: process.env.AI_PROVIDER,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      AI_MODEL: process.env.AI_MODEL,
+      AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE
     });
     await writeFetchResponse(res, response);
     return;
