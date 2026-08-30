@@ -251,8 +251,13 @@ const state = {
   ribbonTab: "home",
   space: "model",
   dock: "props",
-  pendingOperation: null
+  pendingOperation: null,
+  layoutDraft: null
 };
+
+function activeLayoutDrawing(drawing) {
+  return state.layoutDraft ? { ...drawing, layout: { ...drawing.layout, ...state.layoutDraft } } : drawing;
+}
 
 const app = document.querySelector("#app");
 
@@ -270,10 +275,10 @@ function render() {
           <h1>Mirai Web CAD</h1>
         </div>
         <div class="quick-access" role="group" aria-label="クイックアクセス">
-          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面" aria-label="新規図面" ${policy.canEdit ? "" : "disabled"}>${icon("newfile")}</button>
-          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）" aria-label="開く" ${policy.canEdit ? "" : "disabled"}>${icon("open")}</button>
+          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("newfile")}</button>
+          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="開く${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("open")}</button>
           <input id="importFile" type="file" accept=".json,.dxf,application/json" hidden />
-          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存" aria-label="上書き保存" ${policy.canEdit ? "" : "disabled"}>${icon("save")}</button>
+          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("save")}</button>
           <button id="undoBtn" class="quick-btn" type="button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>${icon("undo")}</button>
           <button id="redoBtn" class="quick-btn" type="button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>${icon("redo")}</button>
           <button id="quickPrintBtn" class="quick-btn" type="button" title="印刷 / レイアウト" aria-label="印刷">${icon("print")}</button>
@@ -331,7 +336,7 @@ function render() {
           <span class="zoom-readout">${Math.round(state.camera.scale * 1000)}%</span>
           <button id="fitBtn" type="button" title="図面範囲表示" aria-label="図面範囲表示">全体表示</button>
         </div>
-        ${state.space === "layout" ? layoutSpaceHtml(drawing) : modelSpaceHtml(drawing)}
+        ${state.space === "layout" ? layoutSpaceHtml(activeLayoutDrawing(drawing)) : modelSpaceHtml(drawing)}
       </section>
       <div
         id="dockResizeHandle"
@@ -375,7 +380,7 @@ function render() {
   `;
 
   /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--dock-width", `${state.settings.dockWidth}px`);
-  if (state.space === "layout") applyLayoutGeometry(drawing);
+  if (state.space === "layout") applyLayoutGeometry(activeLayoutDrawing(drawing));
   bindEvents();
   drawCanvas();
 }
@@ -401,7 +406,9 @@ function ribbonButtonHtml(entry, policy) {
     ? `data-tool="${escapeHtml(entry.tool)}"`
     : `data-act="${escapeHtml(entry.act)}"${entry.arg !== undefined ? ` data-arg="${escapeHtml(String(entry.arg))}"` : ""}`;
   const disabled = ribbonButtonDisabled(entry, policy);
-  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(entry.title)}" aria-label="${escapeHtml(entry.title)}" ${disabled ? "disabled" : ""}>${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
+  const reason = disabled ? `（${policy.label}は利用できません）` : "";
+  const labelText = `${entry.title}${reason}`;
+  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(labelText)}" aria-label="${escapeHtml(labelText)}" ${disabled ? "disabled" : ""}>${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
 }
 
 function modelSpaceHtml(drawing) {
@@ -1263,6 +1270,7 @@ function resetAuthoringState() {
   state.measurement = null;
   state.pendingOperation = null;
   state.space = "model";
+  state.layoutDraft = null;
 }
 
 async function applyOperationForm(event) {
@@ -1341,20 +1349,22 @@ async function createLayerFromForm(event) {
 async function updateLayoutFromForm(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
-  await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+  const ok = await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+  if (ok) state.layoutDraft = null;
 }
 
 function previewLayoutFromForm(event) {
   const form = /** @type {HTMLFormElement} */ (event.currentTarget);
   const data = new FormData(form);
-  const previewDrawing = { ...state.drawing, layout: { ...state.drawing.layout, ...Object.fromEntries(data) } };
+  state.layoutDraft = Object.fromEntries(data);
+  const previewDrawing = activeLayoutDrawing(state.drawing);
   const stage = document.querySelector(".layout-stage");
   if (stage) stage.innerHTML = layoutPreviewHtml(previewDrawing);
   applyLayoutGeometry(previewDrawing);
 }
 
 function printDrawing() {
-  document.body.dataset.printPaper = state.drawing.layout?.paper ?? "A3";
+  document.body.dataset.printPaper = activeLayoutDrawing(state.drawing).layout?.paper ?? "A3";
   log("印刷プレビューを開きます。送信先でPDF保存を選択できます。");
   render();
   setTimeout(() => window.print(), 0);
@@ -1730,7 +1740,7 @@ async function applyAiProposal() {
       state.drawing = body.drawing;
       state.previewProposal = null;
       state.previewRunId = null;
-      persist("AI提案を承認適用 / Neon同期");
+      persist("AI提案を承認適用 / サーバー同期");
     } catch (error) {
       log(`AI適用失敗: ${errorMessage(error)}`);
       render();
@@ -1760,7 +1770,7 @@ async function commitCommands(label, commands, options = {}) {
       });
       state.drawing = body.drawing;
       recordDrawingHistory(before, options);
-      persist(`${label} / Neon同期`);
+      persist(`${label} / サーバー同期`);
       return true;
     } catch (error) {
       log(`${label}失敗: ${errorMessage(error)}`);
