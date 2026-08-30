@@ -257,7 +257,7 @@ const state = {
   dock: "props",
   pendingOperation: null,
   layoutDraft: null,
-  aiStatus: { enabled: false, provider: null, model: null }
+  aiStatus: { known: false, enabled: false, provider: null, model: null }
 };
 
 function activeLayoutDrawing(drawing) {
@@ -895,9 +895,15 @@ function settingsDialogHtml(drawing) {
             <strong>APIキーはこのブラウザには保存も送信もされません。</strong>
           </p>
           <dl class="system-summary">
-            <dt>状態</dt><dd>${state.aiStatus.enabled ? "有効" : "未設定（ルールベースAIのみ動作）"}</dd>
-            ${state.aiStatus.enabled ? `<dt>プロバイダ</dt><dd>${escapeHtml(state.aiStatus.provider ?? "-")}</dd>` : ""}
-            ${state.aiStatus.enabled ? `<dt>モデル</dt><dd>${escapeHtml(state.aiStatus.model ?? "-")}</dd>` : ""}
+            <dt>状態</dt><dd>${
+              !state.aiStatus.known
+                ? "確認できません（権限不足または通信エラー）"
+                : state.aiStatus.enabled
+                  ? "有効"
+                  : "未設定（ルールベースAIのみ動作）"
+            }</dd>
+            ${state.aiStatus.known && state.aiStatus.enabled ? `<dt>プロバイダ</dt><dd>${escapeHtml(state.aiStatus.provider ?? "-")}</dd>` : ""}
+            ${state.aiStatus.known && state.aiStatus.enabled ? `<dt>モデル</dt><dd>${escapeHtml(state.aiStatus.model ?? "-")}</dd>` : ""}
           </dl>
         </fieldset>
         <dl class="system-summary">
@@ -2210,12 +2216,13 @@ async function checkApiHealth() {
     try {
       const aiStatusBody = await apiRequest("/api/ai/status");
       state.aiStatus = {
+        known: true,
         enabled: aiStatusBody.enabled === true,
         provider: aiStatusBody.provider ?? null,
         model: aiStatusBody.model ?? null
       };
     } catch {
-      state.aiStatus = { enabled: false, provider: null, model: null };
+      state.aiStatus = { known: false, enabled: false, provider: null, model: null };
     }
   } catch (error) {
     state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false, roleLocked: true };
