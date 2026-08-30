@@ -127,6 +127,14 @@ function validateEnv() {
   const corsOrigin = requireEnv("CORS_ORIGIN", missing);
   const accessRoleMapRaw = requireEnv("ACCESS_ROLE_MAP", missing);
 
+  const aiProvider = process.env.AI_PROVIDER;
+  if (aiProvider !== undefined && aiProvider !== "openai" && aiProvider !== "anthropic") {
+    missing.push("AI_PROVIDER(must be 'openai' or 'anthropic' if set)");
+  }
+  if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY(required when AI_PROVIDER=openai)");
+  if (aiProvider === "anthropic" && !process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY(required when AI_PROVIDER=anthropic)");
+  if (aiProvider && !process.env.AI_MODEL) missing.push("AI_MODEL(required when AI_PROVIDER is set)");
+
   if (missing.length > 0) {
     log("error", "missing or invalid required environment variables, refusing to start", { missing });
     process.exit(78); // EX_CONFIG
@@ -161,7 +169,12 @@ function validateEnv() {
     ACCESS_DEFAULT_ROLE: process.env.ACCESS_DEFAULT_ROLE,
     CF_ACCESS_TEAM_DOMAIN: cfAccessTeamDomain,
     CF_ACCESS_AUD: cfAccessAud,
-    CORS_ORIGIN: corsOrigin
+    CORS_ORIGIN: corsOrigin,
+    AI_PROVIDER: aiProvider,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    AI_MODEL: process.env.AI_MODEL,
+    AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE
   };
 }
 

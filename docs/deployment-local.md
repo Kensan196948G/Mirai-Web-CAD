@@ -36,6 +36,18 @@ CORS_ORIGIN=https://mirai-web-cad.mirai-dx-platform.com
 
 `ACCESS_ROLE_MAP`の値は`src/cad-core.js`の`ROLE_POLICIES`に存在するロール名(`viewer`/`drafter`/`reviewer`/`approver`/`cad_admin`)のみを使うこと。`scripts/serve-production.mjs`は起動時にこれを検証し、不正な値があれば起動を拒否する。
 
+**外部LLM連携(任意)**: 以下を追加すると`POST /api/drawings/:id/agent-runs`がルールベースAIで拾えなかったプロンプトをOpenAI/Anthropicへフォールバックする。未設定の場合はルールベースAIのみで動作し続ける(fail-soft)。
+
+```
+AI_PROVIDER=openai            # または anthropic。未設定なら外部LLMは無効
+OPENAI_API_KEY=sk-...         # AI_PROVIDER=openaiの場合必須
+ANTHROPIC_API_KEY=sk-ant-...  # AI_PROVIDER=anthropicの場合必須
+AI_MODEL=<現行モデルID>        # AI_PROVIDER設定時は必須。値は各社公式ドキュメントで実装時点の現行版を確認しコードにはハードコードしない
+AI_RATE_LIMIT_PER_MINUTE=10   # 任意、既定10。actor単位でLLM呼び出しのみを制限(ルールベース応答は制限しない)
+```
+
+APIキーはサーバーの環境変数のみで管理され、ブラウザには一切保存・送信されない(`GET /api/ai/status`は有効状態・プロバイダ名・モデル名のみを返し、鍵自体は返さない)。設定後は各プロバイダの管理コンソールで「学習利用オフ」等のデータガバナンス設定を人手で確認すること(コード外の運用手順)。
+
 ### 3. Migration適用
 
 ```bash

@@ -711,6 +711,15 @@ select {
   line-height: 1.5;
 }
 
+.ai-preview-error {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid #efc6c6;
+  background: #fff3f3;
+  color: var(--red);
+  font-size: 12px;
+}
+
 .wide {
   width: 100%;
   margin-top: 8px;

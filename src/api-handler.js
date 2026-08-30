@@ -12,6 +12,8 @@ import {
 } from "./cad-core.js";
 import { createDataStore, resetMemoryStoreData } from "./data-store.js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { describeAiConfig, createAiCompletion } from "./ai-provider.js";
+import { COMMAND_SCHEMA, buildSystemPrompt, buildUserMessage, normalizeLlmProposal } from "./ai-proposal.js";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -23,6 +25,8 @@ const JSON_HEADERS = {
 };
 
 const MAX_JSON_BYTES = 1_048_576;
+const AI_RATE_LIMIT_WINDOW_MS = 60_000;
+const aiRateLimitState = new Map();
 
 export async function handleApiRequest(request, env = {}) {
   const store = createDataStore(env);
@@ -156,18 +160,44 @@ export async function handleApiRequest(request, env = {}) {
       authorize(actor.actor, "canRunAi");
       const drawing = withActor(await getDrawing(store, agentMatch[1]), actor.actor);
       const body = await readJson(request);
-      const proposal = buildAiProposal(drawing, body.prompt ?? "");
+      const prompt = typeof body.prompt === "string" ? body.prompt : "";
+      let proposal = buildAiProposal(drawing, prompt);
+      let engine = "rule";
+      let provider = null;
+      let model = null;
+      if (proposal.status === "needs_input" && prompt.trim()) {
+        const complete = env.AI_COMPLETION ?? createAiCompletion(env);
+        if (complete) {
+          checkAiRateLimit(env, actor.actor.id);
+          const config = describeAiConfig(env);
+          provider = config.provider;
+          model = config.model;
+          try {
+            const raw = await complete(buildSystemPrompt(drawing), buildUserMessage(prompt), COMMAND_SCHEMA);
+            proposal = normalizeLlmProposal(drawing, raw, { provider, model });
+            engine = "llm";
+          } catch {
+            // fail-soft: LLM障害時もルールベースのneeds_inputのまま返す
+          }
+        }
+      }
       const run = {
         id: `run_${cryptoSafeId()}`,
         drawingId: drawing.id,
         status: proposal.status,
-        prompt: body.prompt ?? "",
+        prompt,
         proposal,
         createdBy: actor.actor.id,
         createdAt: new Date().toISOString()
       };
       await store.saveAgentRun(run);
-      await audit(store, actor.actor, "agent.planned", "agent_run", run.id, { status: run.status });
+      await audit(store, actor.actor, "agent.planned", "agent_run", run.id, {
+        status: run.status,
+        engine,
+        provider,
+        model,
+        promptChars: prompt.length
+      });
       return json({ ok: true, run }, proposal.status === "planned" ? 201 : 202, cors);
     }
 
@@ -257,7 +287,7 @@ export async function handleApiRequest(request, env = {}) {
 
     if (request.method === "GET" && route === "/ai/status") {
       authorize(actor.actor, "canRunAi");
-      const status = resolveAiStatus(env);
+      const status = describeAiConfig(env);
       return json({ ok: true, ...status }, 200, cors);
     }
 
@@ -335,11 +365,16 @@ function authMode(env) {
   return env.APP_ENV === "production" ? "access" : "demo";
 }
 
-function resolveAiStatus(env) {
-  const provider = env.AI_PROVIDER === "openai" || env.AI_PROVIDER === "anthropic" ? env.AI_PROVIDER : null;
-  const hasKey = provider === "openai" ? Boolean(env.OPENAI_API_KEY) : provider === "anthropic" ? Boolean(env.ANTHROPIC_API_KEY) : false;
-  const enabled = Boolean(provider && hasKey && env.AI_MODEL);
-  return { enabled, provider: enabled ? provider : null, model: enabled ? env.AI_MODEL : null };
+function checkAiRateLimit(env, actorId) {
+  const configured = Number(env.AI_RATE_LIMIT_PER_MINUTE);
+  const limit = Number.isFinite(configured) && configured > 0 ? configured : 10;
+  const now = Date.now();
+  const timestamps = (aiRateLimitState.get(actorId) ?? []).filter((at) => now - at < AI_RATE_LIMIT_WINDOW_MS);
+  if (timestamps.length >= limit) {
+    throw httpError("AI提案のリクエスト回数が上限に達しました。しばらくしてから再試行してください。", 429);
+  }
+  timestamps.push(now);
+  aiRateLimitState.set(actorId, timestamps);
 }
 
 function authorize(actor, capability) {
