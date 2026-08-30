@@ -75,6 +75,18 @@ Web調査(2026年8月時点の公開情報)に基づく比較。**ライセン�
 4. 実案件図面データの外部送信可否のポリシー確認(選択肢④を将来再検討する場合)
 5. 上記タスク分解(P1-03a〜d)に基づく工数計画・スケジュールの承認
 
+## 補遺(2026-08-30): Phase 0時点でのDWGバージョン方針
+
+80-90%代替方針Phase 0(代替率測定基盤)の着手時点で、以下を確定する。本ADRのステータス(提案中)は変更しない。ODA File Converter商用ライセンス取得は依然として未取得・未検討であり、DWG対応の実装自体は見送る。
+
+1. **Phase 0の受入形式はASCII DXFのみとする。** DWGバイナリの受領・採点はPhase 0では行わない
+2. 図面提供者への依頼文言: 「DWGではなくASCII DXFで提供し、元図のDWGバージョンを台帳(`docs/compat-corpus/ledger.json`の`file.originalDwgVersion`)に記入する」
+3. この`originalDwgVersion`フィールドの意義: Phase 0の期間中に実案件のDWGバージョン分布が実データとして蓄積される。**Phase 1で「どのバージョンに対応すべきか」を推測ではなく実測で決定できる** — これはPhase 0が生む具体的な成果物のひとつである
+4. 保留理由: 上記「次のステップ」1に記載の通り、ODA File Converterの商用利用許諾が未取得のため(2026-08-30時点で契約手続き未着手)
+5. 保留解除条件: ODA会員契約または明示的な許諾の取得(人間承認事項、上記「次のステップ」1・2)。取得後、実際にDWGバージョンを確定する際は**新規にADR-0002を起票する**(本ADRへの追記ではなく独立したADRとする。エンジン選定という既に完了した意思決定と、バージョン確定という別個の意思決定を区別するため)
+
+詳細な対象/対象外の線引きは[代替範囲・採点基準](../compat-scope-and-scoring.md)を参照。
+
 ## 参考情報源
 
 - Open Design Alliance Pricing / Membership FAQ: https://www.opendesign.com/pricing , https://www.opendesign.com/faq/membership

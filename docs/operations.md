@@ -204,8 +204,8 @@ IT/DX 7名での運用を想定した枠組み。**当番の実名・連絡先�
 
 ## 既知制約
 
-- Mirai JSONとASCII DXFの2D Importに対応。DWG、DXF書出し、PDF、寸法、ブロック、ハッチは試作〜限定対応(README参照)
-- AIは外部LLMではなくルールベースのMVP提案
+- Mirai JSONとASCII DXFの2D Importに対応。DWG読込・DXF書出しは未実装(80-90%代替方針Phase 1で対応予定、ADR-0001参照)。PDF、寸法、ブロック、ハッチは試作〜限定対応(README参照)
+- AIはルールベース提案を優先し、拾えない場合のみサーバー側プロキシ経由でOpenAI/Anthropicへフォールバックする(2026-08-30〜、PR#47/#49)。本番の実際の有効化状態は`GET /api/ai/status`で確認可能(鍵は返さない)
 - 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。SPA、health、公開デモは匿名200。任意図面と全更新は未認証401
 - `mirai-web-cad.pages.dev`はロールバック手段として残置しているが、mainマージでは更新されない(SPAのみ200、`/api`は移行前のNeon接続コードのまま機能しない)
 - Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログイン方式はOne-Time PIN(Entra ID等の外部IdP未連携)。案件単位RBAC・複数利用者への展開は引き続きIssue #5の残課題
