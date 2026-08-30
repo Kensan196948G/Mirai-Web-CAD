@@ -15,7 +15,7 @@
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 133,
+    "unit_test_count": 149,
     "e2e_test_count": 44,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
@@ -63,14 +63,15 @@
     "P0-37 描画ループへ空間インデックス(uniform grid)を導入(Issue #7着手、PR#50)",
     "P0-25 保存正本(サーバ/ブラウザ一時/未同期/競合)の統一表示(saveStatusInfo新設)",
     "P0-38 代替率測定インフラ(比較器・採点表・100図面台帳・対象/対象外定義文書、PR#52/#53/#54)",
-    "P0-41 DWG対応を方針から撤回しDXF単体運用へ確定(ADR-0002、ユーザーがAskUserQuestionで確定。Issue #6をDXF往復認定へリタイトル)"
+    "P0-41 DWG対応を方針から撤回しDXF単体運用へ確定(ADR-0002、ユーザーがAskUserQuestionで確定。Issue #6をDXF往復認定へリタイトル)",
+    "P0-42 Entra IDグループ所属によるRBAC動的マッピングの実装(src/entra-graph.js、resolveActorへACCESS_ROLE_MAP→Entra ID→ACCESS_DEFAULT_ROLEの3段階解決を追加)"
   ],
   "blocked_issues": [
     {
       "id": "#5",
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "medium",
-      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。残るはEntra ID/HENNGE ONE連携と、複数利用者・案件単位RBACの本格運用。2026-08-30、スコープをユーザーが確定: 利用者ログイン自体はCloudflare Access One-Time PINを維持しEntra IDへ差し替えない。案件単位RBACのためのグループ所属取得のみ、Microsoft Graph APIへ非対話式(client credentials/app-only、Application permissions `GroupMember.Read.All`等)でアクセスし、Access JWTのメールアドレスをキーにグループ→ロールへマッピングする設計とする。実装にはEntra ID管理者からTenant ID/Client ID/client secretまたはcertificate/グループ⇔ロール対応表の提供が必要(未提供、後日予定)"
+      "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。同日、利用者ログイン自体はOne-Time PINを維持しEntra IDへ差し替えない、案件単位RBACのためのグループ所属取得のみMicrosoft Graph APIへ非対話式(client credentials/app-only)でアクセスする方針にスコープを確定。ユーザーがEntra ID App Registrationを作成しTenant ID/Client ID/Client Secretを本番へ投入済み(P0-42で実装完了)。残るは(1)`ENTRA_GROUP_ROLE_MAP`への実際のグループGUID投入(グループ⇔ロール対応表は実装と並行して決める方針のため未確定)、(2)Client Secret 6ヶ月ローテーション運用の当番体制側の整備、(3)本番でのEntra ID実疎通確認(人間側タスク)"
     },
     {
       "id": "#7",

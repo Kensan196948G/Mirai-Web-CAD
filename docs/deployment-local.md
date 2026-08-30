@@ -48,6 +48,25 @@ AI_RATE_LIMIT_PER_MINUTE=10   # 任意、既定10。actor単位でLLM呼び出�
 
 APIキーはサーバーの環境変数のみで管理され、ブラウザには一切保存・送信されない(`GET /api/ai/status`は有効状態・プロバイダ名・モデル名のみを返し、鍵自体は返さない)。設定後は各プロバイダの管理コンソールで「学習利用オフ」等のデータガバナンス設定を人手で確認すること(コード外の運用手順)。
 
+**Entra IDグループ同期(任意、Issue #5)**: 利用者ログイン自体はCloudflare Access One-Time PINのままとし、案件単位RBACのためのグループ所属取得のみをMicrosoft Graph APIへ非対話式(client credentials flow)でアクセスして行う。`ACCESS_ROLE_MAP`(メール直接指定)による解決が優先され、そこに一致しない利用者だけがEntra IDグループ経由で解決される。以下を追加すると有効化される。未設定の場合は`ACCESS_ROLE_MAP`とその後の`ACCESS_DEFAULT_ROLE`(既定`viewer`)のみで動作し続ける(fail-soft)。
+
+```
+ENTRA_TENANT_ID=<Entra IDテナントID>
+ENTRA_CLIENT_ID=<App RegistrationのApplication (client) ID>
+ENTRA_CLIENT_SECRET=<Client secret値>
+ENTRA_GROUP_ROLE_MAP={"<グループGUID>":"reviewer","<グループGUID>":"approver"}
+ENTRA_GROUP_CACHE_TTL_MINUTES=15   # 任意、既定15分。グループ変更の反映遅延の上限になる
+```
+
+- `ENTRA_TENANT_ID`/`ENTRA_CLIENT_ID`/`ENTRA_CLIENT_SECRET`は1つでも設定すると3つとも必須(`scripts/serve-production.mjs`が起動時検証)
+- `ENTRA_GROUP_ROLE_MAP`の値も`ACCESS_ROLE_MAP`と同じくROLE_POLICIESに存在するロール名のみ許容。1人が複数のマッピング済みグループへ所属する場合は`cad_admin > approver > reviewer > drafter > viewer`の順で最も権限の強いロールを採用する(`src/api-handler.js`の`ROLE_PRECEDENCE`)
+- App Registration側でMicrosoft Graphの**Application permissions**(Delegatedではない)`GroupMember.Read.All`または`Group.Read.All`にテナント管理者のadmin consentが必要
+- グループGUIDはEntra管理センターの「グループ」詳細画面の「オブジェクトID」で確認できる
+- Client Secretには有効期限がある(登録時に選択。運用チームは2026-08-30時点で6ヶ月以内の期限を設定済み)。期限切れ前にEntra管理センターで再発行し、`production.env`を更新して`systemctl restart mirai-web-cad.service`すること。期限切れ後はEntra解決が失敗し続けるが、fail-softにより`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`へ縮退するだけでサービス全体は停止しない
+- Entra解決の失敗(タイムアウト・認証エラー・応答不正)はいずれもログへメールアドレスを出力せずfail-softで`ACCESS_DEFAULT_ROLE`(既定`viewer`)へ縮退する。過大な権限へは決して昇格しない
+- グループ所属変更の反映には最大`ENTRA_GROUP_CACHE_TTL_MINUTES`分の遅延がある(インメモリキャッシュ、プロセス再起動で即時クリアされる)
+- キャッシュが空(プロセス起動直後・TTL切れ直後)の状態で複数利用者が同時にアクセスすると、各リクエストが独立してMicrosoft Graphへ問い合わせるため(リクエスト合流は未実装)、Entra ID側が輻輳中の場合に一時的な負荷集中が起き得る。7名規模のIT/DX部門での利用スケールでは実害は小さいと判断し、本実装では対応していない。将来の利用者数拡大時は再検討する
+
 ### 3. Migration適用
 
 ```bash

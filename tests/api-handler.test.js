@@ -197,6 +197,71 @@ test("access mode ignores client role spoofing and uses server role mapping", as
   assert.equal(body.auth.role, "drafter");
 });
 
+test("access mode resolves role from Entra ID group membership when ACCESS_ROLE_MAP has no match, choosing the highest-privilege matched group", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/health", {
+      headers: { "cf-access-jwt-assertion": "signed-test-token" }
+    }),
+    {
+      APP_ENV: "production",
+      AUTH_MODE: "access",
+      ACCESS_ROLE_MAP: JSON.stringify({ "drafter@example.com": "drafter" }),
+      ENTRA_GROUP_ROLE_MAP: JSON.stringify({ "group-reviewer": "reviewer", "group-approver": "approver" }),
+      ACCESS_JWT_VERIFIER: async () => ({ email: "unmapped@example.com" }),
+      ENTRA_GROUP_RESOLVER: async (email) => {
+        assert.equal(email, "unmapped@example.com");
+        return ["group-reviewer", "group-approver", "group-unknown"];
+      }
+    }
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.auth.role, "approver");
+});
+
+test("access mode prefers ACCESS_ROLE_MAP over Entra group resolution when both would match", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/health", {
+      headers: { "cf-access-jwt-assertion": "signed-test-token" }
+    }),
+    {
+      APP_ENV: "production",
+      AUTH_MODE: "access",
+      ACCESS_ROLE_MAP: JSON.stringify({ "both@example.com": "reviewer" }),
+      ENTRA_GROUP_ROLE_MAP: JSON.stringify({ "group-admin": "cad_admin" }),
+      ACCESS_JWT_VERIFIER: async () => ({ email: "both@example.com" }),
+      ENTRA_GROUP_RESOLVER: async () => {
+        throw new Error("must not be called when ACCESS_ROLE_MAP already matched");
+      }
+    }
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.auth.role, "reviewer");
+});
+
+test("access mode falls back to ACCESS_DEFAULT_ROLE when Entra group resolution fails or has no mapped group", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/health", {
+      headers: { "cf-access-jwt-assertion": "signed-test-token" }
+    }),
+    {
+      APP_ENV: "production",
+      AUTH_MODE: "access",
+      ACCESS_DEFAULT_ROLE: "viewer",
+      ENTRA_GROUP_ROLE_MAP: JSON.stringify({ "group-approver": "approver" }),
+      ACCESS_JWT_VERIFIER: async () => ({ email: "nogroup@example.com" }),
+      ENTRA_GROUP_RESOLVER: async () => null
+    }
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.auth.role, "viewer");
+});
+
 test("access mode fails closed when JWT verifier configuration is absent", async () => {
   resetMemoryStore();
   const response = await handleApiRequest(

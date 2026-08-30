@@ -208,7 +208,7 @@ IT/DX 7名での運用を想定した枠組み。**当番の実名・連絡先�
 - AIはルールベース提案を優先し、拾えない場合のみサーバー側プロキシ経由でOpenAI/Anthropicへフォールバックする(2026-08-30〜、PR#47/#49)。本番の実際の有効化状態は`GET /api/ai/status`で確認可能(鍵は返さない)
 - 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。SPA、health、公開デモは匿名200。任意図面と全更新は未認証401
 - `mirai-web-cad.pages.dev`はロールバック手段として残置しているが、mainマージでは更新されない(SPAのみ200、`/api`は移行前のNeon接続コードのまま機能しない)
-- Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログイン方式はOne-Time PIN(Entra ID等の外部IdP未連携)。案件単位RBAC・複数利用者への展開は引き続きIssue #5の残課題
+- Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログイン方式はOne-Time PIN(Entra IDへの差し替えなし、2026-08-30にユーザーが確定)。案件単位RBACのための Entra ID グループ⇔ロール動的マッピングは実装済み(`src/entra-graph.js`、Microsoft Graph APIを非対話式client credentials flowで呼び出し、`ACCESS_ROLE_MAP`不一致時のみ`ENTRA_GROUP_ROLE_MAP`で解決、インメモリキャッシュ既定15分、解決失敗はfail-softで`ACCESS_DEFAULT_ROLE`へ縮退。設定手順は[ローカルデプロイ運用メモ](deployment-local.md)参照)。未設定のまま(`ENTRA_TENANT_ID`等3変数)では従来通り`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`のみで動作する。複数利用者への実運用展開(グループ⇔ロール対応表の確定・投入)は引き続きIssue #5の残課題
 - Production DBはこのホスト(kensan1969)上のローカルPostgreSQL 16、DB名`mirai_web_cad`
 - 本番サービスがこのホストの稼働・ネットワークに依存する。ホスト停止・ネットワーク断で本番が停止する
 - `mirai-web-cad.service`のsystemdユニットは`IPAddressDeny=any`を採用していない(Cloudflare Access JWKS取得の外向きHTTPSに必要なため)。インバウンド制限は`127.0.0.1`バインドと`RestrictAddressFamilies`で担保している

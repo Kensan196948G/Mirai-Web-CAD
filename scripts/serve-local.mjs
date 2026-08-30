@@ -51,7 +51,12 @@ const server = createServer(async (req, res) => {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       AI_MODEL: process.env.AI_MODEL,
-      AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE
+      AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE,
+      ENTRA_TENANT_ID: process.env.ENTRA_TENANT_ID,
+      ENTRA_CLIENT_ID: process.env.ENTRA_CLIENT_ID,
+      ENTRA_CLIENT_SECRET: process.env.ENTRA_CLIENT_SECRET,
+      ENTRA_GROUP_ROLE_MAP: process.env.ENTRA_GROUP_ROLE_MAP,
+      ENTRA_GROUP_CACHE_TTL_MINUTES: process.env.ENTRA_GROUP_CACHE_TTL_MINUTES
     });
     await writeFetchResponse(res, response);
     return;
