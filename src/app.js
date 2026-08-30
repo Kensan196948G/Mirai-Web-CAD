@@ -34,6 +34,7 @@ const AI_PROVIDERS = {
 const GRID_INTERVALS = new Set([100, 250, 500, 1000]);
 const DOCK_WIDTH_MIN = 260;
 const DOCK_WIDTH_MAX = 380;
+const THEMES = new Set(["system", "light", "dark"]);
 const DEFAULT_USER_SETTINGS = Object.freeze({
   showGrid: true,
   snapEnabled: false,
@@ -44,7 +45,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   dimensionOffset: 350,
   dimensionPrecision: 0,
   dimensionSuffix: "",
-  dockWidth: 300
+  dockWidth: 300,
+  theme: "system"
 });
 
 const RIBBON_TABS = [
@@ -278,28 +280,35 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <div class="topbar-brand">
+        <svg class="brand-mark" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect width="32" height="32" rx="6" fill="#10253c"></rect>
+          <rect x="6" y="6" width="20" height="20" rx="2" fill="none" stroke="#00a3b8" stroke-width="2"></rect>
+          <path d="M6 14 H26 M14 6 V26" stroke="#00a3b8" stroke-width="1.5"></path>
+          <circle cx="20" cy="20" r="2" fill="#00a3b8"></circle>
+        </svg>
         <div>
           <p class="eyebrow">CIVIL ENGINEERING 2D CAD</p>
           <h1>Mirai Web CAD</h1>
         </div>
         <div class="quick-access" role="group" aria-label="クイックアクセス">
-          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("newfile")}</button>
-          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="開く${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("open")}</button>
+          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("newfile", 20)}</button>
+          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="開く${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("open", 20)}</button>
           <input id="importFile" type="file" accept=".json,.dxf,application/json" hidden />
-          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("save")}</button>
-          <button id="undoBtn" class="quick-btn" type="button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>${icon("undo")}</button>
-          <button id="redoBtn" class="quick-btn" type="button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>${icon("redo")}</button>
-          <button id="quickPrintBtn" class="quick-btn" type="button" title="印刷 / レイアウト" aria-label="印刷">${icon("print")}</button>
-          <button id="resetBtn" class="quick-btn danger" type="button" title="デモ初期化" aria-label="デモ初期化">${icon("reset")}</button>
+          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("save", 20)}</button>
+          <button id="undoBtn" class="quick-btn" type="button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>${icon("undo", 20)}</button>
+          <button id="redoBtn" class="quick-btn" type="button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>${icon("redo", 20)}</button>
+          <button id="quickPrintBtn" class="quick-btn" type="button" title="印刷 / レイアウト" aria-label="印刷">${icon("print", 20)}</button>
+          <button id="resetBtn" class="quick-btn danger" type="button" title="デモ初期化" aria-label="デモ初期化">${icon("reset", 20)}</button>
         </div>
       </div>
       <div class="topbar-actions">
         <div class="drawing-meta" aria-label="図面状態">
           <strong>${escapeHtml(drawing.name)}</strong>
-          <span>v${escapeHtml(drawing.version)}</span>
+          <span>Version ${escapeHtml(drawing.version)}</span>
           <span>${escapeHtml(stateLabel(drawing.state))}</span>
           <label>
             権限
+            <span class="role-badge">${escapeHtml(policy.label)}</span>
             <select id="roleSelect" aria-label="権限を切替" ${state.apiStatus.roleLocked ? "disabled" : ""}>
               ${Object.entries(ROLE_POLICIES)
                 .map(
@@ -780,6 +789,14 @@ function settingsDialogHtml(drawing) {
                 .join("")}
             </select>
           </label>
+          <label>
+            表示テーマ
+            <select id="themeSelect" name="theme">
+              <option value="system" ${state.settings.theme === "system" ? "selected" : ""}>システム設定に合わせる</option>
+              <option value="light" ${state.settings.theme === "light" ? "selected" : ""}>ライトモード</option>
+              <option value="dark" ${state.settings.theme === "dark" ? "selected" : ""}>ダークモード</option>
+            </select>
+          </label>
         </fieldset>
         <fieldset class="settings-group">
           <legend>AIモデル連携（実験的・任意）</legend>
@@ -892,6 +909,13 @@ function bindEvents() {
     render();
   });
   document.querySelector("#clearAiKeyBtn")?.addEventListener("click", clearAiSettings);
+  document.querySelector("#themeSelect")?.addEventListener("change", (event) => {
+    const theme = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
+    if (!THEMES.has(theme)) return;
+    state.settings = { ...state.settings, theme };
+    saveUserSettings();
+    applyTheme(theme);
+  });
   bindDockResize();
 
   /** @type {NodeListOf<HTMLButtonElement>} */
@@ -1098,9 +1122,11 @@ function saveSettingsFromForm(event) {
     dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
     dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
     dimensionSuffix: String(data.get("dimensionSuffix") ?? "").slice(0, 12),
-    dockWidth: state.settings.dockWidth
+    dockWidth: state.settings.dockWidth,
+    theme: THEMES.has(String(data.get("theme"))) ? String(data.get("theme")) : DEFAULT_USER_SETTINGS.theme
   };
   saveUserSettings();
+  applyTheme(state.settings.theme);
   log("システム設定を更新");
   /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
   render();
@@ -1109,6 +1135,7 @@ function saveSettingsFromForm(event) {
 function resetUserSettings() {
   state.settings = { ...DEFAULT_USER_SETTINGS };
   saveUserSettings();
+  applyTheme(state.settings.theme);
   log("システム設定を初期化");
   /** @type {HTMLDialogElement} */ (document.querySelector("#settingsDialog")).close();
   render();
@@ -1212,7 +1239,11 @@ async function handleImportFile(event) {
       drawing: state.drawing,
       currentLayerId: state.currentLayerId
     });
-    const committed = await commitCommands(`Import: ${file.name}`, imported.commands);
+    const importedName = file.name.replace(/\.[^./]+$/, "").trim();
+    const commands = importedName
+      ? [...imported.commands, { op: "update_drawing_meta", patch: { name: importedName } }]
+      : imported.commands;
+    const committed = await commitCommands(`Import: ${file.name}`, commands);
     if (committed) {
       for (const warning of imported.warnings) log(`Import警告: ${warning}`);
       log(`Import完了: ${imported.entityCount}/${imported.sourceCount}図形`);
@@ -2329,7 +2360,8 @@ function loadUserSettings() {
       dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
       dimensionPrecision: [0, 1, 2, 3].includes(dimensionPrecision) ? dimensionPrecision : DEFAULT_USER_SETTINGS.dimensionPrecision,
       dimensionSuffix: typeof stored?.dimensionSuffix === "string" ? stored.dimensionSuffix.slice(0, 12) : DEFAULT_USER_SETTINGS.dimensionSuffix,
-      dockWidth: Number.isFinite(dockWidth) ? Math.min(DOCK_WIDTH_MAX, Math.max(DOCK_WIDTH_MIN, dockWidth)) : DEFAULT_USER_SETTINGS.dockWidth
+      dockWidth: Number.isFinite(dockWidth) ? Math.min(DOCK_WIDTH_MAX, Math.max(DOCK_WIDTH_MIN, dockWidth)) : DEFAULT_USER_SETTINGS.dockWidth,
+      theme: THEMES.has(stored?.theme) ? stored.theme : DEFAULT_USER_SETTINGS.theme
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
@@ -2409,5 +2441,14 @@ async function testAiConnection() {
   render();
 }
 
+function applyTheme(theme) {
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.dataset.theme = theme;
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+}
+
+applyTheme(state.settings.theme);
 render();
 checkApiHealth();

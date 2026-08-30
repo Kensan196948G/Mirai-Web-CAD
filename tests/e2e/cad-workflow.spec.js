@@ -88,6 +88,7 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   }
 
   await page.getByLabel("権限を切替").selectOption("viewer");
+  await expect(page.locator(".role-badge")).toHaveText("閲覧者");
   await openDock(page, "レイヤー");
   const firstLayer = page.locator("[data-layer-visible]").first();
   await expect(firstLayer).toBeChecked();
@@ -142,6 +143,7 @@ test("新規図面、コマンドライン、JSON Importを連続操作できる
   });
   await expect(quantity).toHaveText("2");
   await expect(page.getByLabel("コマンドログ")).toContainText("Import完了: 1/1図形");
+  await expect(page.getByLabel("図面状態")).toContainText("survey");
 
   await openDock(page, "レイヤー");
   await expect(page.getByLabel("図面情報パネル").getByText("測量", { exact: true })).toBeVisible();
@@ -159,6 +161,28 @@ test("CriticalまたはSeriousのアクセシビリティ違反がない", async
   const results = await new AxeBuilder({ page }).analyze();
   const blocking = results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact));
   expect(blocking).toEqual([]);
+});
+
+test("ダークモード(システム設定)でもCriticalまたはSeriousのアクセシビリティ違反がない", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.reload();
+  await page.getByRole("button", { name: "デモ初期化" }).click();
+  const results = await new AxeBuilder({ page }).analyze();
+  const blocking = results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact));
+  expect(blocking).toEqual([]);
+});
+
+test("設定ダイアログでダークモードへその場で切り替えられ、再読込後も保持される", async ({ page }) => {
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await page.locator("#themeSelect").selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await page.locator("#themeSelect").selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
 test("URLと保存図面の文字列をHTMLとして実行しない", async ({ page }) => {
