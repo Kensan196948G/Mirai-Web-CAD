@@ -14,7 +14,7 @@
 | P0-06 | Entra ID + Cloudflare Access再構成 | 社員/永続編集 | SSO/MFA/RBAC | 中 3-5日 | P0 | IdP管理者、HENNGE方針 | 社員3roleでE2E | 一部完了(2026-08-30): Cloudflare Access Application(`mirai-web-cad-api`、`/api/*`保護、One-Time PIN、`kensan1969@gmail.com`のみallow)を新設し、管理者本人による書込み動作を確認。Entra ID/HENNGE ONE連携、複数利用者・roleマッピングの本格運用は未着手 |
 | P0-07 | ~~Neon main保護・復旧窓延長~~ | ~~運用/誤削除防止~~ | ~~RPO改善~~ | — | — | — | — | **失効(2026-08-30)**: 2026-08-30にNeon PostgreSQL依存を完全に除去しローカルPostgreSQL + Cloudflare Tunnelへ移行したため、Neon側の保護設定は対象外になった。RPO/RTOはP0-12(ローカルバックアップ自動化)で別途管理する |
 | P0-08 | Production環境承認Gate | CTO/誤deploy防止 | 変更統制 | 低 1日 | P0 | GitHub権限 | reviewer必須、rollback確認 | 一部完了: branch protection必須check4件。required reviewerはプラン制約(Issue #9) |
-| P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 一部完了: healthにstatus/version/timestamp/503を実装(2026-08-27)。GitHub Actions 15分間隔の合成監視+`incident`+`synthetic-monitor`両ラベルIssue自動起票+復旧時自動close、Webhook通知(`MONITOR_WEBHOOK_URL`任意設定)を実装(2026-08-29、CodeRabbitレビュー対応で誤close防止の専用ラベルを追加)。schedule実行間隔はGitHub仕様上の保証なし、当番表・重大度別SLA・Cloudflare/Neon内部5xx相関は未着手 |
+| P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 一部完了: healthにstatus/version/timestamp/503を実装(2026-08-27)。GitHub Actions 15分間隔の合成監視+`incident`+`synthetic-monitor`両ラベルIssue自動起票+復旧時自動close、Webhook通知(`MONITOR_WEBHOOK_URL`任意設定)を実装(2026-08-29、CodeRabbitレビュー対応で誤close防止の専用ラベルを追加)。重大度定義・SLA目標・エスカレーション経路・当番表テンプレートを`docs/operations.md`に追加(2026-08-30)。schedule実行間隔はGitHub仕様上の保証なし、**当番の実名割当(人手入力待ち)**とCloudflare/Neon内部5xx相関は未着手 |
 | P0-10 | 監査ログのDB追記専用化 | 監査者/改ざん防止 | 権限保有者でも改変不可 | 低 0.5日 | P0 | 0005 migration | トリガー2件、UPDATE/DELETE拒否をCI・本番で検証 | 完了 (2026-08-27) |
 | P0-11 | 監査ログCSV export・ページング | 監査者/説明責任 | 監査データの棚卸が可能 | 低 1日 | P1 | 数式注入対策 | `?format=csv`が承認権限のみ、export自体を監査 | 完了 (2026-08-27) |
 | P0-12 | 本番バックアップ自動化 | 運用/RPO改善 | 日次archiveの機械実行 | 低 1日 | P0 | ローカルPostgreSQLへの移行(P0-19) | 日次バックアップ成功、鮮度検証成功 | **完了(2026-08-30)**: Neon依存の除去に伴いGitHub Actions版(`backup-production.yml`)を廃止し、`mirai-web-cad-backup.timer`(systemd、日次03:10 JST、読み取り専用ロール使用)+`mirai-web-cad-backup-check.timer`(鮮度検証06:00 JST)へ全面移行。実機で動作確認済み |
@@ -25,6 +25,7 @@
 | P0-16 | README/トレーサビリティの実態同期 | 全利用者/文書正本の信頼性 | 「実装済み」一辺倒表記を試作/限定対応/実案件認定済みの3段階へ統一 | 低 0.5日 | P0 | 外部評価アドバイスの指摘(P0 #7) | 機能表に段階列と実装限界の注記を追加 | 完了 (2026-08-29) |
 | P0-17 | GitHub Advanced Security機能有効化 | セキュリティ/供給網統制 | vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updatesを有効化 | 低 0.1日 | P0 | Publicリポジトリのため無償 | `security_and_analysis`全項目enabled、vulnerability-alerts/private-vulnerability-reporting enabled | 完了 (2026-08-29) |
 | P0-18 | state.json整備 | 運用/セッション間の状態継承 | goal・blocked_issues・learningを機械可読で記録 | 低 0.2日 | P1 | 外部評価アドバイスの指摘(P0 #8) | state.json新規作成、Issue #22等のblockerを記録 | 完了 (2026-08-29)。専用GitHub Projects(v2)の整備は未着手 |
+| P0-21 | CI `Deploy Preview`ジョブの`Verify preview`が恒常的に失敗 | 運用/CI可読性 | PR毎に赤いジョブが残り、真の異常との判別を妨げる | 低 0.5日 | P2 | Pages Functions側のNeon接続コード | PR CIで`Deploy Preview`がgreenになる、またはNeon依存の実態に合わせてチェック内容を見直す | 未着手(2026-08-30発見、PR #29〜#32で継続確認): Cloudflare Pages Functions(`functions/api/`)がNeon移行前のコードのまま残置されているため、`.github/workflows/ci.yml`の`Verify preview`ステップ(`$PREVIEW_URL/api/health`が200であることを確認)が構造的に失敗する。required status checksには含まれておらずマージはブロックしないが、放置するとCI失敗が常態化し真の回帰と見分けにくくなるリスクがある。対応候補: (a) `Verify preview`からNeon依存の`/api/health`アサーションを外しSPA 200のみ確認、(b) Phase 7でPages `functions/api/`自体を削除する際に合わせて解消 |
 
 ## 3か月以内
 
@@ -32,7 +33,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | P1-01 | 案件/組織/図面ACL | 全利用者/最小権限 | 高 15日 | P0 | Entra group、DB設計 | 横断IDOR test、監査、管理手順 |
 | P1-02 | 案件・図面一覧/検索 | 現場・本社/主要flow | 中 10日 | P1 | P1-01 | empty/error/page test、1万件検索 |
-| P1-03 | DWG/DXF round-trip engine選定 | CAD担当/正本互換 | 高 20-40日 | P0 | SDK契約・license | 実案件100図面の許容差合格 |
+| P1-03 | DWG/DXF round-trip engine選定 | CAD担当/正本互換 | 高 20-40日 | P0 | SDK契約・license | 実案件100図面の許容差合格。**一部完了(2026-08-30)**: 選定ADR([ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md))作成。ハイブリッド案(DXF正本+ODA File Converter CLIブリッジ、短期)とODA Drawings SDK正式契約(中期候補)を推奨、P1-03a〜dへサブタスク分解。**CodeRabbitレビュー対応でODA File Converterの商用利用許諾取得を実装着手の前提条件として明記、P1-03cの受入条件にentity/layer/layout保持を追加**。契約・実装着手は人間承認待ち |
 | P1-04 | 寸法・公差・尺度 | CAD担当/日常作図 | 高 15日 | P1 | CAD kernel | linear/aligned/angular test、PDF一致 |
 | P1-05 | hatch/block属性 | CAD担当/図面標準 | 高 20日 | P1 | DWG model | round-trip、編集、異常系 |
 | P1-06 | layout/plot/PDF | CAD担当・承認者/成果物 | 高 20日 | P0 | font/plot style | A1-A4、尺度、線幅、font受入 |
@@ -45,7 +46,7 @@
 
 | ID | 内容 | 対象/効果 | 難易度・工数 | 優先度 | 依存/リスク | 完了基準 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P2-01 | 100k図形描画/空間index/Web Worker | CAD担当/性能 | 高 30日 | P0 | kernel | p95入力100ms、30fps、長時間test |
+| P2-01 | 100k図形描画/空間index/Web Worker | CAD担当/性能 | 高 30日 | P0 | kernel | p95入力100ms、30fps、長時間test。**一部着手(2026-08-30)**: `drawCanvas`にviewportカリング(`boundsIntersect`/`entityBounds`、`src/cad-core.js`・`src/app.js`)を実装し、可視範囲外の図形描画を省略。描画コストのみ改善で、`hitTest`・`entities.find`等のO(n)検索(選択・ドラッグ・ID参照)は未対応。空間index(quadtree/rbush等)導入、差分描画、Web Worker化は未着手。残作業は大規模改修のため別途スコープ確定が必要 |
 | P2-02 | PWA/offline閲覧・markup | 現場/通信断対応 | 高 25日 | P1 | 暗号・同期設計 | 8時間offline、再同期競合test |
 | P2-03 | SharePoint/OneDrive連携 | 全社/M365正本連携 | 高 20日 | P1 | Graph API/retention | ACL継承、version、DLP確認 |
 | P2-04 | 協力会社secure share | 協力会社/配布削減 | 高 15日 | P1 | B2B/期限 | 期限・透かし・download監査 |

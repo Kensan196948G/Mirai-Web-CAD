@@ -505,7 +505,20 @@ export function entityBounds(entity) {
       maxY: entity.at.y
     };
   }
-  if (entity.type === "dimension" || entity.type === "hatch") return boundsFromPoints(entity.points);
+  if (entity.type === "dimension") {
+    const [start, end] = entity.points;
+    const length = distance(start, end);
+    const normal = length
+      ? { x: (-(end.y - start.y) / length) * entity.offset, y: ((end.x - start.x) / length) * entity.offset }
+      : { x: 0, y: 0 };
+    return boundsFromPoints([
+      start,
+      end,
+      { x: start.x + normal.x, y: start.y + normal.y },
+      { x: end.x + normal.x, y: end.y + normal.y }
+    ]);
+  }
+  if (entity.type === "hatch") return boundsFromPoints(entity.points);
   if (entity.type === "block") {
     const bounds = (entity.children ?? []).map(entityBounds).filter(Boolean);
     if (!bounds.length) return null;
@@ -523,6 +536,11 @@ export function entityBounds(entity) {
     }).points);
   }
   return null;
+}
+
+export function boundsIntersect(a, b) {
+  if (!a || !b) return true;
+  return a.maxX >= b.minX && a.minX <= b.maxX && a.maxY >= b.minY && a.minY <= b.maxY;
 }
 
 export function entityLength(entity) {
