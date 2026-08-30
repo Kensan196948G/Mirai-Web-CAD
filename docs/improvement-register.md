@@ -54,7 +54,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | P1-01 | 案件/組織/図面ACL | 全利用者/最小権限 | 高 15日 | P0 | Entra group、DB設計 | 横断IDOR test、監査、管理手順 |
 | P1-02 | 案件・図面一覧/検索 | 現場・本社/主要flow | 中 10日 | P1 | P1-01 | empty/error/page test、1万件検索 |
-| P1-03 | DXF書出し実装 | CAD担当/正本互換 | 中 10-15日 | P0 | なし | 実案件100図面のDXF往復許容差合格。**一部完了(2026-08-30)**: [ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)(DWG対応選定)は[ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)により破棄。DWGを恒久的に対象外としDXF単体運用へ確定したため、ODAライセンス契約判断・DWG読込/書出しタスクは不要化し、SDK契約待ちの依存関係も解消。残タスクはDXF書出し実装(自作または`@tarikjabiri/dxf`等のOSSライブラリ採用を別途検討)とentity/layer/layout保持の受入検証のみに縮小 |
+| P1-03 | DXF書出し実装 | CAD担当/正本互換 | 中 10-15日(+実案件コーパス収集待ち) | P0 | 実装着手自体に依存なし。ただし完了基準の「実案件100図面のDXF往復許容差合格」は[100図面台帳](compat-corpus/README.md)の実図面収集・利用許諾取得(P0-38、2026-08-30時点で台帳0件、人間側タスク)に依存する。実装完了(コード)と受入完了(実案件許容差合格)は別のマイルストーンとして扱う | 実装完了基準: DXF書出しが往復比較(`--mode=dxf-roundtrip`)で合格スコアを返す。受入完了基準: 実案件100図面のDXF往復許容差合格(実図面到着後)。**一部完了(2026-08-30)**: [ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)(DWG対応選定)は[ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)により破棄。DWGを恒久的に対象外としDXF単体運用へ確定したため、ODAライセンス契約判断・DWG読込/書出しタスクは不要化し、SDK契約待ちの依存関係も解消。残タスクはDXF書出し実装(自作または`@tarikjabiri/dxf`等のOSSライブラリ採用を別途検討)とentity/layer/layout保持の受入検証 |
 | P1-04 | 寸法・公差・尺度 | CAD担当/日常作図 | 高 15日 | P1 | CAD kernel | linear/aligned/angular test、PDF一致 |
 | P1-05 | hatch/block属性 | CAD担当/図面標準 | 高 20日 | P1 | DXF model | round-trip、編集、異常系 |
 | P1-06 | layout/plot/PDF | CAD担当・承認者/成果物 | 高 20日 | P0 | font/plot style | A1-A4、尺度、線幅、font受入 |

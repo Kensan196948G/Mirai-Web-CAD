@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   buildEntry,
   computeStats,
+  isAsciiDxfContent,
   measurableEntries,
   nextEntryId,
   renderMarkdown,
@@ -184,6 +185,24 @@ test("renderMarkdown includes every entry and the summary counts", () => {
   const markdown = renderMarkdown(ledger);
   assert.match(markdown, /corpus-001/);
   assert.match(markdown, /regression 1\/20/);
+});
+
+test("isAsciiDxfContent accepts a plain ASCII DXF buffer with SECTION/EOF structure", () => {
+  const dxf = ["0", "SECTION", "2", "ENTITIES", "0", "LINE", "8", "L", "0", "ENDSEC", "0", "EOF"].join("\n");
+  assert.equal(isAsciiDxfContent(Buffer.from(dxf, "utf8")), true);
+});
+
+test("isAsciiDxfContent rejects a buffer containing a NUL byte, matching binary DWG content renamed to .dxf", () => {
+  const binary = Buffer.concat([Buffer.from("SECTION\nEOF"), Buffer.from([0x00, 0x01, 0x02])]);
+  assert.equal(isAsciiDxfContent(binary), false);
+});
+
+test("isAsciiDxfContent rejects plain text lacking DXF SECTION/EOF structure", () => {
+  assert.equal(isAsciiDxfContent(Buffer.from("this is just a text file, not a dxf", "utf8")), false);
+});
+
+test("isAsciiDxfContent rejects an empty buffer", () => {
+  assert.equal(isAsciiDxfContent(Buffer.alloc(0)), false);
 });
 
 test("computeStats reports licensed and measurable counts consistent with measurableEntries", () => {

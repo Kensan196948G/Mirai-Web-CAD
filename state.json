@@ -15,7 +15,7 @@
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 129,
+    "unit_test_count": 133,
     "e2e_test_count": 44,
     "postgres_integration_test_count": 7,
     "security_critical": 0,

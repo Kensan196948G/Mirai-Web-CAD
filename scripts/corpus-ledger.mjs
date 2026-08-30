@@ -12,7 +12,7 @@
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { buildEntry, computeStats, renderMarkdown, validateLedger } from "./lib/corpus-ledger.mjs";
+import { buildEntry, computeStats, isAsciiDxfContent, renderMarkdown, validateLedger } from "./lib/corpus-ledger.mjs";
 
 const LEDGER_PATH = path.resolve("docs/compat-corpus/ledger.json");
 
@@ -66,6 +66,10 @@ async function runAdd(args) {
   const ledger = await loadLedger();
   const fileStat = await stat(args.file);
   const content = await readFile(args.file);
+  if (!isAsciiDxfContent(content)) {
+    console.error("エラー: ASCII DXF形式として認識できません(バイナリコンテンツまたはSECTION/EOF構造の欠如)。Phase 0はASCII DXFのみ受入です。");
+    return 1;
+  }
   const sha256 = createHash("sha256").update(content).digest("hex");
   const corpusDir = process.env.MIRAI_CORPUS_DIR;
   const relativePath = corpusDir ? path.relative(corpusDir, path.resolve(args.file)) : path.basename(args.file);
@@ -126,6 +130,10 @@ async function runVerifyFiles() {
       const sha256 = createHash("sha256").update(content).digest("hex");
       if (sha256 !== entry.file.sha256) {
         console.error(`${entry.id}: sha256が一致しません (${filePath})`);
+        failures += 1;
+      }
+      if (!isAsciiDxfContent(content)) {
+        console.error(`${entry.id}: ASCII DXF形式として認識できません(バイナリコンテンツまたはSECTION/EOF構造の欠如) (${filePath})`);
         failures += 1;
       }
     } catch {

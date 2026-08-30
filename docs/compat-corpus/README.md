@@ -36,6 +36,13 @@
 `internal`でない、または許諾が期限切れ(`license.expiresAt`超過)のentryを機械的に除外する。
 これにより「許諾のない図面で採点を回してしまう」ことを構造的に防ぐ。
 
+## バイナリファイルは登録できない(実体検証)
+
+`.dxf`拡張子を持つファイルであっても、実体がバイナリ(例: DWGファイルを単にリネームしたもの)
+であれば`add`/`verify-files`が拒否する。`isAsciiDxfContent()`(`scripts/lib/corpus-ledger.mjs`)が
+NULバイトの不在と`SECTION`/`EOF`というDXF group code構造の存在を確認し、いずれかを満たさない
+場合は登録・検証を失敗させる。
+
 ## 操作
 
 ```bash

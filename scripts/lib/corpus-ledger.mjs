@@ -166,6 +166,20 @@ function escapeCell(value) {
   return String(value ?? "").replace(/\|/g, "\\|");
 }
 
+// ファイル拡張子とfile.formatが"dxf"を名乗っていても、実体がバイナリ(例: DWGを単に
+// リネームしたもの)であれば台帳へ登録させない。ASCII DXFは常にプレーンテキストで
+// "SECTION"...."EOF"というgroup code構造を持つ一方、バイナリDWGはNULバイトを含む。
+// この実体検証はscripts/corpus-ledger.mjs(CLI)のadd/verify-filesから呼び出す。
+export function isAsciiDxfContent(buffer) {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (bytes.length === 0) return false;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0) return false;
+  }
+  const text = bytes.toString("utf8");
+  return /\bSECTION\b/.test(text) && /\bEOF\b/.test(text);
+}
+
 export function nextEntryId(ledger) {
   const numbers = ledger.entries
     .map((entry) => Number(entry.id?.match(ID_PATTERN)?.[1]))
