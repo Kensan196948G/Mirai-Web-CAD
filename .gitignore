@@ -6,3 +6,6 @@ artifacts/
 test-results/
 .env
 *.env
+
+# 実案件図面の実体(著作権・機密保持のためコミットしない)。docs/compat-corpus/参照
+corpus/

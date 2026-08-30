@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-31",
+  "targets": { "total": 100, "regression": 20, "uat": 80 },
+  "entries": []
+}

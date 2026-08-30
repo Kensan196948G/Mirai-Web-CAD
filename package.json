@@ -20,6 +20,9 @@
     "deploy:local": "bash scripts/deploy-local.sh",
     "compat:report": "node scripts/compat-report.mjs",
     "compat:explain": "node scripts/compat-report.mjs --explain",
+    "corpus:validate": "node scripts/corpus-ledger.mjs validate",
+    "corpus:stats": "node scripts/corpus-ledger.mjs stats",
+    "corpus:render": "node scripts/corpus-ledger.mjs render",
     "verify:fast": "npm run lint && npm run typecheck && npm run a11y && npm test && npm run build",
     "verify": "npm run verify:fast && npm run test:e2e"
   },
