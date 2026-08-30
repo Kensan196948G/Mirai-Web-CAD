@@ -116,6 +116,84 @@ test("layer updates use the audited transaction path", () => {
   assert.equal(result.drawing.commandEvents.at(-1).label, "lock layer");
 });
 
+test("reviewer can add comments without canEdit, but cannot add entities", () => {
+  const drawing = { ...seedDrawing(), currentRole: "reviewer" };
+  const commentResult = applyTransaction(drawing, {
+    source: "user",
+    label: "reviewer comment",
+    commands: [{ op: "add_comment", body: "この寸法を確認してください" }]
+  });
+  assert.equal(commentResult.ok, true);
+  assert.equal(commentResult.drawing.comments.length, 1);
+  assert.equal(commentResult.drawing.comments[0].author, "reviewer");
+  assert.equal(commentResult.drawing.comments[0].resolved, false);
+
+  const editResult = applyTransaction(drawing, {
+    source: "user",
+    label: "reviewer add entity",
+    commands: [{ op: "add", entity: circle("layer-temporary", [100, 100], 50) }]
+  });
+  assert.equal(editResult.ok, false);
+  assert.match(editResult.error, /変更できません/);
+});
+
+test("viewer cannot add comments", () => {
+  const drawing = { ...seedDrawing(), currentRole: "viewer" };
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "viewer comment",
+    commands: [{ op: "add_comment", body: "閲覧のみ" }]
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /コメントを追加できません/);
+});
+
+test("add_comment defends against drawings without a comments array", () => {
+  const drawing = seedDrawing();
+  delete drawing.comments;
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "legacy drawing comment",
+    commands: [{ op: "add_comment", body: "旧データからのコメント" }]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.drawing.comments.length, 1);
+});
+
+test("add_comment references a missing entity with a warning and nulls the entityId", () => {
+  const drawing = seedDrawing();
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "comment on missing entity",
+    commands: [{ op: "add_comment", body: "存在しない図形へのコメント", entityId: "e_missing" }]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.drawing.comments[0].entityId, null);
+  assert.match(result.warnings[0], /コメント対象の図形が見つかりません/);
+});
+
+test("add_comment strips C0 and C1 control characters from the body", () => {
+  const drawing = seedDrawing();
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "comment with control characters",
+    commands: [{ op: "add_comment", body: "before\u0007\u0080\u009fafter" }]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.drawing.comments[0].body, "beforeafter");
+});
+
+test("approved drawings reject new comments", () => {
+  const drawing = { ...seedDrawing(), state: "approved" };
+  const result = applyTransaction(drawing, {
+    source: "user",
+    label: "comment on approved drawing",
+    commands: [{ op: "add_comment", body: "承認済みへのコメント" }]
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /承認済み版は直接変更できません/);
+});
+
 test("boundsIntersect detects overlap, disjoint and touching boxes", () => {
   const viewport = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
   assert.equal(boundsIntersect({ minX: 10, minY: 10, maxX: 20, maxY: 20 }, viewport), true);

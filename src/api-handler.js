@@ -119,6 +119,38 @@ export async function handleApiRequest(request, env = {}) {
       return json({ ok: true, drawing: result.drawing, warnings: result.warnings }, 200, cors);
     }
 
+    const commentsMatch = route.match(/^\/drawings\/([^/]+)\/comments$/);
+    if (request.method === "POST" && commentsMatch) {
+      authorize(actor.actor, "canComment");
+      const drawing = withActor(await getDrawing(store, commentsMatch[1]), actor.actor);
+      const body = await readJson(request);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw httpError("JSON本文はオブジェクトである必要があります。", 400);
+      }
+      const idempotencyKey = requireIdempotency(request);
+      await rejectClaimedIdempotency(store, idempotencyKey);
+      requireExpectedVersion(request, drawing);
+      const result = applyTransaction(drawing, {
+        source: "user",
+        actor: actor.actor.id,
+        label: "コメント追加",
+        commands: [{ op: "add_comment", body: body.body, entityId: body.entityId ?? null }]
+      });
+      if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
+      const comment = result.drawing.comments.at(-1);
+      await saveMutationAtomically(
+        store,
+        result.drawing,
+        actor.actor,
+        "comment.added",
+        drawing.id,
+        { commentId: comment.id, entityId: comment.entityId },
+        idempotencyKey,
+        route
+      );
+      return json({ ok: true, drawing: result.drawing, warnings: result.warnings }, 201, cors);
+    }
+
     const agentMatch = route.match(/^\/drawings\/([^/]+)\/agent-runs$/);
     if (request.method === "POST" && agentMatch) {
       authorize(actor.actor, "canRunAi");
