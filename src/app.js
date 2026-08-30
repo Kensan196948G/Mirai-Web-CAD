@@ -2039,6 +2039,7 @@ async function checkApiHealth() {
     const drawingBody = await apiRequest("/api/drawings/demo");
     const roleLocked = body.auth.mode !== "demo";
     const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
+    if (drawingBody.drawing.id !== state.drawing.id) state.layoutDraft = null;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
     saveDrawing(state.drawing);
     state.apiStatus = {
