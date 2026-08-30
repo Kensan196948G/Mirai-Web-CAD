@@ -9,13 +9,13 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-08-30、以下を全てmain反映・本番反映まで完了: (1)AI操作履歴UI・図面コメント機能・外部LLM統合4PR(#44-#47、P0-32〜P0-35)。本番AI_PROVIDER=anthropic/AI_MODEL=claude-sonnet-5を人間が投入しCTOが実プロバイダ疎通確認・2件のバグ修正(#49、P0-36)を経て実際に稼働開始。(2)Issue #7着手: 描画ループへ空間インデックス導入(#50、P0-37)。(3)Issue #4: 保存正本の統一表示(#51、P0-25)。(4)80-90%代替方針Phase 0(代替率測定基盤): 比較器・採点表(#52)、100図面台帳(#53)、対象/対象外定義文書・実装状態表示の是正(#54)の3PR完了(P0-38)。実案件100図面の収集自体は人間側のタスクとして継続、台帳は0件で待機中。残る未着手: Issue #5(Entra ID連携、認証情報を後日提供予定)、#6(DWG往復、ODAライセンス未着手のため見送り)、#8(当番実名、まだ未共有)、importers.jsの未対応entity非破棄L2化(P0-39)、実装状態表示のさらなる同期(P0-40相当は本セッションで一部対応済み)",
+  "goal": "2026-08-30、以下を全てmain反映・本番反映まで完了: (1)AI操作履歴UI・図面コメント機能・外部LLM統合4PR(#44-#47、P0-32〜P0-35)。本番AI_PROVIDER=anthropic/AI_MODEL=claude-sonnet-5を人間が投入しCTOが実プロバイダ疎通確認・2件のバグ修正(#49、P0-36)を経て実際に稼働開始。(2)Issue #7着手: 描画ループへ空間インデックス導入(#50、P0-37)。(3)Issue #4: 保存正本の統一表示(#51、P0-25)。(4)80-90%代替方針Phase 0(代替率測定基盤): 比較器・採点表(#52)、100図面台帳(#53)、対象/対象外定義文書・実装状態表示の是正(#54)の3PR完了(P0-38)。実案件100図面の収集自体は人間側のタスクとして継続、台帳は0件で待機中。(5)DWG対応を方針から正式撤回しDXF単体運用へ確定(ADR-0002、P0-41)、Issue #6をDXF往復認定へリタイトル。残る未着手: Issue #5(Entra ID連携、認証情報を後日提供予定)、#8(当番実名、まだ未共有)、importers.jsの未対応entity非破棄L2化(P0-39)、実装状態表示のさらなる同期(P0-40相当は本セッションで一部対応済み)",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 129,
+    "unit_test_count": 133,
     "e2e_test_count": 44,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
@@ -62,7 +62,8 @@
     "P0-36 実プロバイダ疎通で判明したAI連携の互換性問題を修正(temperature非推奨・COMMAND_SCHEMA厳密化、PR#49)",
     "P0-37 描画ループへ空間インデックス(uniform grid)を導入(Issue #7着手、PR#50)",
     "P0-25 保存正本(サーバ/ブラウザ一時/未同期/競合)の統一表示(saveStatusInfo新設)",
-    "P0-38 代替率測定インフラ(比較器・採点表・100図面台帳・対象/対象外定義文書、PR#52/#53/#54)"
+    "P0-38 代替率測定インフラ(比較器・採点表・100図面台帳・対象/対象外定義文書、PR#52/#53/#54)",
+    "P0-41 DWG対応を方針から撤回しDXF単体運用へ確定(ADR-0002、ユーザーがAskUserQuestionで確定。Issue #6をDXF往復認定へリタイトル)"
   ],
   "blocked_issues": [
     {
@@ -70,12 +71,6 @@
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "medium",
       "blocker_reason": "2026-08-30にCloudflare Access(One-Time PIN、管理者本人のみallow)を新設し書込み経路自体は復旧した。残るはEntra ID/HENNGE ONE連携(IdP管理者権限が必要)と、複数利用者・案件単位RBACの本格運用"
-    },
-    {
-      "id": "#6",
-      "title": "DWG往復と2D CAD中核機能を実案件で認定する",
-      "severity": "high",
-      "blocker_reason": "選定ADR(docs/adr/ADR-0001-dwg-dxf-roundtrip-engine.md、2026-08-30)完了。短期はDXF正本+ODA File Converter CLIブリッジ、中期はODA SDK正式契約を推奨。契約・予算化・実装着手(P1-03a〜d)は人間承認待ち"
     },
     {
       "id": "#7",

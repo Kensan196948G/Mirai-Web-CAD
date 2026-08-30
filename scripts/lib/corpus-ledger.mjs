@@ -12,7 +12,7 @@ const PURPOSES = ["regression", "uat", "reference"];
 const SCOPES = ["in-scope", "out-of-scope"];
 const LICENSE_STATUSES = ["granted", "pending", "denied", "internal"];
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
-// Phase 0はASCII DXFのみ受入(DWGはADR-0001の商用ライセンス取得が前提のため対象外)。
+// Phase 0はASCII DXFのみ受入。DWGは恒久的に対象外(ADR-0002)。
 const ALLOWED_FORMATS = ["dxf"];
 // Phase 0の固定枠。ledger.targetsがこれと異なる場合は無効とし、20/80/100の上限判定にも
 // 常にこの固定値のみを用いる(ledger.targetsを不正な値に書き換えて上限判定を回避できない
@@ -153,17 +153,31 @@ export function computeStats(ledger, now = new Date()) {
 export function renderMarkdown(ledger) {
   const stats = computeStats(ledger);
   const summary = `件数: ${stats.total} (regression ${stats.regression}/${stats.targets.regression}, uat ${stats.uat}/${stats.targets.uat}) / 許諾済み ${stats.licensed} / 測定可能 ${stats.measurable} / 測定済み ${stats.measured}`;
-  const header = "| ID | Title | Purpose | Scope | License | DWG Version | Grade | Score |";
-  const separator = "| --- | --- | --- | --- | --- | --- | --- | --- |";
+  const header = "| ID | Title | Purpose | Scope | License | Grade | Score |";
+  const separator = "| --- | --- | --- | --- | --- | --- | --- |";
   const rows = ledger.entries.map(
     (entry) =>
-      `| ${entry.id} | ${escapeCell(entry.title)} | ${entry.purpose} | ${entry.scope} | ${entry.license?.status ?? "-"} | ${entry.file?.originalDwgVersion ?? "-"} | ${entry.measurement?.grade ?? "-"} | ${entry.measurement?.score ?? "-"} |`
+      `| ${entry.id} | ${escapeCell(entry.title)} | ${entry.purpose} | ${entry.scope} | ${entry.license?.status ?? "-"} | ${entry.measurement?.grade ?? "-"} | ${entry.measurement?.score ?? "-"} |`
   );
   return [summary, "", header, separator, ...rows].join("\n");
 }
 
 function escapeCell(value) {
   return String(value ?? "").replace(/\|/g, "\\|");
+}
+
+// ファイル拡張子とfile.formatが"dxf"を名乗っていても、実体がバイナリ(例: DWGを単に
+// リネームしたもの)であれば台帳へ登録させない。ASCII DXFは常にプレーンテキストで
+// "SECTION"...."EOF"というgroup code構造を持つ一方、バイナリDWGはNULバイトを含む。
+// この実体検証はscripts/corpus-ledger.mjs(CLI)のadd/verify-filesから呼び出す。
+export function isAsciiDxfContent(buffer) {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (bytes.length === 0) return false;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0) return false;
+  }
+  const text = bytes.toString("utf8");
+  return /\bSECTION\b/.test(text) && /\bEOF\b/.test(text);
 }
 
 export function nextEntryId(ledger) {
@@ -191,7 +205,6 @@ export function buildEntry(ledger, fields) {
     file: {
       relativePath: fields.relativePath,
       format: fields.format,
-      originalDwgVersion: fields.originalDwgVersion ?? null,
       dxfVersion: fields.dxfVersion ?? null,
       sha256: fields.sha256,
       bytes: fields.bytes
