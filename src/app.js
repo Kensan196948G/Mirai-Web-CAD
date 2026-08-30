@@ -1,7 +1,6 @@
 import {
   ROLE_POLICIES,
   applyTransaction,
-  boundsIntersect,
   buildAiProposal,
   createDrawing,
   circle,
@@ -21,6 +20,7 @@ import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
 import { applyOrtho, findOsnapPoint } from "./cad-draft-helpers.js";
+import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
@@ -2000,8 +2000,7 @@ function drawCanvas(pointerWorld = null) {
   drawPaper(ctx);
 
   const viewport = worldViewportBounds(canvas);
-  for (const entity of drawing.entities) {
-    if (!boundsIntersect(entityBounds(entity), viewport)) continue;
+  for (const entity of visibleEntities(drawing.entities, viewport)) {
     drawEntity(ctx, entity, entity.id === state.selectedId ? "#ff8a00" : null);
   }
 
@@ -2184,6 +2183,17 @@ function worldViewportBounds(canvas) {
     maxX: Math.max(topLeft.x, bottomRight.x),
     maxY: Math.max(topLeft.y, bottomRight.y)
   };
+}
+
+let cachedSpatialIndex = null;
+let cachedSpatialIndexEntities = null;
+
+function visibleEntities(entities, viewport) {
+  if (cachedSpatialIndexEntities !== entities) {
+    cachedSpatialIndex = buildSpatialIndex(entities);
+    cachedSpatialIndexEntities = entities;
+  }
+  return queryBounds(cachedSpatialIndex, viewport);
 }
 
 function snapPoint(point) {
