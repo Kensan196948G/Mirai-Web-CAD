@@ -31,7 +31,7 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
-| Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはAccess JWT必須(Cloudflare Accessアプリ未作成のため現状は全てfail-closedで401) |
+| Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはCloudflare Access(One-Time PIN、`kensan1969@gmail.com`のみallow、2026-08-30設定)で保護。未認証アクセスはエッジ層で302(Accessログインへのリダイレクト)、アプリ層に到達した場合は401 |
 | Cloudflare Pages(参考、ロールバック用) | `https://mirai-web-cad.pages.dev/` | mainマージでは更新されない。SPAのみ200、`/api`は移行前のコードのままで機能しない |
 
 ## 起動
