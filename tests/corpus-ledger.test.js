@@ -15,7 +15,7 @@ const LEDGER_PATH = path.resolve("docs/compat-corpus/ledger.json");
 const VALID_SHA = "a".repeat(64);
 
 function baseLedger(entries = []) {
-  return { schemaVersion: 1, updatedAt: "2026-08-31", targets: { total: 100, regression: 20, uat: 80 }, entries };
+  return { schemaVersion: 1, updatedAt: "2026-08-30", targets: { total: 100, regression: 20, uat: 80 }, entries };
 }
 
 function grantedEntry(overrides = {}) {
@@ -25,7 +25,7 @@ function grantedEntry(overrides = {}) {
     purpose: "regression",
     scope: "in-scope",
     outOfScopeReason: null,
-    source: { organization: "org", contact: "", project: "", receivedAt: "2026-08-30" },
+    source: { organization: "org", sourceRef: "ref-001", receivedAt: "2026-08-30" },
     file: { relativePath: "a/b.dxf", format: "dxf", originalDwgVersion: null, dxfVersion: null, sha256: VALID_SHA, bytes: 100 },
     license: { status: "granted", holder: "", scope: "", grantedBy: "", grantedAt: null, expiresAt: null, evidence: "", redistribution: false, confidential: true },
     contents: { entityCount: null, layerCount: null, hasXref: false, hasDimension: false, hasHatch: false, hasBlock: false, paper: null, scale: null },
@@ -35,12 +35,12 @@ function grantedEntry(overrides = {}) {
   };
 }
 
-test("the current repository ledger.json (0 entries) is valid", async () => {
+test("the current repository ledger.json is valid regardless of entry count", async () => {
   const raw = await readFile(LEDGER_PATH, "utf8");
   const ledger = JSON.parse(raw);
   const result = validateLedger(ledger);
   assert.equal(result.valid, true, result.errors.join("\n"));
-  assert.equal(ledger.entries.length, 0);
+  assert.ok(Array.isArray(ledger.entries));
 });
 
 test("validateLedger rejects a duplicate id", () => {
@@ -50,13 +50,38 @@ test("validateLedger rejects a duplicate id", () => {
   assert.ok(result.errors.some((error) => error.includes("重複")));
 });
 
-test("validateLedger rejects when regression exceeds 20 or uat exceeds 80 or total exceeds 100", () => {
+test("validateLedger rejects when regression exceeds the fixed 20-entry cap", () => {
   const overRegression = baseLedger(
     Array.from({ length: 21 }, (_, i) => grantedEntry({ id: `corpus-${String(i + 1).padStart(3, "0")}` }))
   );
   const result = validateLedger(overRegression);
   assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error) => error.includes("targets.regression")));
+  assert.ok(result.errors.some((error) => error.includes("regression区分")));
+});
+
+test("validateLedger rejects when uat exceeds the fixed 80-entry cap", () => {
+  const overUat = baseLedger(
+    Array.from({ length: 81 }, (_, i) => grantedEntry({ id: `corpus-${String(i + 1).padStart(3, "0")}`, purpose: "uat" }))
+  );
+  const result = validateLedger(overUat);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes("uat区分")));
+});
+
+test("validateLedger rejects when total entries exceed the fixed 100-entry cap", () => {
+  const overTotal = baseLedger(
+    Array.from({ length: 101 }, (_, i) => grantedEntry({ id: `corpus-${String(i + 1).padStart(3, "0")}`, purpose: "reference" }))
+  );
+  const result = validateLedger(overTotal);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes("entries件数")));
+});
+
+test("validateLedger rejects a targets value that does not match the fixed Phase 0 caps, preventing a bypass", () => {
+  const ledger = { ...baseLedger([]), targets: { total: 1000, regression: 1000, uat: 1000 } };
+  const result = validateLedger(ledger);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes("Phase 0の固定値")));
 });
 
 test("validateLedger requires license.status granted/internal/pending/denied and rejects other values", () => {
@@ -64,6 +89,20 @@ test("validateLedger requires license.status granted/internal/pending/denied and
   const result = validateLedger(ledger);
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error) => error.includes("license.status")));
+});
+
+test("validateLedger rejects a file.format other than dxf, matching the Phase 0 ASCII-DXF-only intake policy", () => {
+  const ledger = baseLedger([grantedEntry({ file: { ...grantedEntry().file, format: "json" } })]);
+  const result = validateLedger(ledger);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes("file.format")));
+});
+
+test("validateLedger rejects an unparsable license.expiresAt instead of silently treating it as unmeasurable-safe", () => {
+  const ledger = baseLedger([grantedEntry({ license: { ...grantedEntry().license, expiresAt: "not-a-date" } })]);
+  const result = validateLedger(ledger);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes("license.expiresAt")));
 });
 
 test("measurableEntries excludes entries whose license is not granted or internal", () => {
@@ -79,6 +118,14 @@ test("measurableEntries excludes entries whose license is not granted or interna
 test("measurableEntries excludes a license that has expired", () => {
   const ledger = baseLedger([
     grantedEntry({ license: { ...grantedEntry().license, status: "granted", expiresAt: "2020-01-01" } })
+  ]);
+  const measurable = measurableEntries(ledger, new Date("2026-08-30"));
+  assert.equal(measurable.length, 0);
+});
+
+test("measurableEntries treats an unparsable expiresAt as not measurable rather than as no-expiry", () => {
+  const ledger = baseLedger([
+    grantedEntry({ license: { ...grantedEntry().license, status: "granted", expiresAt: "not-a-date" } })
   ]);
   const measurable = measurableEntries(ledger, new Date("2026-08-30"));
   assert.equal(measurable.length, 0);
@@ -112,7 +159,7 @@ test("nextEntryId increments from the highest existing id", () => {
   assert.equal(nextEntryId(baseLedger([])), "corpus-001");
 });
 
-test("buildEntry assembles a complete entry with sensible defaults", () => {
+test("buildEntry assembles a complete entry with sensible defaults and never stores a raw contact or project field", () => {
   const ledger = baseLedger([]);
   const entry = buildEntry(ledger, { title: "テスト", relativePath: "a.dxf", format: "dxf", sha256: VALID_SHA, bytes: 10 });
   assert.equal(entry.id, "corpus-001");
@@ -120,6 +167,9 @@ test("buildEntry assembles a complete entry with sensible defaults", () => {
   assert.equal(entry.scope, "in-scope");
   assert.equal(entry.license.status, "pending");
   assert.equal(entry.measurement.lastRunAt, null);
+  assert.equal("contact" in entry.source, false);
+  assert.equal("project" in entry.source, false);
+  assert.ok("sourceRef" in entry.source);
 });
 
 test("renderMarkdown includes every entry and the summary counts", () => {

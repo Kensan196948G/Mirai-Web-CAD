@@ -14,6 +14,7 @@ const required = [
   "src/drawing-compare.js",
   "src/compat-score.js",
   "scripts/lib/corpus-ledger.mjs",
+  "scripts/corpus-ledger.mjs",
   "docs/compat-corpus/ledger.json",
   "migrations/0001_initial.sql",
   "migrations/0002_idempotency.sql",

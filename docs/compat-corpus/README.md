@@ -24,11 +24,11 @@
 | `title` | 図面名(社内呼称等、機密情報を含めないこと) |
 | `purpose` | `regression`(開発回帰20図面)/`uat`(最終UAT80図面)/`reference`(参考、集計対象外) |
 | `scope` | `in-scope`/`out-of-scope`。`out-of-scope`の場合`outOfScopeReason`必須 |
-| `source` | 出所(組織名・連絡先・案件名・受領日)。**本文・詳細な個人情報は記録しない** |
+| `source` | 出所(組織名・受領日・`sourceRef`)。**連絡先氏名・電話番号・案件名等の個人・案件識別情報は記録しない**。詳細はアクセス制御された外部の許諾記録側で管理し、`sourceRef`にその参照IDのみを記入する |
 | `file.relativePath` | `MIRAI_CORPUS_DIR`からの相対パス。絶対パス・`..`は禁止 |
+| `file.format` | Phase 0は`dxf`のみ受入(DWGはADR-0001のライセンス取得が前提のため対象外) |
 | `file.originalDwgVersion` | 元図のDWGバージョン(例: `AC1032 (R2018)`)。Phase 0はASCII DXFのみ受入のため、提供元にはDWGではなくDXFでの提供を依頼した上で、元のDWGバージョンをここに記入してもらう。Phase 1のDWG対応バージョン確定に使う実データ |
-| `license.status` | `granted`(許諾取得済み)/`pending`(未取得)/`denied`(拒否)/`internal`(社内図面等、許諾不要) |
-| `license.status`が`granted`/`internal`でない図面は測定対象から自動的に除外される(下記) |
+| `license.status` | `granted`(許諾取得済み)/`pending`(未取得)/`denied`(拒否)/`internal`(社内図面等、許諾不要)。`granted`/`internal`以外は測定対象から自動的に除外される(下記) |
 | `measurement` | 直近の採点結果。`scripts/compat-report.mjs`実行後に手動または将来の自動化で更新 |
 
 ## 利用許諾未取得の図面は測定できない(設計上の強制)
@@ -42,7 +42,8 @@
 ```bash
 # 図面を追加(既定はdry-run、標準出力に表示のみ。--writeで実際にledger.jsonへ追記)
 node scripts/corpus-ledger.mjs add --file=<path> --title="県道○○線 平面図" \
-     --purpose=regression --license-status=pending --organization="..." [--write]
+     --purpose=regression --license-status=pending --organization="..." \
+     --source-ref="許諾記録側の参照ID" [--write]
 
 # 不変条件(id一意性、20/80枠、許諾状態等)を検証。CI相当のゲート
 node scripts/corpus-ledger.mjs validate

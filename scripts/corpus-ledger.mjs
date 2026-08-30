@@ -76,6 +76,7 @@ async function runAdd(args) {
     scope: args.scope ?? "in-scope",
     outOfScopeReason: args["out-of-scope-reason"] ?? null,
     organization: args.organization,
+    sourceRef: args["source-ref"],
     licenseStatus: args["license-status"] ?? "pending",
     licenseHolder: args.holder,
     relativePath,
@@ -108,6 +109,11 @@ async function runAdd(args) {
 
 async function runVerifyFiles() {
   const ledger = await loadLedger();
+  const validation = validateLedger(ledger);
+  if (!validation.valid) {
+    console.error(validation.errors.join("\n"));
+    return 1;
+  }
   const corpusDir = process.env.MIRAI_CORPUS_DIR;
   if (!corpusDir) {
     console.log("MIRAI_CORPUS_DIRが未設定のため実体検証をスキップしました。");

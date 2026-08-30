@@ -12,6 +12,12 @@ const PURPOSES = ["regression", "uat", "reference"];
 const SCOPES = ["in-scope", "out-of-scope"];
 const LICENSE_STATUSES = ["granted", "pending", "denied", "internal"];
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+// Phase 0はASCII DXFのみ受入(DWGはADR-0001の商用ライセンス取得が前提のため対象外)。
+const ALLOWED_FORMATS = ["dxf"];
+// Phase 0の固定枠。ledger.targetsがこれと異なる場合は無効とし、20/80/100の上限判定にも
+// 常にこの固定値のみを用いる(ledger.targetsを不正な値に書き換えて上限判定を回避できない
+// ようにするため、ユーザー入力由来のtargetsを上限計算に直接使わない)。
+const PHASE0_TARGETS = Object.freeze({ total: 100, regression: 20, uat: 80 });
 
 export function validateLedger(ledger) {
   const errors = [];
@@ -25,7 +31,21 @@ export function validateLedger(ledger) {
     return { valid: errors.length === 0, errors };
   }
 
-  const targets = ledger.targets ?? { total: 100, regression: 20, uat: 80 };
+  if (ledger.targets !== undefined) {
+    const targets = ledger.targets;
+    const matchesPhase0 =
+      targets &&
+      typeof targets === "object" &&
+      targets.total === PHASE0_TARGETS.total &&
+      targets.regression === PHASE0_TARGETS.regression &&
+      targets.uat === PHASE0_TARGETS.uat;
+    if (!matchesPhase0) {
+      errors.push(
+        `targetsはPhase 0の固定値(total:${PHASE0_TARGETS.total}, regression:${PHASE0_TARGETS.regression}, uat:${PHASE0_TARGETS.uat})と一致する必要があります。`
+      );
+    }
+  }
+
   const ids = new Set();
   let regressionCount = 0;
   let uatCount = 0;
@@ -71,19 +91,26 @@ export function validateLedger(ledger) {
       errors.push(`${prefix}.file.sha256: 64桁の16進数である必要があります。`);
     }
 
+    if (!ALLOWED_FORMATS.includes(entry.file?.format)) {
+      errors.push(`${prefix}.file.format: Phase 0は${ALLOWED_FORMATS.join("|")}のみ受入です: ${entry.file?.format}`);
+    }
+
     if (!LICENSE_STATUSES.includes(entry.license?.status)) {
       errors.push(`${prefix}.license.status: ${LICENSE_STATUSES.join("|")}のいずれかである必要があります: ${entry.license?.status}`);
     }
+    if (entry.license?.expiresAt != null && Number.isNaN(new Date(entry.license.expiresAt).getTime())) {
+      errors.push(`${prefix}.license.expiresAt: 有効な日付である必要があります: ${entry.license.expiresAt}`);
+    }
   });
 
-  if (regressionCount > targets.regression) {
-    errors.push(`regression区分がtargets.regression(${targets.regression})を超えています: ${regressionCount}件`);
+  if (regressionCount > PHASE0_TARGETS.regression) {
+    errors.push(`regression区分が上限(${PHASE0_TARGETS.regression})を超えています: ${regressionCount}件`);
   }
-  if (uatCount > targets.uat) {
-    errors.push(`uat区分がtargets.uat(${targets.uat})を超えています: ${uatCount}件`);
+  if (uatCount > PHASE0_TARGETS.uat) {
+    errors.push(`uat区分が上限(${PHASE0_TARGETS.uat})を超えています: ${uatCount}件`);
   }
-  if (ledger.entries.length > targets.total) {
-    errors.push(`entries件数がtargets.total(${targets.total})を超えています: ${ledger.entries.length}件`);
+  if (ledger.entries.length > PHASE0_TARGETS.total) {
+    errors.push(`entries件数が上限(${PHASE0_TARGETS.total})を超えています: ${ledger.entries.length}件`);
   }
 
   return { valid: errors.length === 0, errors };
@@ -101,13 +128,17 @@ function isMeasurable(entry, now) {
   const status = entry.license?.status;
   if (status !== "granted" && status !== "internal") return false;
   const expiresAt = entry.license?.expiresAt;
-  if (expiresAt && new Date(expiresAt).getTime() < now.getTime()) return false;
+  if (expiresAt) {
+    const expiryTime = new Date(expiresAt).getTime();
+    // 不正な日付(NaN)は「無期限」として扱わず、安全側(測定対象外)に倒す。
+    if (Number.isNaN(expiryTime) || expiryTime < now.getTime()) return false;
+  }
   return true;
 }
 
 export function computeStats(ledger, now = new Date()) {
   const entries = ledger.entries ?? [];
-  const targets = ledger.targets ?? { total: 100, regression: 20, uat: 80 };
+  const targets = PHASE0_TARGETS;
   const regression = entries.filter((entry) => entry.purpose === "regression").length;
   const uat = entries.filter((entry) => entry.purpose === "uat").length;
   const reference = entries.filter((entry) => entry.purpose === "reference").length;
@@ -148,10 +179,11 @@ export function buildEntry(ledger, fields) {
     purpose: fields.purpose ?? "reference",
     scope: fields.scope ?? "in-scope",
     outOfScopeReason: fields.outOfScopeReason ?? null,
+    // 連絡先・案件名等の個人・案件識別情報は、公開git履歴に永続化される台帳へは保存しない。
+    // 詳細はアクセス制御された外部の許諾記録側で管理し、ここにはその参照IDのみを置く。
     source: {
       organization: fields.organization ?? "",
-      contact: fields.contact ?? "",
-      project: fields.project ?? "",
+      sourceRef: fields.sourceRef ?? "",
       receivedAt: fields.receivedAt ?? new Date().toISOString().slice(0, 10)
     },
     file: {
