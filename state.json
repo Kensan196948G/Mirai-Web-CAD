@@ -8,8 +8,8 @@
     "production_host": "kensan1969 (local, systemd + Cloudflare Tunnel)",
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)"
   },
-  "goal": "Cloudflare Access新設(2026-08-30)後のソーク運用(合成監視・バックアップ鮮度)を確認する。DWG往復(#6)はADR選定完了・SDK契約は人間承認待ち、性能改善(#7)はviewportカリング着手・空間index等は未着手、当番表・SLA(#8)は枠組み整備済み・実名割当は人間入力待ち。Entra ID連携(#5)は最後の展開として保留",
-  "phase": "Verify",
+  "goal": "PR #32(Issue #6/#7/#8着手)をmainへマージ完了(2026-08-30、f398c7f、CodeRabbit指摘7件対応済み)。次はCloudflare Access新設(2026-08-30)後のソーク運用(合成監視・バックアップ鮮度)を確認する。DWG往復(#6)はADR選定完了・SDK契約/ODA File Converter商用許諾は人間承認待ち、性能改善(#7)はviewportカリング着手・空間index等は未着手、当番表・SLA(#8)は枠組み整備済み・実名割当は人間入力待ち。Entra ID連携(#5)は最後の展開として保留",
+  "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
@@ -88,8 +88,9 @@
       "Dependabot PRのbase更新競合は、隔離した一時clone上でconflict解消してpushすれば、対象PRブランチを汚さず安全に統合できる",
       "大規模アーキテクチャ変更(Neon廃止)はEnterPlanModeで計画を確定させ、Phase 0〜2(完全可逆)を先に検証してからPhase 3(DNS切替、不可逆に近い)の直前でY/N確認する段階的アプローチが有効だった",
       "Neon依存の実態はdata-store.js 1ファイルに集中しており、api-handler.js・migrations・DB運用スクリプトは無変更で移行できた。事前のExplore調査(3並列)で依存範囲を正確に把握したことが移行規模の見積り精度に直結した",
-      "20〜40日規模の大型Issue(#6 DWG往復、#7 性能改善)は、いきなり全体実装を試みず、契約判断を要する部分はADR化(選定調査・推奨案の提示に限定し契約自体は人間承認待ちとする)、コード実装を要する部分は非破壊的な最初の一歩(viewportカリング等、既存動作を壊さず単体テスト可能な範囲)に絞ることで、1セッションでも安全に前進できた"
+      "20〜40日規模の大型Issue(#6 DWG往復、#7 性能改善)は、いきなり全体実装を試みず、契約判断を要する部分はADR化(選定調査・推奨案の提示に限定し契約自体は人間承認待ちとする)、コード実装を要する部分は非破壊的な最初の一歩(viewportカリング等、既存動作を壊さず単体テスト可能な範囲)に絞ることで、1セッションでも安全に前進できた",
+      "CodeRabbit/Codex CLIが未ログインでも、GitHub App連携のCodeRabbitはPR作成時に自動でレビューコメントを投稿する。CLIでの手動レビューが失敗しても、PRのreview threadsをGraphQLで確認すれば指摘を見逃さない。今回はMajor 2件(ADRのライセンス事実誤認、entity完全性の受入条件漏れ)を含む7件全てが実質的な指摘で、機械的なマージより先に必ず確認する価値があった"
     ]
   },
-  "last_updated": "2026-08-30T10:55:00+09:00"
+  "last_updated": "2026-08-30T10:58:00+09:00"
 }
