@@ -14,6 +14,12 @@ import { createDataStore, resetMemoryStoreData } from "./data-store.js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { describeAiConfig, createAiCompletion } from "./ai-provider.js";
 import { COMMAND_SCHEMA, buildSystemPrompt, buildUserMessage, normalizeLlmProposal } from "./ai-proposal.js";
+import { createEntraGroupResolver } from "./entra-graph.js";
+
+// 複数のEntra IDグループが異なるロールへマッピングされている利用者がいた場合の優先順位。
+// 最も権限の強いロールを採用する(誤って過小権限になり業務が止まる方を避けるため)。
+// ACCESS_ROLE_MAPによる個別メール指定は常にこれより優先される(resolveActor参照)。
+const ROLE_PRECEDENCE = ["cad_admin", "approver", "reviewer", "drafter", "viewer"];
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -332,9 +338,30 @@ async function resolveActor(request, env, allowAnonymous = false) {
     return { ok: false, error: "Cloudflare Access JWTにemail claimがありません。" };
   }
   const roleMap = parseRoleMap(env.ACCESS_ROLE_MAP);
-  const role = roleMap[jwtEmail.toLowerCase()] ?? env.ACCESS_DEFAULT_ROLE ?? "viewer";
+  let role = roleMap[jwtEmail.toLowerCase()];
+  if (!role) {
+    role = await resolveRoleFromEntraGroups(jwtEmail, env);
+  }
+  role = role ?? env.ACCESS_DEFAULT_ROLE ?? "viewer";
   if (!ROLE_POLICIES[role]) return { ok: false, error: "Access権限設定が不正です。" };
   return { ok: true, actor: { id: jwtEmail, role } };
+}
+
+// ACCESS_ROLE_MAP(メール直接指定)に一致しない利用者について、Entra IDのグループ所属を
+// ENTRA_GROUP_ROLE_MAP(グループGUID→ロール)で引く。Entra解決が未設定/失敗/無一致の
+// 場合はundefinedを返し、呼び出し元でACCESS_DEFAULT_ROLE(既定viewer)へfail-closedに
+// 縮退させる(権限を誤って昇格させない)。
+async function resolveRoleFromEntraGroups(email, env) {
+  const resolveGroups = env.ENTRA_GROUP_RESOLVER ?? createEntraGroupResolver(env);
+  if (!resolveGroups) return undefined;
+  const groupIds = await resolveGroups(email);
+  if (!Array.isArray(groupIds) || groupIds.length === 0) return undefined;
+  const groupRoleMap = parseRoleMap(env.ENTRA_GROUP_ROLE_MAP);
+  const matchedRoles = new Set(groupIds.map((id) => groupRoleMap[id]).filter((role) => ROLE_POLICIES[role]));
+  for (const role of ROLE_PRECEDENCE) {
+    if (matchedRoles.has(role)) return role;
+  }
+  return undefined;
 }
 
 async function verifyAccessJwt(token, env) {

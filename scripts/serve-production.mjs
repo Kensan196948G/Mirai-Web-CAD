@@ -135,6 +135,14 @@ function validateEnv() {
   if (aiProvider === "anthropic" && !process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY(required when AI_PROVIDER=anthropic)");
   if (aiProvider && !process.env.AI_MODEL) missing.push("AI_MODEL(required when AI_PROVIDER is set)");
 
+  // Entra IDグループ同期(任意、Issue #5)。3変数のうち1つでも設定されていれば全て必須にする
+  // (中途半端な設定のまま起動し、グループ解決だけ静かに無効なままになるのを防ぐ)。
+  const entraVars = ["ENTRA_TENANT_ID", "ENTRA_CLIENT_ID", "ENTRA_CLIENT_SECRET"];
+  const entraSet = entraVars.filter((name) => process.env[name]);
+  if (entraSet.length > 0 && entraSet.length < entraVars.length) {
+    missing.push(`${entraVars.filter((name) => !process.env[name]).join(", ")}(ENTRA_*を使う場合は${entraVars.join("/")}が全て必須)`);
+  }
+
   if (missing.length > 0) {
     log("error", "missing or invalid required environment variables, refusing to start", { missing });
     process.exit(78); // EX_CONFIG
@@ -161,6 +169,29 @@ function validateEnv() {
     process.exit(78);
   }
 
+  const entraGroupRoleMapRaw = process.env.ENTRA_GROUP_ROLE_MAP;
+  if (entraGroupRoleMapRaw) {
+    let entraGroupRoleMap;
+    try {
+      entraGroupRoleMap = JSON.parse(entraGroupRoleMapRaw);
+    } catch (error) {
+      log("error", "ENTRA_GROUP_ROLE_MAP is not valid JSON, refusing to start", { error: errorMessage(error) });
+      process.exit(78);
+    }
+    if (!entraGroupRoleMap || typeof entraGroupRoleMap !== "object" || Array.isArray(entraGroupRoleMap)) {
+      log("error", "ENTRA_GROUP_ROLE_MAP must be a JSON object, refusing to start");
+      process.exit(78);
+    }
+    // グループGUIDは個人識別子ではないため、不正な値はログへ含めてよい。
+    const unknownGroupRoles = Object.entries(entraGroupRoleMap).filter(([, role]) => !ROLE_POLICIES[role]);
+    if (unknownGroupRoles.length > 0) {
+      log("error", "ENTRA_GROUP_ROLE_MAP contains unknown roles, refusing to start", {
+        unknownEntries: unknownGroupRoles
+      });
+      process.exit(78);
+    }
+  }
+
   return {
     AUTH_MODE: authMode,
     APP_ENV: appEnv,
@@ -174,7 +205,12 @@ function validateEnv() {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     AI_MODEL: process.env.AI_MODEL,
-    AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE
+    AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE,
+    ENTRA_TENANT_ID: process.env.ENTRA_TENANT_ID,
+    ENTRA_CLIENT_ID: process.env.ENTRA_CLIENT_ID,
+    ENTRA_CLIENT_SECRET: process.env.ENTRA_CLIENT_SECRET,
+    ENTRA_GROUP_ROLE_MAP: entraGroupRoleMapRaw,
+    ENTRA_GROUP_CACHE_TTL_MINUTES: process.env.ENTRA_GROUP_CACHE_TTL_MINUTES
   };
 }
 
