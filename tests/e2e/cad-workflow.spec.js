@@ -77,6 +77,11 @@ test("主要CAD画面は描画済みでAPI HealthとAI承認を操作できる",
   await expect(page.locator(".ai-history-list li").first()).toContainText("クレーン作業範囲を追加");
   await expect(page.locator(".ai-history-list li").first()).toContainText("追加 2");
 
+  await openDock(page, "プロパティ");
+  await page.getByPlaceholder("コメントを入力").fill("この寸法を確認してください");
+  await page.getByRole("button", { name: "コメントを追加" }).click();
+  await expect(page.locator(".comment-list").first()).toContainText("この寸法を確認してください");
+
   await testInfo.attach("cad-desktop", {
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png"

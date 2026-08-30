@@ -11,11 +11,11 @@ export const DEFAULT_LAYERS = [
 ];
 
 export const ROLE_POLICIES = {
-  viewer: { label: "閲覧者", canEdit: false, canApprove: false, canRunAi: false },
-  drafter: { label: "作図者", canEdit: true, canApprove: false, canRunAi: true },
-  reviewer: { label: "レビュアー", canEdit: false, canApprove: false, canRunAi: true },
-  approver: { label: "承認者", canEdit: false, canApprove: true, canRunAi: false },
-  cad_admin: { label: "CAD管理者", canEdit: true, canApprove: true, canRunAi: true }
+  viewer: { label: "閲覧者", canEdit: false, canApprove: false, canRunAi: false, canComment: false },
+  drafter: { label: "作図者", canEdit: true, canApprove: false, canRunAi: true, canComment: true },
+  reviewer: { label: "レビュアー", canEdit: false, canApprove: false, canRunAi: true, canComment: true },
+  approver: { label: "承認者", canEdit: false, canApprove: true, canRunAi: false, canComment: true },
+  cad_admin: { label: "CAD管理者", canEdit: true, canApprove: true, canRunAi: true, canComment: true }
 };
 
 export function createDrawing(overrides = {}) {
@@ -142,11 +142,14 @@ export function applyTransaction(drawing, transaction) {
   if (drawing.state === "approved") {
     return fail("承認済み版は直接変更できません。新しい版を作成してください。", drawing);
   }
-  if (!policy.canEdit && transaction.source !== "system" && transaction.source !== "approval") {
-    return fail(`${policy.label}は図面を変更できません。`, drawing);
+  const isCommentOnly = transaction.commands.every((command) => command.op === "add_comment");
+  const requiredCapability = isCommentOnly ? "canComment" : "canEdit";
+  if (!policy[requiredCapability] && transaction.source !== "system" && transaction.source !== "approval") {
+    return fail(`${policy.label}は${isCommentOnly ? "コメントを追加" : "図面を変更"}できません。`, drawing);
   }
 
   const next = structuredClone(drawing);
+  next.comments ??= [];
   const warnings = [];
   const beforeHash = stableHash(next.entities);
 
@@ -253,6 +256,26 @@ export function applyTransaction(drawing, transaction) {
     if (command.op === "update_drawing_meta") {
       const patch = command.patch ?? {};
       if (typeof patch.name === "string" && patch.name.trim()) next.name = patch.name.trim().slice(0, 120);
+    }
+
+    if (command.op === "add_comment") {
+      const body = sanitizeCommentBody(command.body);
+      if (!body) {
+        return fail("コメント本文を入力してください。", drawing);
+      }
+      let entityId = command.entityId ?? null;
+      if (entityId && !next.entities.some((entity) => entity.id === entityId)) {
+        warnings.push(`コメント対象の図形が見つかりません: ${entityId}`);
+        entityId = null;
+      }
+      next.comments.push({
+        id: `comment_${cryptoSafeId()}`,
+        body,
+        entityId,
+        author: transaction.actor ?? next.currentRole,
+        at: new Date().toISOString(),
+        resolved: false
+      });
     }
   }
 
@@ -693,6 +716,11 @@ function inferSkillId(label) {
   if (label.includes("クレーン")) return "civil-temporary-yard";
   if (label.includes("標準")) return "drawing-cleanup";
   return "dimension-annotation";
+}
+
+function sanitizeCommentBody(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 1000);
 }
 
 function withoutKeys(objectValue, keys) {

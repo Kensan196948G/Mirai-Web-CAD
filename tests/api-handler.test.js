@@ -496,6 +496,58 @@ test("agent run preview then explicit approval mutates drawing", async () => {
   assert.equal(approveBody.drawing.entities.length, before.drawing.entities.length + 2);
 });
 
+test("reviewer can post a comment without canEdit, and it is audited without leaking the body", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/comments", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "reviewer",
+        "idempotency-key": "idem-comment-reviewer",
+        "expected-version": "1"
+      },
+      body: JSON.stringify({ body: "この寸法を確認してください", entityId: "e_box_1" })
+    }),
+    env
+  );
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(body.drawing.comments.length, 1);
+  assert.equal(body.drawing.comments[0].author, "demo@example.com");
+  assert.equal(body.drawing.comments[0].entityId, "e_box_1");
+
+  const auditResponse = await handleApiRequest(
+    new Request("https://example.test/api/audit-logs", { headers: { "x-demo-role": "approver" } }),
+    env
+  );
+  const auditBody = await auditResponse.json();
+  const commentAudit = auditBody.auditLogs.find((entry) => entry.action === "comment.added");
+  assert.ok(commentAudit);
+  assert.equal(commentAudit.detail.commentId, body.drawing.comments[0].id);
+  assert.equal(JSON.stringify(commentAudit.detail).includes("この寸法"), false);
+});
+
+test("viewer cannot post comments", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/drawings/dwg_demo_001/comments", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-demo-role": "viewer",
+        "idempotency-key": "idem-comment-viewer",
+        "expected-version": "1"
+      },
+      body: JSON.stringify({ body: "閲覧のみ" })
+    }),
+    env
+  );
+  const body = await response.json();
+  assert.equal(response.status, 403);
+  assert.match(body.error, /権限/);
+});
+
 test("approval rejects a proposal when its server-side run is missing", async () => {
   resetMemoryStore();
   const planResponse = await handleApiRequest(

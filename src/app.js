@@ -577,6 +577,7 @@ function dockBodyHtml(drawing, selected) {
 
 function propsDockHtml(drawing, selected) {
   const currentOperation = state.pendingOperation ?? "move";
+  const policy = ROLE_POLICIES[drawing.currentRole] ?? ROLE_POLICIES.viewer;
   return `
     <section>
       <h2>CAD Operations</h2>
@@ -633,6 +634,43 @@ function propsDockHtml(drawing, selected) {
       <h2>Quantity</h2>
       ${quantityHtml()}
     </section>
+    <section>
+      <h2>Comments</h2>
+      ${commentsSectionHtml(drawing, selected, policy)}
+    </section>
+  `;
+}
+
+function commentsSectionHtml(drawing, selected, policy) {
+  const comments = (drawing.comments ?? []).slice().reverse();
+  const disabledReason = policy.canComment ? "" : `（${policy.label}は利用できません）`;
+  return `
+    ${
+      comments.length
+        ? `<ul class="issue-list comment-list">
+            ${comments
+              .map(
+                (comment) => `
+              <li>
+                <b>${escapeHtml(comment.author)}</b> <span class="minor">${escapeHtml(formatDateTime(comment.at))}</span>
+                ${comment.entityId ? `<br /><span class="minor">対象: ${escapeHtml(comment.entityId)}</span>` : ""}
+                <br />${escapeHtml(comment.body)}
+              </li>
+            `
+              )
+              .join("")}
+          </ul>`
+        : `<p class="empty-note">コメントはまだありません。</p>`
+    }
+    <form id="commentForm" class="compact-form">
+      <label>本文<textarea name="body" rows="2" maxlength="1000" placeholder="コメントを入力" ${policy.canComment ? "" : "disabled"}></textarea></label>
+      ${
+        selected
+          ? `<label><input type="checkbox" name="attachToSelected" checked ${policy.canComment ? "" : "disabled"} /> 選択図形（${escapeHtml(selected.id)}）に紐付け</label>`
+          : ""
+      }
+      <button type="submit" title="コメントを追加${disabledReason}" aria-label="コメントを追加${disabledReason}" ${policy.canComment ? "" : "disabled"}>コメントを追加</button>
+    </form>
   `;
 }
 
@@ -1045,6 +1083,7 @@ function bindEvents() {
   document.querySelector("#operationForm")?.addEventListener("submit", applyOperationForm);
   document.querySelector("#propertyForm")?.addEventListener("submit", updateSelectedProperties);
   document.querySelector("#layerForm")?.addEventListener("submit", createLayerFromForm);
+  document.querySelector("#commentForm")?.addEventListener("submit", addCommentFromForm);
   document.querySelector("#layoutForm")?.addEventListener("submit", updateLayoutFromForm);
   document.querySelector("#layoutForm")?.addEventListener("input", previewLayoutFromForm);
   document.querySelector("#layoutForm")?.addEventListener("change", previewLayoutFromForm);
@@ -1505,6 +1544,21 @@ async function createLayerFromForm(event) {
   if (succeeded) state.currentLayerId = id;
 }
 
+async function addCommentFromForm(event) {
+  event.preventDefault();
+  const form = /** @type {HTMLFormElement} */ (event.currentTarget);
+  const data = new FormData(form);
+  const body = String(data.get("body") ?? "").trim();
+  if (!body) return;
+  const attachToSelected = data.get("attachToSelected") === "on";
+  const entityId = attachToSelected && state.selectedId ? state.selectedId : null;
+  const succeeded = await commitCommands("コメント追加", [{ op: "add_comment", body, entityId }], {
+    path: `/api/drawings/${state.drawing.id}/comments`,
+    body: { body, entityId }
+  });
+  if (succeeded) form.reset();
+}
+
 async function updateLayoutFromForm(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
@@ -1920,12 +1974,14 @@ async function applyAiProposal() {
 
 async function commitCommands(label, commands, options = {}) {
   const before = structuredClone(state.drawing);
+  const path = options.path ?? `/api/drawings/${state.drawing.id}/transactions`;
+  const requestBody = options.body ?? { label, commands };
   if (state.apiStatus.connected) {
     try {
-      const body = await apiRequest(`/api/drawings/${state.drawing.id}/transactions`, {
+      const body = await apiRequest(path, {
         method: "POST",
         headers: transactionHeaders(),
-        body: JSON.stringify({ label, commands })
+        body: JSON.stringify(requestBody)
       });
       state.drawing = body.drawing;
       recordDrawingHistory(before, options);
