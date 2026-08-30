@@ -71,7 +71,7 @@ test("主要CAD画面は描画済みでAPI HealthとAI承認を操作できる",
   await page.getByRole("button", { name: "承認して適用" }).click();
   await openDock(page, "プロパティ");
   await expect(quantity).toHaveText(String(beforeCount + 3));
-  await expect(page.getByLabel("コマンドログ")).toContainText("Neon同期");
+  await expect(page.getByLabel("コマンドログ")).toContainText("サーバー同期");
 
   await testInfo.attach("cad-desktop", {
     body: await page.screenshot({ fullPage: true }),
@@ -95,9 +95,11 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   await expect(page.locator("[data-layer-visible]").first()).toBeChecked();
   await expect(page.getByLabel("コマンドログ")).toContainText("図面を変更できません");
 
-  await page.getByRole("button", { name: "線", exact: true }).click();
-  await page.getByLabel("作図キャンバス").click({ position: { x: 200, y: 200 } });
-  await expect(page.getByLabel("コマンドログ")).toContainText("閲覧者は作図できません");
+  await expect(page.getByRole("button", { name: "線" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "新規図面" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "上書き保存" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "選択", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "計測", exact: true })).toBeEnabled();
 
   await page.getByLabel("作図キャンバス").press("Escape");
   await expect(page.getByLabel("コマンドログ")).toContainText("取消");
@@ -348,4 +350,44 @@ test("用紙サイズ選択(A4/A1)がレイアウト用紙のサイズへ反映�
 
   expect(a1Box.width).toBeGreaterThan(a4Box.width);
   expect(a1Box.height).toBeGreaterThan(a4Box.height);
+});
+
+test("用紙サイズ選択は「設定保存」を押す前でもプレビューへ即時反映される(A4/A3/A1)", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  const paper = page.locator(".layout-page");
+  const paperSelect = page.locator("#layoutForm select[name=paper]");
+
+  // 初期状態(A3)であることを確認
+  await expect(paperSelect).toHaveValue("A3");
+  await expect(page.locator(".paper-note")).toContainText("A3");
+  const a3Box = await paper.boundingBox();
+  if (!a3Box) throw new Error("layout-page bounding box is null (A3, initial)");
+
+  // A4(未保存)へ切替: A3より小さいプレビューへ即時反映される
+  await paperSelect.selectOption("A4");
+  await expect(page.locator(".paper-note")).toContainText("A4");
+  const a4Box = await paper.boundingBox();
+  if (!a4Box) throw new Error("layout-page bounding box is null (A4, unsaved preview)");
+  expect(a4Box.width).toBeLessThan(a3Box.width);
+  expect(a4Box.height).toBeLessThan(a3Box.height);
+
+  // A1(未保存)へ切替: A4より大きいプレビューへ即時反映される
+  await paperSelect.selectOption("A1");
+  await expect(page.locator(".paper-note")).toContainText("A1");
+  const a1Box = await paper.boundingBox();
+  if (!a1Box) throw new Error("layout-page bounding box is null (A1, unsaved preview)");
+  expect(a1Box.width).toBeGreaterThan(a4Box.width);
+  expect(a1Box.height).toBeGreaterThan(a4Box.height);
+});
+
+test("未保存のレイアウト選択はモデル/レイアウト空間切替後もプレビューに保持される", async ({ page }) => {
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+  await page.locator("#layoutForm select[name=paper]").selectOption("A1");
+  await expect(page.locator(".paper-note")).toContainText("A1");
+
+  await page.getByRole("button", { name: "モデル", exact: true }).click();
+  await page.getByRole("button", { name: "レイアウト1", exact: true }).click();
+
+  await expect(page.locator("#layoutForm select[name=paper]")).toHaveValue("A1");
+  await expect(page.locator(".paper-note")).toContainText("A1");
 });

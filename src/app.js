@@ -251,14 +251,20 @@ const state = {
   ribbonTab: "home",
   space: "model",
   dock: "props",
-  pendingOperation: null
+  pendingOperation: null,
+  layoutDraft: null
 };
+
+function activeLayoutDrawing(drawing) {
+  return state.layoutDraft ? { ...drawing, layout: { ...drawing.layout, ...state.layoutDraft } } : drawing;
+}
 
 const app = document.querySelector("#app");
 
 function render() {
   const drawing = activeDrawing();
   const selected = drawing.entities.find((entity) => entity.id === state.selectedId);
+  const policy = ROLE_POLICIES[drawing.currentRole] ?? ROLE_POLICIES.viewer;
   const commandLogClass = `command-log-${state.settings.commandLogLines}`;
   app.className = `app-shell ${commandLogClass}`;
   app.innerHTML = `
@@ -269,10 +275,10 @@ function render() {
           <h1>Mirai Web CAD</h1>
         </div>
         <div class="quick-access" role="group" aria-label="クイックアクセス">
-          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面" aria-label="新規図面">${icon("newfile")}</button>
-          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）" aria-label="開く">${icon("open")}</button>
+          <button id="newDrawingBtn" class="quick-btn" type="button" title="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="新規図面${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("newfile")}</button>
+          <button id="importBtn" class="quick-btn" type="button" title="開く（DXF / Mirai JSON）${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="開く${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("open")}</button>
           <input id="importFile" type="file" accept=".json,.dxf,application/json" hidden />
-          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存" aria-label="上書き保存">${icon("save")}</button>
+          <button id="quickSaveBtn" class="quick-btn" type="button" title="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" aria-label="上書き保存${policy.canEdit ? "" : `（${policy.label}は利用できません）`}" ${policy.canEdit ? "" : "disabled"}>${icon("save")}</button>
           <button id="undoBtn" class="quick-btn" type="button" title="元に戻す" aria-label="元に戻す" ${state.undoStack.length ? "" : "disabled"}>${icon("undo")}</button>
           <button id="redoBtn" class="quick-btn" type="button" title="やり直す" aria-label="やり直す" ${state.redoStack.length ? "" : "disabled"}>${icon("redo")}</button>
           <button id="quickPrintBtn" class="quick-btn" type="button" title="印刷 / レイアウト" aria-label="印刷">${icon("print")}</button>
@@ -313,7 +319,7 @@ function render() {
         .map(
           (group) => `
         <div class="ribbon-group">
-          <div class="ribbon-group-buttons">${group.buttons.map((entry) => ribbonButtonHtml(entry)).join("")}</div>
+          <div class="ribbon-group-buttons">${group.buttons.map((entry) => ribbonButtonHtml(entry, policy)).join("")}</div>
           <div class="ribbon-group-label">${escapeHtml(group.label)}</div>
         </div>
       `
@@ -330,7 +336,7 @@ function render() {
           <span class="zoom-readout">${Math.round(state.camera.scale * 1000)}%</span>
           <button id="fitBtn" type="button" title="図面範囲表示" aria-label="図面範囲表示">全体表示</button>
         </div>
-        ${state.space === "layout" ? layoutSpaceHtml(drawing) : modelSpaceHtml(drawing)}
+        ${state.space === "layout" ? layoutSpaceHtml(activeLayoutDrawing(drawing)) : modelSpaceHtml(drawing)}
       </section>
       <div
         id="dockResizeHandle"
@@ -374,7 +380,7 @@ function render() {
   `;
 
   /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--dock-width", `${state.settings.dockWidth}px`);
-  if (state.space === "layout") applyLayoutGeometry(drawing);
+  if (state.space === "layout") applyLayoutGeometry(activeLayoutDrawing(drawing));
   bindEvents();
   drawCanvas();
 }
@@ -384,12 +390,25 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 }
 
-function ribbonButtonHtml(entry) {
+const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "polyline", "hatch", "dimension", "text"]);
+const RIBBON_EDIT_ACTIONS = new Set(["beginOperation", "deleteSelected", "undoLastTransaction", "triggerImport"]);
+
+function ribbonButtonDisabled(entry, policy) {
+  if (entry.tool) return RIBBON_EDIT_TOOLS.has(entry.tool) && !policy.canEdit;
+  if (entry.act === "changeReviewState") return entry.arg === "submit" ? !policy.canEdit : !policy.canApprove;
+  if (entry.act && RIBBON_EDIT_ACTIONS.has(entry.act)) return !policy.canEdit;
+  return false;
+}
+
+function ribbonButtonHtml(entry, policy) {
   const active = entry.tool ? state.tool === entry.tool : false;
   const attrs = entry.tool
     ? `data-tool="${escapeHtml(entry.tool)}"`
     : `data-act="${escapeHtml(entry.act)}"${entry.arg !== undefined ? ` data-arg="${escapeHtml(String(entry.arg))}"` : ""}`;
-  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(entry.title)}" aria-label="${escapeHtml(entry.title)}">${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
+  const disabled = ribbonButtonDisabled(entry, policy);
+  const reason = disabled ? `（${policy.label}は利用できません）` : "";
+  const labelText = `${entry.title}${reason}`;
+  return `<button type="button" ${attrs} class="ribbon-btn${entry.big ? " big" : ""}${active ? " active" : ""}" title="${escapeHtml(labelText)}" aria-label="${escapeHtml(labelText)}" ${disabled ? "disabled" : ""}>${icon(entry.icon, entry.big ? 20 : 14)}<span>${escapeHtml(entry.title)}</span></button>`;
 }
 
 function modelSpaceHtml(drawing) {
@@ -875,6 +894,8 @@ function bindEvents() {
   document.querySelector("#propertyForm")?.addEventListener("submit", updateSelectedProperties);
   document.querySelector("#layerForm")?.addEventListener("submit", createLayerFromForm);
   document.querySelector("#layoutForm")?.addEventListener("submit", updateLayoutFromForm);
+  document.querySelector("#layoutForm")?.addEventListener("input", previewLayoutFromForm);
+  document.querySelector("#layoutForm")?.addEventListener("change", previewLayoutFromForm);
   document.querySelector("#printBtn")?.addEventListener("click", printDrawing);
 
   /** @type {NodeListOf<HTMLInputElement>} */
@@ -1249,6 +1270,7 @@ function resetAuthoringState() {
   state.measurement = null;
   state.pendingOperation = null;
   state.space = "model";
+  state.layoutDraft = null;
 }
 
 async function applyOperationForm(event) {
@@ -1327,11 +1349,22 @@ async function createLayerFromForm(event) {
 async function updateLayoutFromForm(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
-  await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+  const ok = await commitCommands("レイアウト設定", [{ op: "update_layout", patch: Object.fromEntries(data) }]);
+  if (ok) state.layoutDraft = null;
+}
+
+function previewLayoutFromForm(event) {
+  const form = /** @type {HTMLFormElement} */ (event.currentTarget);
+  const data = new FormData(form);
+  state.layoutDraft = Object.fromEntries(data);
+  const previewDrawing = activeLayoutDrawing(state.drawing);
+  const stage = document.querySelector(".layout-stage");
+  if (stage) stage.innerHTML = layoutPreviewHtml(previewDrawing);
+  applyLayoutGeometry(previewDrawing);
 }
 
 function printDrawing() {
-  document.body.dataset.printPaper = state.drawing.layout?.paper ?? "A3";
+  document.body.dataset.printPaper = activeLayoutDrawing(state.drawing).layout?.paper ?? "A3";
   log("印刷プレビューを開きます。送信先でPDF保存を選択できます。");
   render();
   setTimeout(() => window.print(), 0);
@@ -1707,7 +1740,7 @@ async function applyAiProposal() {
       state.drawing = body.drawing;
       state.previewProposal = null;
       state.previewRunId = null;
-      persist("AI提案を承認適用 / Neon同期");
+      persist("AI提案を承認適用 / サーバー同期");
     } catch (error) {
       log(`AI適用失敗: ${errorMessage(error)}`);
       render();
@@ -1737,7 +1770,7 @@ async function commitCommands(label, commands, options = {}) {
       });
       state.drawing = body.drawing;
       recordDrawingHistory(before, options);
-      persist(`${label} / Neon同期`);
+      persist(`${label} / サーバー同期`);
       return true;
     } catch (error) {
       log(`${label}失敗: ${errorMessage(error)}`);
@@ -2006,6 +2039,7 @@ async function checkApiHealth() {
     const drawingBody = await apiRequest("/api/drawings/demo");
     const roleLocked = body.auth.mode !== "demo";
     const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
+    if (drawingBody.drawing.id !== state.drawing.id) state.layoutDraft = null;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
     saveDrawing(state.drawing);
     state.apiStatus = {

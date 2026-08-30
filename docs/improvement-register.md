@@ -1,6 +1,8 @@
 # 改善台帳
 
-更新日: 2026-08-29(前回 2026-08-27)。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
+更新日: 2026-08-30(前回 2026-08-29)。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
+
+**優先順位の最上位参照文書**: [80～90％代替・AI統合開発方針](Mirai-Web-CAD_80-90％代替・AI統合開発方針.md)(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任)。現状代替率30-35%、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップを定義。DWG往復・精密CAD Core・尺度保証PDFを最優先とし、AI機能拡張より先にCAD基盤の完成を優先する方針。本台帳のP1-03(DWG)・P2-01(性能)・P1-06(レイアウト/PDF)等は、この方針のPhase 1(80%到達の必須範囲)に対応する。
 
 ## 今すぐ
 
@@ -26,6 +28,10 @@
 | P0-17 | GitHub Advanced Security機能有効化 | セキュリティ/供給網統制 | vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updatesを有効化 | 低 0.1日 | P0 | Publicリポジトリのため無償 | `security_and_analysis`全項目enabled、vulnerability-alerts/private-vulnerability-reporting enabled | 完了 (2026-08-29) |
 | P0-18 | state.json整備 | 運用/セッション間の状態継承 | goal・blocked_issues・learningを機械可読で記録 | 低 0.2日 | P1 | 外部評価アドバイスの指摘(P0 #8) | state.json新規作成、Issue #22等のblockerを記録 | 完了 (2026-08-29)。専用GitHub Projects(v2)の整備は未着手 |
 | P0-21 | CI `Deploy Preview`ジョブの`Verify preview`が恒常的に失敗 | 運用/CI可読性 | PR毎に赤いジョブが残り、真の異常との判別を妨げる | 低 0.5日 | P2 | Pages Functions側のNeon接続コード | PR CIで`Deploy Preview`がgreenになる、またはNeon依存の実態に合わせてチェック内容を見直す | 未着手(2026-08-30発見、PR #29〜#32で継続確認): Cloudflare Pages Functions(`functions/api/`)がNeon移行前のコードのまま残置されているため、`.github/workflows/ci.yml`の`Verify preview`ステップ(`$PREVIEW_URL/api/health`が200であることを確認)が構造的に失敗する。required status checksには含まれておらずマージはブロックしないが、放置するとCI失敗が常態化し真の回帰と見分けにくくなるリスクがある。対応候補: (a) `Verify preview`からNeon依存の`/api/health`アサーションを外しSPA 200のみ確認、(b) Phase 7でPages `functions/api/`自体を削除する際に合わせて解消 |
+| P0-22 | 閲覧者ロールのUIボタン活性化制御 | 全利用者/権限UXの明確化 | 80-90%方針§12直近アクション#1「閲覧者でも新規、保存、作図、移動、削除等のボタンが有効」の是正、80-90%方針§6.5「権限不足の理由を表示する」 | 低 1日 | P0 | ROLE_POLICIES.canEdit/canApprove | 閲覧者ロールで新規図面/保存/開く/作図・修正・注釈系リボンボタンがdisabledかつtitle/aria-labelに理由表示、選択・計測・表示系は引き続き有効 | 完了(2026-08-30、CodeRabbitレビュー対応込み): `src/app.js`の`ribbonButtonHtml`にtool/act種別からcanEdit/canApprove要否を判定する`ribbonButtonDisabled`を追加。`newDrawingBtn`/`importBtn`/`quickSaveBtn`にも同条件を適用し、disabled時はtitle/aria-labelへ「（〇〇は利用できません）」を付加。サーバー側のfail-closed(P0-14)は既存のまま無変更、UI層の追加防御。E2E回帰テストを更新(disabled状態の検証) |
+| P0-23 | A4/A3レイアウトプレビューの未保存不整合 | CAD担当/レイアウト作業の信頼性 | 80-90%方針§12直近アクション#3「A4選択とA3横プレビューが同時に表示される場合がある」の是正 | 低 1日 | P0 | `#layoutForm`のinput/change、`state.layoutDraft` | 用紙サイズ変更が「設定保存」を押す前でもプレビュー(サイズ・ラベル)へ即時反映され、印刷・空間切替・タブ切替後も未保存値が保持される | 完了(2026-08-30、CodeRabbitレビュー対応込み): `previewLayoutFromForm`が`state.layoutDraft`へ未保存フォーム値を保持し、`activeLayoutDrawing()`経由で`layoutSpaceHtml`/`applyLayoutGeometry`/`printDrawing`が同じdraft値を参照するよう修正(当初はDOMのみの一時更新で、印刷・タブ切替時に保存済み値へ戻る不具合があった)。「設定保存」成功時・新規図面作成時にdraftをクリア。回帰E2Eテスト追加(A4/A3/A1切替、空間切替後の保持) |
+| P0-24 | `deploy-local.sh`のhealth check grepが常時不一致 | 運用/本番反映の信頼性 | 80-90%方針§12直近アクション#7「最新mainの承認型本番反映」作業中に発見。正常デプロイでも毎回自動ロールバックしていた | 低 0.1日 | P0 | なし | health checkのgrepが整形済みJSONにマッチする | 完了(2026-08-30、PR #35): `grep -q '"ok":true'`(スペースなし厳密一致)を`grep -qE '"ok":[[:space:]]*true'`へ修正 |
+| P0-25 | 保存正本(サーバ/ブラウザ一時/未同期/競合)の統一表示 | 全利用者/正本の明確化 | 80-90%方針§12直近アクション#4「サーバ正本、ブラウザ一時保存、未同期、同期済み、競合、オフラインを常時表示すべき」への対応 | 中 2日 | P0 | 保存状態stateの新設設計 | 単一の状態指標(saved-local/synced/unsynced/conflict/offline等)をヘッダーまたは設定に常時表示 | 未着手(2026-08-30): 現状`system-summary`(保存先表示)と`state.apiStatus.message`(同期状態)が別々の文言で並記され正本が不明瞭(サブエージェント調査で確認)。統一state設計とUI統合が必要な中規模タスクのため次セッション以降で着手 |
 
 ## 3か月以内
 
