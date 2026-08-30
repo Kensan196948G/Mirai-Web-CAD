@@ -11,6 +11,8 @@ const required = [
   "src/importers.js",
   "src/storage.js",
   "src/styles.css",
+  "src/drawing-compare.js",
+  "src/compat-score.js",
   "migrations/0001_initial.sql",
   "migrations/0002_idempotency.sql",
   "migrations/0003_drawing_revision.sql",
