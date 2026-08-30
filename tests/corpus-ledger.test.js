@@ -26,7 +26,7 @@ function grantedEntry(overrides = {}) {
     scope: "in-scope",
     outOfScopeReason: null,
     source: { organization: "org", sourceRef: "ref-001", receivedAt: "2026-08-30" },
-    file: { relativePath: "a/b.dxf", format: "dxf", originalDwgVersion: null, dxfVersion: null, sha256: VALID_SHA, bytes: 100 },
+    file: { relativePath: "a/b.dxf", format: "dxf", dxfVersion: null, sha256: VALID_SHA, bytes: 100 },
     license: { status: "granted", holder: "", scope: "", grantedBy: "", grantedAt: null, expiresAt: null, evidence: "", redistribution: false, confidential: true },
     contents: { entityCount: null, layerCount: null, hasXref: false, hasDimension: false, hasHatch: false, hasBlock: false, paper: null, scale: null },
     measurement: { lastRunAt: null, mode: null, score: null, grade: null, axisScores: null, criticalFindings: null, reportPath: null },

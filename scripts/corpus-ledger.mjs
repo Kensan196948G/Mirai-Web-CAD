@@ -81,7 +81,6 @@ async function runAdd(args) {
     licenseHolder: args.holder,
     relativePath,
     format: path.extname(args.file).slice(1).toLowerCase(),
-    originalDwgVersion: args["dwg-version"] ?? null,
     sha256,
     bytes: fileStat.size
   });

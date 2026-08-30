@@ -26,8 +26,7 @@
 | `scope` | `in-scope`/`out-of-scope`。`out-of-scope`の場合`outOfScopeReason`必須 |
 | `source` | 出所(組織名・受領日・`sourceRef`)。**連絡先氏名・電話番号・案件名等の個人・案件識別情報は記録しない**。詳細はアクセス制御された外部の許諾記録側で管理し、`sourceRef`にその参照IDのみを記入する |
 | `file.relativePath` | `MIRAI_CORPUS_DIR`からの相対パス。絶対パス・`..`は禁止 |
-| `file.format` | Phase 0は`dxf`のみ受入(DWGはADR-0001のライセンス取得が前提のため対象外) |
-| `file.originalDwgVersion` | 元図のDWGバージョン(例: `AC1032 (R2018)`)。Phase 0はASCII DXFのみ受入のため、提供元にはDWGではなくDXFでの提供を依頼した上で、元のDWGバージョンをここに記入してもらう。Phase 1のDWG対応バージョン確定に使う実データ |
+| `file.format` | Phase 0は`dxf`のみ受入。DWGは恒久的に対象外([ADR-0002](../adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
 | `license.status` | `granted`(許諾取得済み)/`pending`(未取得)/`denied`(拒否)/`internal`(社内図面等、許諾不要)。`granted`/`internal`以外は測定対象から自動的に除外される(下記) |
 | `measurement` | 直近の採点結果。`scripts/compat-report.mjs`実行後に手動または将来の自動化で更新 |
 

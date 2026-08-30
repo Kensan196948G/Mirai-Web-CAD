@@ -10,7 +10,7 @@
 
 方針文書§1の通り、代替対象を以下の土木2Dワークフローに固定する。
 
-> 土木2D施工図の受領 → 内容確認 → 修正 → レビュー・承認 → 尺度保証PDF／DWG返却 → 版・監査保存
+> 土木2D施工図の受領 → 内容確認 → 修正 → レビュー・承認 → 尺度保証PDF／DXF返却 → 版・監査保存
 
 3D、BIM authoring、レンダリング、機械・電気専用CAD、LISP完全互換を含む全製品代替は対象外(方針文書§1)。
 
@@ -18,7 +18,7 @@
 
 | # | 必須範囲 | 現状 | 対応するdocs/README表記 |
 |---|---|---|---|
-| 1 | DWG／DXFの読込・編集・書出し | 限定対応(DXF読込: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTの7種、未対応は警告付きスキップ)。**DXF書出し・DWG読込は実装予定**(Phase 1、[ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)でODA File Converter商用ライセンス取得を前提条件とする短期案を推奨、契約未着手のため未実装) | README「Import」行 |
+| 1 | DXFの読込・編集・書出し | 限定対応(DXF読込: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTの7種、未対応は警告付きスキップ)。**DXF書出しは実装予定**(Phase 1)。DWGは対象外([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)) | README「Import」行 |
 | 2 | 主要2D図形と精密編集 | 限定対応。TRIM/EXTENDは境界交点でなく線端座標移動、ポリラインOFFSETは真の平行曲線でなく重心基準の放射移動のため精密編集に形状誤差が生じ得る | README「作図」行 |
 | 3 | 寸法、文字、ハッチ、ブロック、レイヤー | 限定対応。`DIM`は2点間簡易寸法のみ、`HATCH`は島・境界探索なし、`BLOCK`は簡易構造(定義/参照分離・属性再定義・ライブラリ未対応) | README「コマンドライン」「レイヤー」行 |
 | 4 | レイアウトと尺度保証PDF | 限定対応。`window.print()`ベースの印刷は動作するが、ベクタ・尺度保証PDF出力は未実装(Phase 1、方針文書のP1-06相当) | README「レイアウト」「CAD互換範囲」行 |
@@ -38,7 +38,7 @@
 
 ### 4.1 恒久的対象外(方針文書§2.3)
 
-高度な3Dモデリング / BIM authoring全般 / レンダリング / 機械・電気専用CAD機能 / AutoLISP・ARX等の完全互換 / AutoCAD全業種向け機能の網羅
+高度な3Dモデリング / BIM authoring全般 / レンダリング / 機械・電気専用CAD機能 / AutoLISP・ARX等の完全互換 / AutoCAD全業種向け機能の網羅 / DWGバイナリ形式([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md))
 
 3Dソリッドを含む図面(内部CADモデルが2D entityのみ対応のため)はここに該当し、Phaseによる再評価対象ではない。台帳(`docs/compat-corpus/ledger.json`)では`scope: "out-of-scope"`、`outOfScopeReason`にこの節を引用して登録する(4.2の再評価対象とは区別する)。
 
@@ -50,7 +50,7 @@
 |---|---|---|
 | XREF依存図 | 外部参照は90%要件(§2.2)、現行はimport時に単一図面へフラット化する設計がない | Phase 2 |
 | SHXカスタムフォント埋め込み | フォント埋め込みの解釈は未実装、日本語フォントは別途Phase 1のPDF出力で対応予定 | Phase 1 |
-| プロキシ・カスタムオブジェクト | DXF/DWGの非標準entity、ADR-0001が「非破壊のopaque保持」を受入条件として要求(P1-03c) | Phase 1 |
+| プロキシ・カスタムオブジェクト | DXFの非標準entity、ADR-0001が「非破壊のopaque保持」を受入条件として要求(P1-03c) | Phase 1 |
 | ラスタ画像埋め込み | 現行entityモデルに画像entityがない | 未計画 |
 | シートセット | 複数レイアウトは90%要件(§2.2) | Phase 2以降 |
 
@@ -119,12 +119,9 @@
 | 項目 | ブロッカー | 参照 |
 |---|---|---|
 | DXF往復比較(`--mode=dxf-roundtrip`) | DXF書出し未実装 | ADR-0001 P1-03a |
-| DWG往復 | ODA File Converter商用ライセンス未取得・未検討 | ADR-0001「次のステップ」1 |
 | ベクタ・尺度保証PDF比較 | PDF出力未実装 | P1-06(方針文書ロードマップ) |
 | 実案件100図面での測定 | 実案件図面が未到着(人間側のタスク) | docs/compat-corpus/README.md |
 
-## 10. DWGバージョン方針
+## 10. DWG対応方針
 
-Phase 0はASCII DXFのみを受入形式とし、DWGバイナリの受領・採点は行わない。図面提供者にはASCII DXFでの提供を依頼し、元図のDWGバージョンを[100図面台帳](compat-corpus/README.md)の`file.originalDwgVersion`へ記入してもらう。これにより、Phase 0の期間中に実案件のDWGバージョン分布が実データとして蓄積され、Phase 1で対応バージョンを推測ではなく実測で決定できる。
-
-DWGバージョン確定自体の意思決定は[ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)の補遺、および将来のADR-0002(ライセンス取得後に起票予定)を参照。
+DWGは対象外である([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)参照)。旧バージョン方針([ADR-0001](adr/ADR-0001-dwg-dxf-roundtrip-engine.md)補遺)は破棄した。
