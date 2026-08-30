@@ -25,6 +25,7 @@
 | P0-16 | README/トレーサビリティの実態同期 | 全利用者/文書正本の信頼性 | 「実装済み」一辺倒表記を試作/限定対応/実案件認定済みの3段階へ統一 | 低 0.5日 | P0 | 外部評価アドバイスの指摘(P0 #7) | 機能表に段階列と実装限界の注記を追加 | 完了 (2026-08-29) |
 | P0-17 | GitHub Advanced Security機能有効化 | セキュリティ/供給網統制 | vulnerability alerts, secret scanning, push protection, private vulnerability reporting, dependabot security updatesを有効化 | 低 0.1日 | P0 | Publicリポジトリのため無償 | `security_and_analysis`全項目enabled、vulnerability-alerts/private-vulnerability-reporting enabled | 完了 (2026-08-29) |
 | P0-18 | state.json整備 | 運用/セッション間の状態継承 | goal・blocked_issues・learningを機械可読で記録 | 低 0.2日 | P1 | 外部評価アドバイスの指摘(P0 #8) | state.json新規作成、Issue #22等のblockerを記録 | 完了 (2026-08-29)。専用GitHub Projects(v2)の整備は未着手 |
+| P0-21 | CI `Deploy Preview`ジョブの`Verify preview`が恒常的に失敗 | 運用/CI可読性 | PR毎に赤いジョブが残り、真の異常との判別を妨げる | 低 0.5日 | P2 | Pages Functions側のNeon接続コード | PR CIで`Deploy Preview`がgreenになる、またはNeon依存の実態に合わせてチェック内容を見直す | 未着手(2026-08-30発見、PR #29〜#32で継続確認): Cloudflare Pages Functions(`functions/api/`)がNeon移行前のコードのまま残置されているため、`.github/workflows/ci.yml`の`Verify preview`ステップ(`$PREVIEW_URL/api/health`が200であることを確認)が構造的に失敗する。required status checksには含まれておらずマージはブロックしないが、放置するとCI失敗が常態化し真の回帰と見分けにくくなるリスクがある。対応候補: (a) `Verify preview`からNeon依存の`/api/health`アサーションを外しSPA 200のみ確認、(b) Phase 7でPages `functions/api/`自体を削除する際に合わせて解消 |
 
 ## 3か月以内
 
