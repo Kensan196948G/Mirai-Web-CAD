@@ -86,7 +86,7 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 - API更新は`Idempotency-Key`と`expected-version`がない場合に拒否する
 - 同じ`Idempotency-Key`の再送は409で拒否し、二重変更を防ぐ
 - 本番の`AUTH_MODE=access`ではAccess JWTの署名、issuer、audienceを検証し、ロールはサーバー設定から決定する
-- Custom DomainのSPA、health、`visibility=public`のデモ図面は一般公開し、任意図面取得と全更新は未認証401で拒否する
+- Custom DomainのSPA、health、`visibility=public`のデモ図面は一般公開し、任意図面取得と全更新はfail-closedで拒否する(2026-08-30〜Cloudflare Accessが`/api/*`書込み系を保護。未ログインブラウザ・未認証クライアントはAccessログインへの302、アプリ側の直接fail-closed判定は401)
 - 図面、版、最新command event、監査、Idempotency、AI承認状態を単一DB文で確定する
 - `main`へのmerge後、`.github/workflows/production.yml`が全検証を実行する(実配信は`scripts/deploy-local.sh`の手動実行、[運用・復旧メモ](docs/operations.md)参照)
 

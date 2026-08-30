@@ -119,7 +119,7 @@ RESTORE_DATABASE_URL="postgresql://empty-recovery-db" \
 
 ## 合成監視・障害Issue自動起票
 
-`.github/workflows/synthetic-monitor.yml`が15分毎(`workflow_dispatch`でも手動実行可)に、Custom DomainでSPA/health/demo図面の200と、任意write APIの401 fail-closedを確認します。
+`.github/workflows/synthetic-monitor.yml`が15分毎(`workflow_dispatch`でも手動実行可)に、Custom DomainでSPA/health/demo図面の200と、任意write APIのfail-closed(2026-08-30〜Cloudflare Access保護により302、未設定時は401)を確認します。
 
 - 失敗時: `incident`+`synthetic-monitor`両ラベルを持つ既存Open Issueがあれば追記コメント、なければ新規Issueを自動起票し、ジョブを失敗させてActionsの通知(既定のGitHub通知経路)を発報します。
 - 復旧時: 同条件で見つけたIssueへ復旧コメントを追記してcloseします。`synthetic-monitor`ラベルはこのworkflowが作成したIssueだけを対象にする識別子で、人が起票した`incident`ラベルのIssueを誤ってcloseしないようにしています。
@@ -144,7 +144,7 @@ GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれ�
 2. 初動: 更新を止める場合はCloudflare Access policyまたは`mirai-web-cad.service`を停止し、静的SPA閲覧の可否を確認する。証跡を保存する。
 3. 判定: UI、API、Auth、DB、Tunnelのどの層か切り分ける。本番DBへ直接修正しない。
 4. 復旧: 上記Rollback手順に従う。DBは復旧branchで内容確認後に切替判断する。
-5. 確認: health、公開デモ、未認証write 401、認証済み作図/再読込、監査をsmoke testする。
+5. 確認: health、公開デモ、未認証write fail-closed(302または401)、認証済み作図/再読込、監査をsmoke testする。
 6. 事後: 発生/検知/復旧時刻、影響図面、request ID、原因、再発防止をIssueへ残す。
 
 自動alert(合成監視Issue自動起票)は導入済みだが、当番表・連絡先・重大度別SLAは引き続き未設定。
@@ -165,7 +165,7 @@ GitHub Actions `schedule`は負荷状況により実行が遅延・間引かれ�
 - AIは外部LLMではなくルールベースのMVP提案
 - 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。SPA、health、公開デモは匿名200。任意図面と全更新は未認証401
 - `mirai-web-cad.pages.dev`はロールバック手段として残置しているが、mainマージでは更新されない(SPAのみ200、`/api`は移行前のNeon接続コードのまま機能しない)
-- Production環境は`AUTH_MODE=access`。Cloudflare Accessアプリは未作成のため、書き込みAPIは現状すべてfail-closedで401(閲覧・デモ表示は匿名可)
+- Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログイン方式はOne-Time PIN(Entra ID等の外部IdP未連携)。案件単位RBAC・複数利用者への展開は引き続きIssue #5の残課題
 - Production DBはこのホスト(kensan1969)上のローカルPostgreSQL 16、DB名`mirai_web_cad`
 - 本番サービスがこのホストの稼働・ネットワークに依存する。ホスト停止・ネットワーク断で本番が停止する
 - `mirai-web-cad.service`のsystemdユニットは`IPAddressDeny=any`を採用していない(Cloudflare Access JWKS取得の外向きHTTPSに必要なため)。インバウンド制限は`127.0.0.1`バインドと`RestrictAddressFamilies`で担保している

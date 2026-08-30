@@ -282,3 +282,17 @@
 | 事後対応 | Issue #22を解決としてclose。改善台帳P0-07(Neon main保護)を失効、P0-12(バックアップ自動化)を完了、P0-19(本項目)を新規完了として記録。`docs/operations.md`/`README.md`/`docs/api-db.md`/`docs/testing.md`/`SECURITY.md`のNeon関連記述を本番アーキテクチャに合わせて更新 |
 | 残課題 | Cloudflare Accessアプリ未作成のため書き込みAPIは全てfail-closedで401(Issue #5、別途対応)。当番表・重大度別SLA未整備(Issue #8残課題)。ソーク運用(1〜2週間)後にCloudflare Pages関連ファイル削除・Neonプロジェクト自体の削除(人間実施)を予定 |
 
+## Round 9 追補 / 2026-08-30 Cloudflare Access新設(書き込みAPIの永続編集経路を復旧)
+
+ユーザーから「実行願います」との承認を得て、Round 9の残課題だったCloudflare Access未設定に着手した。「認証方式・認可モデルの変更」に該当する高リスク操作のため、事前に適用方針(保護対象path、ログイン方式)をAskUserQuestionで確認してから実施した。
+
+| 項目 | 内容 |
+| --- | --- |
+| 事前調査 | Cloudflare公式ドキュメントで、Access保護下の非ブラウザクライアント(curl等)は既定で`302`を受け取る(401ではない)ことを確認。Managed OAuth機能で`401`+`WWW-Authenticate`にできるが、独自OAuthサーバー運用時は非推奨との注記があり、既存のapi-handler.js独自JWT検証と整合しないため見送り |
+| 権限確認 | 既存の`CLOUDFLARE_API_TOKEN`(Pages Edit限定)ではZero Trust organizations取得が403だったため、より広い権限を持つCloudflare公式MCP(`mcp__cloudflare-api`)経由で実施。team domain(`winter-lake-f4c9.cloudflareaccess.com`)、IdP(Cloudflareビルトイン、One-Time PINのみ、Entra ID等の外部IdP未連携)、既存33アプリの設定パターン(CivilDraft-Web-CAD含む、全て`kensan1969@gmail.com`のみallowの単純構成)を確認した |
+| Development | Access Application 3件を作成: ①`/api/health`bypass(everyone) ②`/api/drawings/demo`bypass(everyone) ③`/api/*`保護(allow `kensan1969@gmail.com`)。`options_preflight_bypass`を有効化しCORSプリフライトの通過を確認。本番`.env`のダミー値(`CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD`/`ACCESS_ROLE_MAP`)を実値へ更新しサービス再起動。`synthetic-monitor.yml`のwrite判定を「302または401で成功」に緩和 |
+| Verify | 本番実測: SPA/health/demo 200(bypass維持を確認)、未認証write 302(Accessログインへのリダイレクト)、不正JWTヘッダー付きwriteも302(エッジでのCookie検証が先行、アプリ層に到達しない多層防御を確認)、実ブラウザ形式のCORSプリフライト(Origin+ACR-Method付きOPTIONS)は204 |
+| Review | 評価書のSSO関連リスクを一部解消として更新、セキュリティスコア63→66(総合49.7→49.9)。改善台帳P0-06を一部完了に更新 |
+| 残課題 | ログイン方式はOne-Time PINのみ(Entra ID/HENNGE ONE連携は別途)。許可対象は`kensan1969@gmail.com`のみ(複数利用者・組織ロール展開は未着手、Issue #5継続) |
+
+
