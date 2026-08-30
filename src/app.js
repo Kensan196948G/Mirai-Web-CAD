@@ -64,6 +64,7 @@ const DOCK_TABS = [
   ["props", "プロパティ"],
   ["layers", "レイヤー"],
   ["ai", "AI提案"],
+  ["aihistory", "AI履歴"],
   ["check", "検査/承認"]
 ];
 
@@ -569,6 +570,7 @@ function statusBarHtml(drawing) {
 function dockBodyHtml(drawing, selected) {
   if (state.dock === "layers") return layersDockHtml(drawing);
   if (state.dock === "ai") return aiDockHtml();
+  if (state.dock === "aihistory") return aiHistoryDockHtml(drawing);
   if (state.dock === "check") return checkDockHtml();
   return propsDockHtml(drawing, selected);
 }
@@ -677,6 +679,52 @@ function aiDockHtml() {
       <div id="aiPreview" class="preview-box">${proposalHtml()}</div>
     </section>
   `;
+}
+
+function aiHistoryDockHtml(drawing) {
+  const events = (drawing.commandEvents ?? []).filter((event) => event.source === "agent").slice().reverse();
+  if (events.length === 0) {
+    return `
+      <section>
+        <h2>AI Operation History</h2>
+        <p class="empty-note">AIによる変更履歴はまだありません。</p>
+      </section>
+    `;
+  }
+  return `
+    <section>
+      <h2>AI Operation History</h2>
+      <p class="empty-note">${events.length}件（新しい順）</p>
+      <ul class="issue-list ai-history-list">
+        ${events
+          .map((event) => {
+            const impact = summarizeCommands(event.commands ?? []);
+            return `
+              <li>
+                <b>${escapeHtml(formatDateTime(event.at))}</b><br />
+                <span>${escapeHtml(event.label ?? "AI提案")}</span><br />
+                <span class="minor">追加 ${impact.add} / 更新 ${impact.update} / 削除 ${impact.delete}</span>
+                ${event.beforeHash === event.afterHash ? '<br /><span class="minor">図形の変更なし</span>' : ""}
+                ${(event.warnings ?? []).map((warning) => `<br /><span class="warn">${escapeHtml(warning)}</span>`).join("")}
+              </li>
+            `;
+          })
+          .join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function summarizeCommands(commands) {
+  const add = commands.filter((command) => command.op === "add" || command.op === "add_layer").length;
+  const update = commands.filter((command) => ["update", "update_layer", "update_layout", "update_drawing_meta"].includes(command.op)).length;
+  const del = commands.filter((command) => command.op === "delete" || command.op === "delete_layer").length;
+  return { add, update, delete: del };
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value ?? "-") : date.toLocaleString("ja-JP");
 }
 
 function checkDockHtml() {
