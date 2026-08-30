@@ -25,12 +25,7 @@ import { applyOrtho, findOsnapPoint } from "./cad-draft-helpers.js";
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
 const USER_SETTINGS_KEY = "mirai-web-cad-settings";
-const AI_SETTINGS_KEY = "mirai-web-cad-ai-settings";
-const AI_PROVIDERS = {
-  openai: { label: "OpenAI", testUrl: "https://api.openai.com/v1/models", authHeader: "Authorization", authPrefix: "Bearer " },
-  anthropic: { label: "Anthropic", testUrl: "https://api.anthropic.com/v1/models", authHeader: "x-api-key", authPrefix: "" },
-  custom: { label: "カスタムエンドポイント", testUrl: "", authHeader: "Authorization", authPrefix: "Bearer " }
-};
+const LEGACY_AI_SETTINGS_KEY = "mirai-web-cad-ai-settings";
 const GRID_INTERVALS = new Set([100, 250, 500, 1000]);
 const DOCK_WIDTH_MIN = 260;
 const DOCK_WIDTH_MAX = 380;
@@ -262,8 +257,7 @@ const state = {
   dock: "props",
   pendingOperation: null,
   layoutDraft: null,
-  aiSettings: loadAiSettings(),
-  aiTestStatus: null
+  aiStatus: { enabled: false, provider: null, model: null }
 };
 
 function activeLayoutDrawing(drawing) {
@@ -895,56 +889,16 @@ function settingsDialogHtml(drawing) {
           </label>
         </fieldset>
         <fieldset class="settings-group">
-          <legend>AIモデル連携（実験的・任意）</legend>
+          <legend>AIモデル連携</legend>
           <p class="ai-settings-warning">
-            現在のAI提案機能はルールベース処理のみで動作しており、外部LLM APIは呼び出しません。
-            ここで設定したAPIキーは「接続テスト」のみに使用されます。
-            <strong>キーはこのブラウザのLocalStorageに平文で保存され、サーバーには一切送信されません。</strong>
-            共有端末では使用しないでください。
+            AIモデル連携はサーバーの環境変数のみで管理されます。
+            <strong>APIキーはこのブラウザには保存も送信もされません。</strong>
           </p>
-          <label>
-            プロバイダ
-            <select id="aiProviderSelect" name="aiProvider">
-              ${Object.entries(AI_PROVIDERS)
-                .map(
-                  ([key, config]) =>
-                    `<option value="${key}" ${state.aiSettings.provider === key ? "selected" : ""}>${escapeHtml(config.label)}</option>`
-                )
-                .join("")}
-            </select>
-          </label>
-          <label>
-            エンドポイントURL
-            <input
-              id="aiCustomEndpoint"
-              name="aiCustomEndpoint"
-              type="url"
-              value="${escapeHtml(state.aiSettings.customEndpoint)}"
-              placeholder="カスタムプロバイダ選択時のみ入力"
-              ${state.aiSettings.provider === "custom" ? "" : "disabled"}
-            />
-          </label>
-          <label>
-            APIキー
-            <input
-              id="aiApiKeyInput"
-              name="aiApiKey"
-              type="password"
-              autocomplete="off"
-              value="${escapeHtml(state.aiSettings.apiKey)}"
-              placeholder="sk-..."
-            />
-          </label>
-          <div class="button-row ai-settings-actions">
-            <button id="testAiKeyBtn" type="button">接続テスト</button>
-            <button id="saveAiKeyBtn" type="button">このキーを保存</button>
-            <button id="clearAiKeyBtn" type="button">クリア</button>
-          </div>
-          ${
-            state.aiTestStatus
-              ? `<p class="ai-test-status ${state.aiTestStatus.state}">${escapeHtml(state.aiTestStatus.message)}</p>`
-              : ""
-          }
+          <dl class="system-summary">
+            <dt>状態</dt><dd>${state.aiStatus.enabled ? "有効" : "未設定（ルールベースAIのみ動作）"}</dd>
+            ${state.aiStatus.enabled ? `<dt>プロバイダ</dt><dd>${escapeHtml(state.aiStatus.provider ?? "-")}</dd>` : ""}
+            ${state.aiStatus.enabled ? `<dt>モデル</dt><dd>${escapeHtml(state.aiStatus.model ?? "-")}</dd>` : ""}
+          </dl>
         </fieldset>
         <dl class="system-summary">
           <dt>保存先</dt><dd>このブラウザ</dd>
@@ -990,21 +944,6 @@ function bindEvents() {
   document.querySelector("#closeSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#cancelSettingsBtn").addEventListener("click", () => settingsDialog.close());
   document.querySelector("#resetSettingsBtn").addEventListener("click", resetUserSettings);
-  document.querySelector("#aiProviderSelect")?.addEventListener("change", (event) => {
-    const endpointInput = /** @type {HTMLInputElement} */ (document.querySelector("#aiCustomEndpoint"));
-    endpointInput.disabled = /** @type {HTMLSelectElement} */ (event.currentTarget).value !== "custom";
-  });
-  document.querySelector("#testAiKeyBtn")?.addEventListener("click", () => {
-    state.aiSettings = readAiSettingsFromForm();
-    testAiConnection();
-  });
-  document.querySelector("#saveAiKeyBtn")?.addEventListener("click", () => {
-    state.aiSettings = readAiSettingsFromForm();
-    saveAiSettings();
-    log("AIモデル接続設定を保存しました（このブラウザのみ）。");
-    render();
-  });
-  document.querySelector("#clearAiKeyBtn")?.addEventListener("click", clearAiSettings);
   document.querySelector("#themeSelect")?.addEventListener("change", (event) => {
     const theme = /** @type {HTMLSelectElement} */ (event.currentTarget).value;
     if (!THEMES.has(theme)) return;
@@ -2268,6 +2207,16 @@ async function checkApiHealth() {
       connected: true,
       roleLocked
     };
+    try {
+      const aiStatusBody = await apiRequest("/api/ai/status");
+      state.aiStatus = {
+        enabled: aiStatusBody.enabled === true,
+        provider: aiStatusBody.provider ?? null,
+        model: aiStatusBody.model ?? null
+      };
+    } catch {
+      state.aiStatus = { enabled: false, provider: null, model: null };
+    }
   } catch (error) {
     state.apiStatus = { state: "error", message: `API未接続: ${errorMessage(error)}`, connected: false, roleLocked: true };
   }
@@ -2486,75 +2435,6 @@ function saveUserSettings() {
   localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
-function loadAiSettings() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) ?? "null");
-    return {
-      provider: Object.hasOwn(AI_PROVIDERS, stored?.provider) ? stored.provider : "openai",
-      apiKey: typeof stored?.apiKey === "string" ? stored.apiKey : "",
-      customEndpoint: typeof stored?.customEndpoint === "string" ? stored.customEndpoint : ""
-    };
-  } catch {
-    return { provider: "openai", apiKey: "", customEndpoint: "" };
-  }
-}
-
-function saveAiSettings() {
-  localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(state.aiSettings));
-}
-
-function readAiSettingsFromForm() {
-  const providerInput = /** @type {HTMLSelectElement | null} */ (document.querySelector("#aiProviderSelect"));
-  const endpointInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#aiCustomEndpoint"));
-  const apiKeyInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#aiApiKeyInput"));
-  const provider = providerInput && Object.hasOwn(AI_PROVIDERS, providerInput.value) ? providerInput.value : "openai";
-  return {
-    provider,
-    customEndpoint: endpointInput?.value ?? "",
-    apiKey: apiKeyInput?.value ?? ""
-  };
-}
-
-function clearAiSettings() {
-  state.aiSettings = { provider: "openai", apiKey: "", customEndpoint: "" };
-  state.aiTestStatus = null;
-  localStorage.removeItem(AI_SETTINGS_KEY);
-  log("AIモデル接続設定をクリアしました。");
-  render();
-}
-
-async function testAiConnection() {
-  const { provider, apiKey, customEndpoint } = state.aiSettings;
-  const config = AI_PROVIDERS[provider];
-  const url = provider === "custom" ? customEndpoint.trim() : config.testUrl;
-  if (!apiKey.trim()) {
-    state.aiTestStatus = { state: "error", message: "APIキーが未入力です。" };
-    render();
-    return;
-  }
-  if (!url) {
-    state.aiTestStatus = { state: "error", message: "エンドポイントが未指定です。" };
-    render();
-    return;
-  }
-  state.aiTestStatus = { state: "loading", message: "接続確認中..." };
-  render();
-  try {
-    const headers = { [config.authHeader]: `${config.authPrefix}${apiKey}` };
-    if (provider === "anthropic") headers["anthropic-version"] = "2023-06-01";
-    const response = await fetch(url, { method: "GET", headers });
-    state.aiTestStatus = response.ok
-      ? { state: "ok", message: `接続に成功しました(HTTP ${response.status})。` }
-      : { state: "error", message: `接続に失敗しました(HTTP ${response.status})。APIキーやエンドポイントを確認してください。` };
-  } catch (error) {
-    state.aiTestStatus = {
-      state: "error",
-      message: `接続できませんでした(${errorMessage(error)})。多くのAPIプロバイダはブラウザからの直接呼び出しをCORSで制限しています。実運用にはサーバー側プロキシの実装が別途必要です。`
-    };
-  }
-  render();
-}
-
 function applyTheme(theme) {
   if (theme === "light" || theme === "dark") {
     document.documentElement.dataset.theme = theme;
@@ -2563,6 +2443,11 @@ function applyTheme(theme) {
   }
 }
 
+try {
+  localStorage.removeItem(LEGACY_AI_SETTINGS_KEY);
+} catch {
+  // LocalStorageが利用できない環境では何もしない。
+}
 applyTheme(state.settings.theme);
 render();
 checkApiHealth();

@@ -566,6 +566,50 @@ test("viewer cannot post comments", async () => {
   assert.match(body.error, /権限/);
 });
 
+test("ai status reports disabled when no provider is configured, without leaking keys", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/ai/status", { headers: { "x-demo-role": "drafter" } }),
+    env
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.enabled, false);
+  assert.equal(body.provider, null);
+  assert.equal(body.model, null);
+});
+
+test("ai status reports enabled with provider and model but never the API key", async () => {
+  resetMemoryStore();
+  const configuredEnv = {
+    ...env,
+    AI_PROVIDER: "openai",
+    OPENAI_API_KEY: "sk-super-secret-value",
+    AI_MODEL: "gpt-test-model"
+  };
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/ai/status", { headers: { "x-demo-role": "drafter" } }),
+    configuredEnv
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.enabled, true);
+  assert.equal(body.provider, "openai");
+  assert.equal(body.model, "gpt-test-model");
+  assert.equal(JSON.stringify(body).includes("sk-super-secret-value"), false);
+});
+
+test("ai status requires canRunAi capability", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/ai/status", { headers: { "x-demo-role": "viewer" } }),
+    env
+  );
+  const body = await response.json();
+  assert.equal(response.status, 403);
+  assert.match(body.error, /権限/);
+});
+
 test("approval rejects a proposal when its server-side run is missing", async () => {
   resetMemoryStore();
   const planResponse = await handleApiRequest(

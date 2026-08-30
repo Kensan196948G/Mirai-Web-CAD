@@ -255,6 +255,12 @@ export async function handleApiRequest(request, env = {}) {
       return json({ ok: true, auditLogs, limit, offset, total }, 200, cors);
     }
 
+    if (request.method === "GET" && route === "/ai/status") {
+      authorize(actor.actor, "canRunAi");
+      const status = resolveAiStatus(env);
+      return json({ ok: true, ...status }, 200, cors);
+    }
+
     return json({ ok: false, error: "not found" }, 404, cors);
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
@@ -327,6 +333,13 @@ function parseRoleMap(value) {
 function authMode(env) {
   if (env.AUTH_MODE) return env.AUTH_MODE;
   return env.APP_ENV === "production" ? "access" : "demo";
+}
+
+function resolveAiStatus(env) {
+  const provider = env.AI_PROVIDER === "openai" || env.AI_PROVIDER === "anthropic" ? env.AI_PROVIDER : null;
+  const hasKey = provider === "openai" ? Boolean(env.OPENAI_API_KEY) : provider === "anthropic" ? Boolean(env.ANTHROPIC_API_KEY) : false;
+  const enabled = Boolean(provider && hasKey && env.AI_MODEL);
+  return { enabled, provider: enabled ? provider : null, model: enabled ? env.AI_MODEL : null };
 }
 
 function authorize(actor, capability) {
