@@ -7,6 +7,155 @@ const PAPER_BOUNDS = { minX: 0, minY: 0, maxX: 12000, maxY: 7000 };
 const ALLOWED_ADD_TYPES = new Set(["line", "rect", "circle", "polyline", "text"]);
 const ALLOWED_OPS = new Set(["add", "update", "delete", "add_layer", "update_layer", "update_layout", "update_drawing_meta"]);
 
+const POINT_SCHEMA = {
+  type: "object",
+  properties: { x: { type: "number" }, y: { type: "number" } },
+  required: ["x", "y"]
+};
+
+const ADD_LINE_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add" },
+    entityType: { const: "line" },
+    layerId: { type: "string" },
+    start: POINT_SCHEMA,
+    end: POINT_SCHEMA
+  },
+  required: ["op", "entityType", "layerId", "start", "end"]
+};
+
+const ADD_RECT_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add" },
+    entityType: { const: "rect" },
+    layerId: { type: "string" },
+    origin: POINT_SCHEMA,
+    width: { type: "number" },
+    height: { type: "number" }
+  },
+  required: ["op", "entityType", "layerId", "origin", "width", "height"]
+};
+
+const ADD_CIRCLE_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add" },
+    entityType: { const: "circle" },
+    layerId: { type: "string" },
+    center: POINT_SCHEMA,
+    radius: { type: "number" }
+  },
+  required: ["op", "entityType", "layerId", "center", "radius"]
+};
+
+const ADD_POLYLINE_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add" },
+    entityType: { const: "polyline" },
+    layerId: { type: "string" },
+    points: { type: "array", items: POINT_SCHEMA, minItems: 2, maxItems: 50 },
+    closed: { type: "boolean" }
+  },
+  required: ["op", "entityType", "layerId", "points"]
+};
+
+const ADD_TEXT_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add" },
+    entityType: { const: "text" },
+    layerId: { type: "string" },
+    at: POINT_SCHEMA,
+    value: { type: "string" },
+    size: { type: "number" }
+  },
+  required: ["op", "entityType", "layerId", "at", "value"]
+};
+
+const UPDATE_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "update" },
+    id: { type: "string" },
+    patch: { type: "object" }
+  },
+  required: ["op", "id", "patch"]
+};
+
+const DELETE_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "delete" },
+    id: { type: "string" }
+  },
+  required: ["op", "id"]
+};
+
+const ADD_LAYER_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "add_layer" },
+    layer: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        color: { type: "string" },
+        printable: { type: "boolean" }
+      },
+      required: ["id", "name"]
+    }
+  },
+  required: ["op", "layer"]
+};
+
+const UPDATE_LAYER_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "update_layer" },
+    id: { type: "string" },
+    patch: { type: "object" }
+  },
+  required: ["op", "id", "patch"]
+};
+
+const UPDATE_LAYOUT_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "update_layout" },
+    patch: { type: "object" }
+  },
+  required: ["op", "patch"]
+};
+
+const UPDATE_DRAWING_META_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { const: "update_drawing_meta" },
+    patch: { type: "object" }
+  },
+  required: ["op", "patch"]
+};
+
+const COMMAND_ITEM_SCHEMA = {
+  oneOf: [
+    ADD_LINE_SCHEMA,
+    ADD_RECT_SCHEMA,
+    ADD_CIRCLE_SCHEMA,
+    ADD_POLYLINE_SCHEMA,
+    ADD_TEXT_SCHEMA,
+    UPDATE_SCHEMA,
+    DELETE_SCHEMA,
+    ADD_LAYER_SCHEMA,
+    UPDATE_LAYER_SCHEMA,
+    UPDATE_LAYOUT_SCHEMA,
+    UPDATE_DRAWING_META_SCHEMA
+  ]
+};
+
 export const COMMAND_SCHEMA = {
   type: "object",
   properties: {
@@ -16,7 +165,7 @@ export const COMMAND_SCHEMA = {
     commands: {
       type: "array",
       maxItems: MAX_LLM_COMMANDS,
-      items: { type: "object" }
+      items: COMMAND_ITEM_SCHEMA
     }
   },
   required: ["status"]
