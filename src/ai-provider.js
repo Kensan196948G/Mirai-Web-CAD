@@ -36,7 +36,6 @@ async function completeOpenAi({ apiKey, model, systemPrompt, userMessage, schema
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model,
-      temperature: 0,
       max_tokens: MAX_OUTPUT_TOKENS,
       messages: [
         { role: "system", content: systemPrompt },
@@ -67,7 +66,6 @@ async function completeAnthropic({ apiKey, model, systemPrompt, userMessage, sch
     body: JSON.stringify({
       model,
       max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: 0,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
       tools: [{ name: "propose_cad_commands", description: "CAD操作コマンドを提案する", input_schema: schema }],
