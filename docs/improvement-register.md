@@ -6,12 +6,12 @@
 
 | ID | 内容 | 理由/対象 | 効果 | 難易度・工数 | 優先度 | 依存/リスク | 完了基準 | 状態 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P0-01 | 匿名閲覧と更新認証を分離 | 全利用者/権限逸脱防止 | 公開性と機密性を両立 | 中 3日 | P0 | Access設計 | public図面のみ200、全write 401 | 完了 |
+| P0-01 | 匿名閲覧と更新認証を分離 | 全利用者/権限逸脱防止 | 公開性と機密性を両立 | 中 3日 | P0 | Access設計 | public図面のみ200、全writeはfail-closed(2026-08-30〜Cloudflare Access保護によりエッジ層302、アプリ層到達時401) | 完了 |
 | P0-02 | DB更新の原子化 | CAD担当/データ不整合防止 | 図面・版・監査・冪等性を同時確定 | 高 4日 | P0 | Neon SQL | 障害時に部分更新なし | 完了 |
 | P0-03 | CSP等の配信header | 全利用者/XSS・clickjack低減 | browser防御 | 低 1日 | P0 | CSP回帰 | Header実測、E2E成功 | 完了 |
 | P0-04 | JSON 1 MiB/Content-Type/CORS制限 | 運用/濫用低減 | API資源保護 | 低 1日 | P0 | 大容量Import方式 | 413/415/CORS test | 完了 |
 | P0-05 | backup/restore drill | 運用/消失対策 | 手順の機械検証 | 中 2日 | P0 | PG client | 空DB復元と件数検証 | 完了 |
-| P0-06 | Entra ID + Cloudflare Access再構成 | 社員/永続編集 | SSO/MFA/RBAC | 中 3-5日 | P0 | IdP管理者、HENNGE方針 | 社員3roleでE2E | 未着手 |
+| P0-06 | Entra ID + Cloudflare Access再構成 | 社員/永続編集 | SSO/MFA/RBAC | 中 3-5日 | P0 | IdP管理者、HENNGE方針 | 社員3roleでE2E | 一部完了(2026-08-30): Cloudflare Access Application(`mirai-web-cad-api`、`/api/*`保護、One-Time PIN、`kensan1969@gmail.com`のみallow)を新設し、管理者本人による書込み動作を確認。Entra ID/HENNGE ONE連携、複数利用者・roleマッピングの本格運用は未着手 |
 | P0-07 | ~~Neon main保護・復旧窓延長~~ | ~~運用/誤削除防止~~ | ~~RPO改善~~ | — | — | — | — | **失効(2026-08-30)**: 2026-08-30にNeon PostgreSQL依存を完全に除去しローカルPostgreSQL + Cloudflare Tunnelへ移行したため、Neon側の保護設定は対象外になった。RPO/RTOはP0-12(ローカルバックアップ自動化)で別途管理する |
 | P0-08 | Production環境承認Gate | CTO/誤deploy防止 | 変更統制 | 低 1日 | P0 | GitHub権限 | reviewer必須、rollback確認 | 一部完了: branch protection必須check4件。required reviewerはプラン制約(Issue #9) |
 | P0-09 | 合成監視・通知 | IT/DX 7名 | 発見時間短縮 | 中 2日 | P0 | 通知先 | 5分監視、health/demo/write境界alert | 一部完了: healthにstatus/version/timestamp/503を実装(2026-08-27)。GitHub Actions 15分間隔の合成監視+`incident`+`synthetic-monitor`両ラベルIssue自動起票+復旧時自動close、Webhook通知(`MONITOR_WEBHOOK_URL`任意設定)を実装(2026-08-29、CodeRabbitレビュー対応で誤close防止の専用ラベルを追加)。schedule実行間隔はGitHub仕様上の保証なし、当番表・重大度別SLA・Cloudflare/Neon内部5xx相関は未着手 |

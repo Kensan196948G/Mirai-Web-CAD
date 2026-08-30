@@ -42,7 +42,16 @@ jobs:
           check "Custom domain SPA" "https://mirai-web-cad.mirai-dx-platform.com/" GET 200
           check "Custom domain health" "https://mirai-web-cad.mirai-dx-platform.com/api/health" GET 200
           check "Custom domain demo drawing" "https://mirai-web-cad.mirai-dx-platform.com/api/drawings/demo" GET 200
-          check "Custom domain write fail-closed" "https://mirai-web-cad.mirai-dx-platform.com/api/drawings" POST 401
+          # 2026-08-30にCloudflare Access(/api/*保護)を導入。未認証の書込みは
+          # Accessのログインリダイレクト(302)になる。アプリ側で直接fail-closed
+          # した場合(401)も許容する(Access未設定環境での動作確認用)。
+          write_code="$(curl --max-time 10 --retry 2 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' -X POST https://mirai-web-cad.mirai-dx-platform.com/api/drawings)"
+          if [ "$write_code" = "302" ] || [ "$write_code" = "401" ]; then
+            report="${report}- ✅ Custom domain write fail-closed: ${write_code}\n"
+          else
+            fail=1
+            report="${report}- ❌ Custom domain write fail-closed: expected 302 or 401, got ${write_code}\n"
+          fi
 
           health_body="$(curl --max-time 10 --silent https://mirai-web-cad.mirai-dx-platform.com/api/health)"
           echo "health_body<<EOF" >> "$GITHUB_OUTPUT"
