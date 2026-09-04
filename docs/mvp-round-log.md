@@ -333,3 +333,14 @@ Goal Round 3として、カタログA-2「高精度編集: 移動、複写、回
 | 検証 | unit 184件=183 pass+1 DB skip(+12件: 鏡像の軸種別/rect→polyline変換・面積保持/配列の格子座標・ID採番・バリデーション/分割のline・開polyline・不正点/結合の同一直線・非対応ケース、cad-command統合テスト)。e2e 50件(+2件: コマンドライン駆動でMIRROR/ARRAY/BREAK/JOINの図形数・座標検証)。`npm run verify`全成功 |
 | 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(鏡像/配列/分割/結合行)、`docs/improvement-register.md`(P0-45)、`state.json`(goal/P0-45/unit 183/e2e 50)を更新 |
 | 残課題 | 正確なTRIM/EXTEND(境界交点演算)、真の平行OFFSET(ポリライン)、STRETCH/EXPLODE/FILLET/CHAMFER/MATCHPROP、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |
+
+## Round 10 追補 / 2026-09-04 機能カタログRound 4(ポリライン/ハッチOFFSETの真の平行オフセット化)
+
+Goal Round 4として、方針文書Phase 1「精密編集CAD Core」の最重要ギャップ(README・カタログが「ポリラインOFFSETは真の平行曲線でなく重心基準の放射移動」と明記)を解消した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Development | `src/cad-advanced.js`: `offsetEntity`のpolyline/hatch処理を重心放射から**真の平行オフセット**へ書き換え、新規`parallelOffsetPoints`を実装。各セグメントを法線方向へdistanceだけ平行移動したオフセット直線を作り、隣接する2直線の交点(miter join)で頂点を再構成。閉ポリラインは符号付き面積から内外を判定しdistance>0で外側・<0で内側へ。開ポリラインは進行方向の左側(正)へ(lineと同符号規則)。ハッチ境界は閉領域として扱う。`lineIntersection`ヘルパー追加・不要化した`centroid`削除 |
+| 検証 | unit 192件=191 pass+1 DB skip(+7件: CCW矩形外側/CW矩形内側/閉polyline/開L字/hatch外側/斜め三角形の辺平行性(外積検証)/0長・縮退入力)。e2e 50件(既存OFFSETは矩形対象のため影響なし)。`npm run verify`全成功 |
+| 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(オフセット行)、`docs/improvement-register.md`(P0-46・P0-45の残タスク整理)、`state.json`(goal/P0-46/unit 191)を更新 |
+| 残課題 | 円弧バルジ・自己交差形状のオフセット、境界交点演算による正確なTRIM/EXTEND、STRETCH/EXPLODE/FILLET/CHAMFER、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |

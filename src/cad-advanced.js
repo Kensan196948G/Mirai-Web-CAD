@@ -42,16 +42,120 @@ export function offsetEntity(entity, distance) {
     next.width += distance * 2;
     next.height += distance * 2;
     if (Math.abs(next.width) < EPSILON || Math.abs(next.height) < EPSILON) throw new Error("オフセット後の矩形が無効です。");
-  } else if (next.type === "polyline" || next.type === "hatch") {
-    const center = centroid(next.points);
-    next.points = next.points.map((point) => {
-      const length = Math.hypot(point.x - center.x, point.y - center.y) || 1;
-      return { x: point.x + ((point.x - center.x) / length) * distance, y: point.y + ((point.y - center.y) / length) * distance };
-    });
+  } else if (next.type === "polyline") {
+    next.points = parallelOffsetPoints(next.points, Boolean(next.closed), distance);
+    if (next.points.length === 0) throw new Error("オフセット後のポリラインが無効です。");
+  } else if (next.type === "hatch") {
+    // ハッチ境界は閉領域として扱う(輪郭を平行移動した閉ポリラインを再構築する)
+    const offsetPoints = parallelOffsetPoints(next.points, true, distance);
+    if (offsetPoints.length === 0) throw new Error("オフセット後のハッチ境界が無効です。");
+    next.points = offsetPoints;
   } else {
     throw new Error(`${entity.type}はオフセット対象外です。`);
   }
   return next;
+}
+
+/**
+ * ポリライン/ハッチ境界の「真の平行オフセット」を計算する。
+ * 従来の重心基準の放射移動(コーナーで形状が歪む)を置き換える。
+ *
+ * 方式: 各セグメントを法線方向へdistanceだけ平行移動した「オフセット直線」を作り、
+ * 隣接する2つのオフセット直線の交点で新頂点を構成する(miter join)。
+ * - 閉ポリライン: 全ての頂点が隣接セグメントのオフセット直線の交点になる。
+ *   符号付き面積から内外を判定し、distance>0で外側・<0で内側へオフセットする。
+ * - 開ポリライン: 両端は端セグメントの法線方向へ移動し、中間頂点はmiter join。
+ *   正のdistanceは進行方向の左側へオフセット(lineと同じ符号規則)。
+ * 直線セグメントのみ対応(円弧バルジは非対応)。
+ *
+ * @param {{x:number,y:number}[]} points
+ * @param {boolean} closed
+ * @param {number} distance オフセット距離(符号付き)
+ * @returns {{x:number,y:number}[]} オフセット後の頂点列(失敗時は空配列)
+ */
+export function parallelOffsetPoints(points, closed, distance) {
+  if (!Array.isArray(points) || points.length < 2) return [];
+  const count = points.length;
+  const closedShape = closed && count >= 3;
+  const segmentCount = closedShape ? count : count - 1;
+
+  // 各セグメントの単位方向と、オフセット方向(外向き法線×distance)を準備する
+  // オフセット方向はセグメント単位で一定である必要がある(頂点毎に変えると形状が歪む)
+  const offsets = [];
+  for (let i = 0; i < segmentCount; i += 1) {
+    const a = points[i];
+    const b = closedShape ? points[(i + 1) % count] : points[i + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    if (length < EPSILON) return [];
+    const dirX = dx / length;
+    const dirY = dy / length;
+    // 左法線(進行方向に対して左)
+    const leftX = -dirY;
+    const leftY = dirX;
+    // 閉多角形では符号付き面積から外向きを決める(反時計回り=左が内側なので反転)
+    let offsetX = leftX * distance;
+    let offsetY = leftY * distance;
+    if (closedShape && signedArea(points) > 0) {
+      offsetX = -offsetX;
+      offsetY = -offsetY;
+    }
+    offsets.push({ x: offsetX, y: offsetY });
+  }
+
+  // セグメントiのオフセット直線: (points[i]+off[i]) → (points[i+1]+off[i])
+  const segmentStart = (i) => (closedShape ? points[i] : points[i]);
+  const segmentEnd = (i) => (closedShape ? points[(i + 1) % count] : points[i + 1]);
+
+  const offsetLineStart = (i) => ({ x: segmentStart(i).x + offsets[i].x, y: segmentStart(i).y + offsets[i].y });
+  const offsetLineEnd = (i) => ({ x: segmentEnd(i).x + offsets[i].x, y: segmentEnd(i).y + offsets[i].y });
+
+  const result = [];
+  if (closedShape) {
+    // 頂点i = セグメント(i-1)とセグメント(i)のオフセット直線の交点
+    for (let i = 0; i < count; i += 1) {
+      const prev = (i - 1 + segmentCount) % segmentCount;
+      const vertex = lineIntersection(offsetLineStart(prev), offsetLineEnd(prev), offsetLineStart(i), offsetLineEnd(i));
+      if (!vertex) return [];
+      result.push(vertex);
+    }
+    return result;
+  }
+
+  // 開ポリライン: 先頭はセグメント0のオフセット直線の始点、末尾は最後のセグメントのオフセット直線の終点
+  const last = segmentCount - 1;
+  result.push(offsetLineStart(0));
+  for (let i = 1; i < segmentCount; i += 1) {
+    const vertex = lineIntersection(offsetLineStart(i - 1), offsetLineEnd(i - 1), offsetLineStart(i), offsetLineEnd(i));
+    if (!vertex) return [];
+    result.push(vertex);
+  }
+  result.push(offsetLineEnd(last));
+  return result;
+}
+
+/** 多角形の符号付き面積(正=反時計回り)。 */
+function signedArea(points) {
+  let area = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    area += a.x * b.y - b.x * a.y;
+  }
+  return area / 2;
+}
+
+/** 2直線(p1-p2, q1-q2)の交点。平行/同一線上ならnull。 */
+function lineIntersection(p1, p2, q1, q2) {
+  const d1x = p2.x - p1.x;
+  const d1y = p2.y - p1.y;
+  const d2x = q2.x - q1.x;
+  const d2y = q2.y - q1.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < EPSILON) return null;
+  const t = ((q1.x - p1.x) * d2y - (q1.y - p1.y) * d2x) / denom;
+  return { x: p1.x + t * d1x, y: p1.y + t * d1y };
 }
 
 export function editLineEndpoint(entity, point, mode) {
@@ -333,10 +437,6 @@ function splitPolyline(pointsRaw, p) {
   }
   if (bestIndex < 0 || !best) return null;
   return [points.slice(0, bestIndex + 1).concat([best]), [best].concat(points.slice(bestIndex + 1))];
-}
-
-function centroid(points) {
-  return points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
 }
 
 function normalizePoint(value) {

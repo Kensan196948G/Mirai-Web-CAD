@@ -11,6 +11,7 @@ import {
   measurePoints,
   mirrorEntity,
   offsetEntity,
+  parallelOffsetPoints,
   transformEntity
 } from "../src/cad-advanced.js";
 import { entityArea, entityBounds, line, rect, validateDrawing } from "../src/cad-core.js";
@@ -172,4 +173,114 @@ test("joinLines returns null for disjoint or non-collinear lines", () => {
   assert.equal(joinLines(disjoint, far), null, "端点が一致しない");
   const corner = line("layer-structure", [100, 0], [100, 100]);
   assert.equal(joinLines(disjoint, corner), null, "端点一致でも同一直線でない");
+});
+
+// --- 高精度編集(Round 4): ポリライン/ハッチの真の平行オフセット ---
+
+/** 座標を許容差内で比較するための丸め(浮動小数点誤差の吸収) */
+function roundPoints(points) {
+  return points.map((p) => ({ x: Math.round(p.x * 1e6) / 1e6, y: Math.round(p.y * 1e6) / 1e6 }));
+}
+
+test("parallelOffsetPoints offsets a CCW rectangle outward (miter join at corners)", () => {
+  // 反時計回り矩形: 符号付き面積>0
+  const rect = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 50 },
+    { x: 0, y: 50 }
+  ];
+  const result = roundPoints(parallelOffsetPoints(rect, true, 10));
+  assert.deepEqual(result, [
+    { x: -10, y: -10 },
+    { x: 110, y: -10 },
+    { x: 110, y: 60 },
+    { x: -10, y: 60 }
+  ]);
+});
+
+test("parallelOffsetPoints offsets a CW rectangle inward for negative distance", () => {
+  // 時計回り矩形: distance<0 で内側へ(絶対値10)
+  const rect = [
+    { x: 0, y: 0 },
+    { x: 0, y: 50 },
+    { x: 100, y: 50 },
+    { x: 100, y: 0 }
+  ];
+  const result = roundPoints(parallelOffsetPoints(rect, true, -10));
+  // 内側10mmへ: 頂点順は入力の向きに従い変わり得るため、集合として比較する
+  const sorted = (points) => points.map((p) => `${p.x},${p.y}`).sort().join("|");
+  assert.equal(sorted(result), sorted([
+    { x: 10, y: 10 },
+    { x: 90, y: 10 },
+    { x: 90, y: 40 },
+    { x: 10, y: 40 }
+  ]));
+});
+
+test("offsetEntity offsets a closed polyline to a true parallel shape (not radial)", () => {
+  const poly = { type: "polyline", layerId: "layer-structure", closed: true, points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }] };
+  const next = offsetEntity(poly, 10);
+  assert.deepEqual(roundPoints(next.points), [
+    { x: -10, y: -10 },
+    { x: 110, y: -10 },
+    { x: 110, y: 60 },
+    { x: -10, y: 60 }
+  ]);
+  // 全ての辺が元図形と平行(面積は矩形として拡大している)
+  assert.equal((110 - -10) * (60 - -10), 120 * 70);
+});
+
+test("offsetEntity offsets an open polyline to its left side (same sign rule as line)", () => {
+  // (0,0)-(100,0)-(100,100): 上方向に折れるL字。距離20の左オフセット
+  const poly = { type: "polyline", layerId: "layer-structure", closed: false, points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }] };
+  const next = offsetEntity(poly, 20);
+  // 第1辺(0,0)-(100,0)の左オフセット: y=20。第2辺(100,0)-(100,100)の左オフセット: x=80
+  // miter: (80,20)。始点(0,20)。終点(80,100)
+  assert.deepEqual(next.points, [
+    { x: 0, y: 20 },
+    { x: 80, y: 20 },
+    { x: 80, y: 100 }
+  ]);
+});
+
+test("offsetEntity offsets a hatch boundary outward as a closed region", () => {
+  const hatch = { type: "hatch", layerId: "layer-structure", points: [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }], pattern: "ANSI31" };
+  const next = offsetEntity(hatch, 5);
+  assert.deepEqual(next.points, [
+    { x: -5, y: -5 },
+    { x: 65, y: -5 },
+    { x: 65, y: 45 },
+    { x: -5, y: 45 }
+  ]);
+});
+
+test("parallelOffsetPoints rejects zero-length segments and degenerate inputs", () => {
+  assert.deepEqual(parallelOffsetPoints([{ x: 0, y: 0 }, { x: 0, y: 0 }], false, 10), [], "0長セグメント");
+  assert.deepEqual(parallelOffsetPoints([], false, 10), []);
+  assert.deepEqual(parallelOffsetPoints([{ x: 0, y: 0 }], false, 10), []);
+});
+
+test("parallelOffsetPoints preserves true parallelism for a slanted triangle", () => {
+  // 直角三角形(反時計回り): (0,0)-(40,0)-(0,30)
+  const tri = [
+    { x: 0, y: 0 },
+    { x: 40, y: 0 },
+    { x: 0, y: 30 }
+  ];
+  const result = parallelOffsetPoints(tri, true, 4);
+  assert.equal(result.length, 3);
+  const rounded = roundPoints(result);
+  // 各辺と元の辺の平行性: 辺ベクトルの外積が0になることを確認する
+  const seg = (points, i) => {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    return { dx: b.x - a.x, dy: b.y - a.y };
+  };
+  for (let i = 0; i < 3; i += 1) {
+    const orig = seg(tri, i);
+    const off = seg(rounded, i);
+    const cross = Math.abs(orig.dx * off.dy - orig.dy * off.dx);
+    assert.ok(cross < 1e-6, `辺${i}が元の辺と平行でない cross=${cross}`);
+  }
 });
