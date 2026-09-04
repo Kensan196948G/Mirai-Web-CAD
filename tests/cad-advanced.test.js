@@ -103,17 +103,26 @@ test("arrayEntity duplicates a line across a 3x2 grid with spacing", () => {
 
 test("arrayEntity validates counts and spacing", () => {
   const source = line("layer-structure", [0, 0], [100, 0]);
-  assert.equal(arrayEntity(source, 0, 5, 100, 100).length, 4, "0列は1列として扱う");
+  assert.throws(() => arrayEntity(source, 0, 5, 100, 100), /1以上の整数/, "0列は拒否する");
+  assert.throws(() => arrayEntity(source, 2, 0, 100, 100), /1以上の整数/, "0行は拒否する");
   assert.throws(() => arrayEntity(source, 2, 2, Number.NaN, 100), /間隔/);
+  // 複写数の上限(1000件)を超える指定はブラウザ凍結防止のため拒否する(CodeRabbit Major対応)
+  assert.throws(() => arrayEntity(source, 100, 100, 100, 100), /多すぎます/); // 9999件
+  assert.throws(() => arrayEntity(source, 1, 1002, 100, 100), /多すぎます/); // 1001件
+  // 上限内(1000件以下)は成功する
+  assert.equal(arrayEntity(source, 1000, 1, 100, 100).length, 999); // 1000×1-1
+  assert.equal(arrayEntity(source, 1, 1001, 100, 100).length, 1000); // 上限ちょうど1000コピー
 });
 
 test("breakEntity splits a line into two collinear lines", () => {
   const source = line("layer-structure", [0, 0], [100, 0], { id: "e_line" });
-  const pieces = breakEntity(source, { x: 40, y: 3 });
+  const pieces = breakEntity(source, { x: 40, y: 0 });
   assert.equal(pieces.length, 2);
   assert.equal(pieces[0].type, "line");
   assert.deepEqual(pieces[0].points, [{ x: 0, y: 0 }, { x: 40, y: 0 }]);
   assert.deepEqual(pieces[1].points, [{ x: 40, y: 0 }, { x: 100, y: 0 }]);
+  // 線分から離れた点(垂直距離が線分長の1%超)では分割しない
+  assert.throws(() => breakEntity(source, { x: 40, y: 3 }), /線分上/);
 });
 
 test("breakEntity splits an open polyline into two polylines", () => {
@@ -133,6 +142,20 @@ test("breakEntity rejects off-segment points, closed polylines, and unsupported 
   const closed = { type: "polyline", layerId: "layer-structure", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }], closed: true };
   assert.throws(() => breakEntity(closed, { x: 40, y: 0 }), /閉じた/);
   assert.throws(() => breakEntity(rect("layer-structure", [0, 0], 10, 10), { x: 5, y: 5 }), /対象外/);
+});
+
+test("breakEntity picks the nearest polyline segment rather than the first in tolerance", () => {
+  // 平行で近接する2セグメント: (0,0)-(50,0) と (50,0)-(100,0)。入力点は後者に近い
+  const source = {
+    type: "polyline",
+    layerId: "layer-structure",
+    points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }],
+    closed: false
+  };
+  const pieces = breakEntity(source, { x: 75, y: 0 });
+  assert.equal(pieces.length, 2);
+  assert.deepEqual(pieces[0].points, [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 75, y: 0 }]);
+  assert.deepEqual(pieces[1].points, [{ x: 75, y: 0 }, { x: 100, y: 0 }]);
 });
 
 test("joinLines merges two collinear lines sharing an endpoint", () => {

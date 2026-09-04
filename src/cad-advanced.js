@@ -188,10 +188,20 @@ export function mirrorEntity(entity, axisStart, axisEnd) {
  * @returns {object[]} 複写されたentity群
  */
 export function arrayEntity(entity, cols, rows, colDistance, rowDistance) {
-  const columns = Math.max(1, Math.round(Number(cols) || 1));
-  const rowCount = Math.max(1, Math.round(Number(rows) || 1));
+  const columns = Math.round(Number(cols) || 0);
+  const rowCount = Math.round(Number(rows) || 0);
+  if (!Number.isInteger(columns) || !Number.isInteger(rowCount) || columns < 1 || rowCount < 1) {
+    throw new Error("列数・行数は1以上の整数で指定してください。");
+  }
   if (!Number.isFinite(Number(colDistance)) || !Number.isFinite(Number(rowDistance))) {
     throw new Error("配列間隔を数値で指定してください。");
+  }
+  // ブラウザ凍結・メモリ枯渇を防ぐため、1回の複写で生成するentity数を上限で検証する
+  // (既存のimport上限10,000と同等以下の、安全側の実務上限)。
+  const MAX_ARRAY_COPIES = 1000;
+  const copyCount = columns * rowCount - 1;
+  if (copyCount > MAX_ARRAY_COPIES) {
+    throw new Error(`配列の複写数が多すぎます(上限 ${MAX_ARRAY_COPIES}件、指定 ${columns}×${rowCount}=${copyCount}件)。列数・行数を減らしてください。`);
   }
   const copies = [];
   for (let row = 0; row < rowCount; row += 1) {
@@ -275,8 +285,12 @@ function lineLike(source, points, options = {}) {
   return next;
 }
 
-// 点p(線分abの近傍)で線分を2分割する。pが線分の範囲外ならnull。
-function splitSegment(aRaw, bRaw, p) {
+// 点p(線分abの近傍)で線分を2分割する。
+// 分割可能条件: (1) 投影係数tが線分の範囲内(端点を除く)、(2) 垂直距離(点と線分の距離)が
+// 許容値以下。垂直距離を確認しないと線分から遠く離れた点でも分割されてしまう
+// ((0,0)-(100,0)に対する(40,1000000)など)。
+// @param tolerance 垂直距離の許容値(既定は線分長の1%)
+function splitSegment(aRaw, bRaw, p, tolerance = null) {
   const a = normalizePoint(aRaw);
   const b = normalizePoint(bRaw);
   const abx = b.x - a.x;
@@ -286,15 +300,18 @@ function splitSegment(aRaw, bRaw, p) {
   const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSquared;
   if (t < 1e-9 || t > 1 - 1e-9) return null;
   const foot = { x: a.x + t * abx, y: a.y + t * aby };
+  const perpendicular = Math.hypot(foot.x - p.x, foot.y - p.y);
+  const limit = tolerance ?? Math.max(1e-6, Math.sqrt(lengthSquared) * 0.01);
+  if (perpendicular > limit) return null;
   return [
     { a, b: foot },
     { a: foot, b }
   ];
 }
 
-// 開ポリラインの各セグメント上で点pに最も近い位置を分割点とし、2本のpolylineへ分ける。
-// クリック位置はOSnap等で線上の点に吸着済みだが、数値入力では微小な誤差があり得るため
-// 許容距離はセグメント長に対する相対値で判定する。
+// 開ポリラインを、入力点に最も近い許容セグメント上の位置で2本のpolylineへ分ける。
+// 最初に許容範囲へ入ったセグメントではなく、全セグメントを走査して最近傍を選ぶ
+// (平行で近接する複数セグメントがある場合に誤った位置で分割しないため)。
 function splitPolyline(pointsRaw, p) {
   const points = pointsRaw.map(normalizePoint);
   if (points.length < 2) return null;
@@ -302,27 +319,20 @@ function splitPolyline(pointsRaw, p) {
   let bestDistance = Infinity;
   let bestIndex = -1;
   for (let i = 0; i < points.length - 1; i += 1) {
-    const segment = splitSegment(points[i], points[i + 1], p);
-    if (!segment) continue;
-    const foot = segment[0].b;
     const segmentLength = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+    const tolerance = Math.max(1e-6, segmentLength * 0.01);
+    const split = splitSegment(points[i], points[i + 1], p, tolerance);
+    if (!split) continue;
+    const foot = split[0].b;
     const d = Math.hypot(foot.x - p.x, foot.y - p.y);
     if (d < bestDistance) {
       bestDistance = d;
       bestIndex = i;
       best = foot;
     }
-    // セグメント長の1%以内の近傍点のみ「ポリライン上」とみなす
-    const tolerance = Math.max(1e-6, segmentLength * 0.01);
-    if (d <= tolerance) {
-      return [
-        points.slice(0, i + 1).concat([foot]),
-        [foot].concat(points.slice(i + 1))
-      ];
-    }
   }
-  if (bestIndex < 0) return null;
-  return null;
+  if (bestIndex < 0 || !best) return null;
+  return [points.slice(0, bestIndex + 1).concat([best]), [best].concat(points.slice(bestIndex + 1))];
 }
 
 function centroid(points) {
