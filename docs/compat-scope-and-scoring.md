@@ -18,7 +18,7 @@
 
 | # | 必須範囲 | 現状 | 対応するdocs/README表記 |
 |---|---|---|---|
-| 1 | DXFの読込・編集・書出し | 限定対応(DXF読込: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTの7種、未対応は警告付きスキップ)。**DXF書出しは実装予定**(Phase 1)。DWGは対象外([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)) | README「Import」行 |
+| 1 | DXFの読込・編集・書出し | 限定対応(DXF読込: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTの7種、未対応は警告付きスキップ。**DXF書出し: 2026-09-04〜**line/circle/polyline/rect/text+Layers。`--mode=dxf-roundtrip`で往復比較測定可能化)。DWGは対象外([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)) | README「Import」行 |
 | 2 | 主要2D図形と精密編集 | 限定対応。TRIM/EXTENDは境界交点でなく線端座標移動、ポリラインOFFSETは真の平行曲線でなく重心基準の放射移動のため精密編集に形状誤差が生じ得る | README「作図」行 |
 | 3 | 寸法、文字、ハッチ、ブロック、レイヤー | 限定対応。`DIM`は2点間簡易寸法のみ、`HATCH`は島・境界探索なし、`BLOCK`は簡易構造(定義/参照分離・属性再定義・ライブラリ未対応) | README「コマンドライン」「レイヤー」行 |
 | 4 | レイアウトと尺度保証PDF | 限定対応。`window.print()`ベースの印刷は動作するが、ベクタ・尺度保証PDF出力は未実装(Phase 1、方針文書のP1-06相当) | README「レイアウト」「CAD互換範囲」行 |
@@ -118,7 +118,7 @@
 
 | 項目 | ブロッカー | 参照 |
 |---|---|---|
-| DXF往復比較(`--mode=dxf-roundtrip`) | DXF書出し未実装 | ADR-0001 P1-03a |
+| ~~DXF往復比較(`--mode=dxf-roundtrip`)~~ | **解消(2026-09-04)**: `src/dxf-export.js`実装により往復比較が測定可能化。残る制約: dimension/hatch/blockの書出し、真色420/線種・線幅の書出し、実案件図面での測定は未対応 | P1-03a |
 | ベクタ・尺度保証PDF比較 | PDF出力未実装 | P1-06(方針文書ロードマップ) |
 | 実案件100図面での測定 | 実案件図面が未到着(人間側のタスク) | docs/compat-corpus/README.md |
 

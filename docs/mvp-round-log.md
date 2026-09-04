@@ -296,3 +296,16 @@
 | 残課題 | ログイン方式はOne-Time PINのみ(Entra ID/HENNGE ONE連携は別途)。許可対象は`kensan1969@gmail.com`のみ(複数利用者・組織ロール展開は未着手、Issue #5継続) |
 
 
+
+## Round 10 / 2026-09-04 機能カタログ受領・Round 1(DXF書出し実装とカタログ監査)
+
+ユーザーから「理想的な建設・土木2D CAD機能カタログ」(基本作図/精密編集/座標、土木専門機能、図面標準・SXF・電子納品、注記・数量・属性、GIS・点群、BIM/CIM・4D/5D、CDE・権限、自動化・AI、品質照査、セキュリティ・運用の全章)を全機能追加する方針の指示を受領。8 Round構成のGoal Round 1として、(1)カタログ×現行実装の監査(確認)、(2)最優先ギャップであるDXF書出しの実装、を実施した。
+
+| 項目 | 内容 |
+| --- | --- |
+| 確認(監査) | `docs/feature-catalog-coverage.md`を新規作成。カタログ全章(A〜M)の各項目を実装済み✅/限定対応◐/実装予定🚧/未着手⬜/恒久対象外⊘へ分類し、方針文書Phase・改善台帳ID・既存コードへ対応付け。最優先(正確な2D作図/寸法/レイヤ/PDF、DXF往復、版管理/承認)はPhase 1〜2、土木専門機能はPhase 4、CDE/AI/GISはPhase 2〜5+中長期と判定 |
+| Development | `src/dxf-export.js`を新規実装(ASCII DXF R2000系: HEADER($ACADVER/$INSUNITS)+TABLES(LAYER,色は近傍ACIへ近似)+ENTITIES+EOF)。対応entity: line→LINE、circle→CIRCLE、polyline→LWPOLYLINE(閉鎖70=1)、rect→閉鎖LWPOLYLINE(4頂点)、text→TEXT(高さ40)。dimension/hatch/blockは「黙って捨てず」skipped(型・ID・理由)へ構造化報告し、存在しないレイヤー参照も同様に報告。座標は1e-9丸め、改行textは空白化+warning。`src/storage.js`に`exportDxfFile`、リボン「出力」にDXF書出しボタン(`exportDrawingDxf`)を追加 |
+| CLI | `scripts/compat-report.mjs --mode=dxf-roundtrip`を実動化(従来はexit code 2のスタブ)。DXF→import→export→importの往復を`compareDrawings`9軸で採点し、実装完了基準(P1-03a: dxf-roundtripで合格スコア)を測定可能にした |
+| 検証 | `npm run verify:fast`全成功(lint/typecheck/a11y/unit 158 pass+1 DB skip/build)。`tests/dxf-export.test.js`9件新規(構造・entity別エンコード・rect→LWPOLYLINE・skipped報告・改行・ACI近似・往復一致・座標丸め)。`tests/compat-report.test.js`のdxf-roundtripテストを「--file必須+合格スコア返却」へ更新 |
+| 文書 | README(Import行・CAD互換範囲・関連文書)、`docs/compat-scope-and-scoring.md`(必須範囲#1と測定不能表)、`docs/improvement-register.md`(P1-03に2026-09-04追記)、`state.json`(goal/P0-43/kpi)を更新 |
+| 残課題 | dimension/hatch/blockのDXF書出し、真色420・線種・線幅の保持、レイアウト/図枠/表題欄の保持、精密編集(TRIM/EXTEND/OFFSETの幾何精度)、寸法スタイル、レイヤーテンプレート等は次Round以降(改善台帳P1-02〜P1-06、方針文書Phase 1) |

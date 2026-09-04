@@ -52,3 +52,13 @@ export function exportDrawingFile(drawing) {
   anchor.click();
   URL.revokeObjectURL(url);
 }
+
+export function exportDxfFile(drawing, content) {
+  const blob = new Blob([content], { type: "application/dxf" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${drawing.name.replace(/[^\w-]+/g, "_")}_v${drawing.version}.dxf`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}

@@ -18,12 +18,29 @@ async function withTempDir(run) {
   }
 }
 
-test("dxf-roundtrip mode always reports unavailable and never returns a passing score", async () => {
+test("dxf-roundtrip mode requires --file and scores a lossless export/reimport cycle", async () => {
   await assert.rejects(execFileAsync("node", [CLI, "--mode=dxf-roundtrip"]), (error) => {
-    assert.equal(error.code, 2);
-    assert.match(error.stderr, /DXF書出し未実装/);
-    assert.doesNotMatch(error.stdout ?? "", /"grade"/);
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /--file/);
     return true;
+  });
+  await withTempDir(async (dir) => {
+    const file = path.join(dir, "sample.dxf");
+    await writeFile(
+      file,
+      [
+        "0", "SECTION", "2", "ENTITIES",
+        "0", "LINE", "8", "DXF-LINE", "10", "10", "20", "20", "11", "110", "21", "120",
+        "0", "CIRCLE", "8", "DXF-CIRCLE", "10", "200", "20", "300", "40", "25",
+        "0", "ENDSEC", "0", "EOF"
+      ].join("\n")
+    );
+    const { stdout } = await execFileAsync("node", [CLI, "--mode=dxf-roundtrip", `--file=${file}`]);
+    const body = JSON.parse(stdout);
+    assert.equal(body.mode, "dxf-roundtrip");
+    assert.equal(body.totals.missing, 0);
+    assert.equal(body.totals.extra, 0);
+    assert.ok(body.score >= 0.95, `score=${body.score}`);
   });
 });
 
