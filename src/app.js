@@ -20,7 +20,7 @@ import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDxfFile, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 import { exportDxf } from "./dxf-export.js";
 import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
-import { applyOrtho, findOsnapPoint } from "./cad-draft-helpers.js";
+import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
@@ -36,6 +36,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   snapEnabled: false,
   orthoEnabled: false,
   osnapEnabled: false,
+  osnapModes: { ...DEFAULT_OSNAP_MODES },
   gridInterval: 500,
   commandLogLines: 2,
   dimensionOffset: 350,
@@ -43,6 +44,17 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   dimensionSuffix: "",
   dockWidth: 300,
   theme: "system"
+});
+
+/** OSnapモードの日本語表示名(設定ダイアログの正本)。 */
+const OSNAP_MODE_LABELS = Object.freeze({
+  endpoint: "端点",
+  midpoint: "中点",
+  center: "中心",
+  quadrant: "四分点",
+  intersection: "交点",
+  perpendicular: "垂線",
+  nearest: "近接点"
 });
 
 const RIBBON_TABS = [
@@ -866,6 +878,17 @@ function settingsDialogHtml(drawing) {
             <input name="osnapEnabled" type="checkbox" ${state.settings.osnapEnabled ? "checked" : ""} />
             <span>図形スナップ（OSnap）</span>
           </label>
+          <fieldset class="osnap-modes">
+            <legend>OSnap対象</legend>
+            ${Object.entries(OSNAP_MODE_LABELS)
+              .map(
+                ([mode, label]) =>
+                  `<label class="toggle-row"><input name="osnapMode_${mode}" type="checkbox" ${
+                    state.settings.osnapModes?.[mode] ? "checked" : ""
+                  } /><span>${escapeHtml(label)}</span></label>`
+              )
+              .join("")}
+          </fieldset>
           <label>
             グリッド間隔
             <select name="gridInterval">
@@ -1179,6 +1202,24 @@ function openNewDrawingDialog(name = "") {
   input.select();
 }
 
+function osnapModesFromForm(data) {
+  const modes = {};
+  for (const mode of Object.keys(OSNAP_MODE_LABELS)) {
+    modes[mode] = data.get(`osnapMode_${mode}`) === "on";
+  }
+  return sanitizeOsnapModes(modes);
+}
+
+function sanitizeOsnapModes(stored) {
+  const modes = { ...DEFAULT_OSNAP_MODES };
+  if (stored && typeof stored === "object") {
+    for (const mode of Object.keys(OSNAP_MODE_LABELS)) {
+      if (typeof stored[mode] === "boolean") modes[mode] = stored[mode];
+    }
+  }
+  return modes;
+}
+
 function saveSettingsFromForm(event) {
   event.preventDefault();
   const form = /** @type {HTMLFormElement} */ (event.currentTarget);
@@ -1192,6 +1233,7 @@ function saveSettingsFromForm(event) {
     snapEnabled: data.get("snapEnabled") === "on",
     orthoEnabled: data.get("orthoEnabled") === "on",
     osnapEnabled: data.get("osnapEnabled") === "on",
+    osnapModes: osnapModesFromForm(data),
     gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
     commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
     dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
@@ -2230,7 +2272,7 @@ function snapPoint(point) {
   let snappedToEntity = false;
   if (state.settings.osnapEnabled) {
     const toleranceWorld = 10 / state.camera.scale;
-    const candidate = findOsnapPoint(activeDrawing(), point, toleranceWorld);
+    const candidate = findOsnapPoint(activeDrawing(), point, toleranceWorld, state.settings.osnapModes);
     if (candidate) {
       next = candidate;
       snappedToEntity = true;
@@ -2528,6 +2570,7 @@ function loadUserSettings() {
       snapEnabled: typeof stored?.snapEnabled === "boolean" ? stored.snapEnabled : DEFAULT_USER_SETTINGS.snapEnabled,
       orthoEnabled: typeof stored?.orthoEnabled === "boolean" ? stored.orthoEnabled : DEFAULT_USER_SETTINGS.orthoEnabled,
       osnapEnabled: typeof stored?.osnapEnabled === "boolean" ? stored.osnapEnabled : DEFAULT_USER_SETTINGS.osnapEnabled,
+      osnapModes: sanitizeOsnapModes(stored?.osnapModes),
       gridInterval: GRID_INTERVALS.has(gridInterval) ? gridInterval : DEFAULT_USER_SETTINGS.gridInterval,
       commandLogLines: [1, 2, 3].includes(commandLogLines) ? commandLogLines : DEFAULT_USER_SETTINGS.commandLogLines,
       dimensionOffset: Number.isFinite(dimensionOffset) && dimensionOffset >= 0 ? dimensionOffset : DEFAULT_USER_SETTINGS.dimensionOffset,
