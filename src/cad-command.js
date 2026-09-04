@@ -270,7 +270,8 @@ function joinCommand(tokens, context) {
   // 2ID明示指定(JOIN idA idB)を最優先。次に「選択図形+ID(JOIN idB)」。
   let firstId;
   let secondId;
-  if (tokens.length >= 2) {
+  if (tokens.length > 2) throw new Error("形式: JOIN [firstId] secondId(引数が多すぎます)");
+  if (tokens.length === 2) {
     [firstId, secondId] = tokens;
   } else if (tokens.length === 1) {
     firstId = context.selectedId;

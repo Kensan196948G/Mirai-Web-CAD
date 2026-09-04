@@ -86,10 +86,17 @@ test("precision edit commands mirror, array, break and join geometry", () => {
   assert.deepEqual(afterMirror.points, [{ x: 0, y: 0 }, { x: -1000, y: 0 }]);
 
   // ARRAY: 反転済みの線分を2×2(列間隔2000,行間隔1000)で複写 → 3件追加
-  const array = parseCadCommand("ARRAY 2 2 2000 1000", ctx);
+  // (鏡像後のdrawingへ適用し、コピーの座標が鏡像済み線分から複写されることを確認)
+  const array = parseCadCommand("ARRAY 2 2 2000 1000", context({ drawing: mirrored.drawing, selectedId: lineId }));
   const arrayed = applyTransaction(mirrored.drawing, { source: "user", label: array.label, commands: array.commands });
   assert.equal(arrayed.ok, true);
   assert.equal(arrayed.drawing.entities.length, mirrored.drawing.entities.length + 3, "2×2-1=3件の複写");
+  const copies = arrayed.drawing.entities.filter((entity) => entity.id.startsWith("e_array_") && entity.points[0].y === 0);
+  const copyStarts = copies.map((copy) => copy.points[0].x).sort((a, b) => a - b);
+  assert.deepEqual(copyStarts, [2000], "鏡像済み(-1000,0)起点の線の列複写は(2000,0)(元位置はスキップ)");
+
+  // JOINが余分な引数を拒否する
+  assert.throws(() => parseCadCommand("JOIN e1 e2 unexpected", context({ drawing: arrayed.drawing })), /引数が多すぎます/);
 
   // BREAK: 別の作業線を用意し(0,0)-(1000,0)を(500,0)で2分割
   const line2 = line("layer-structure", [0, 2000], [1000, 2000]);
