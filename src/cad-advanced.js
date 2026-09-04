@@ -482,7 +482,10 @@ export function collectBoundarySegments(boundaries) {
       for (let i = 0; i < boundary.points.length - 1; i += 1) {
         segments.push({ a: boundary.points[i], b: boundary.points[i + 1] });
       }
-      if (boundary.closed && boundary.points.length > 2) {
+      // hatchはclosedプロパティを持たないが常に閉領域として扱う(描画・面積計算と同じ解釈)。
+      // polylineもclosed時に最終→先頭セグメントを追加する。
+      const isClosed = boundary.type === "hatch" || boundary.closed === true;
+      if (isClosed && boundary.points.length > 2) {
         segments.push({ a: boundary.points[boundary.points.length - 1], b: boundary.points[0] });
       }
     }
@@ -492,6 +495,7 @@ export function collectBoundarySegments(boundaries) {
 
 /**
  * セグメントabをパラメータt(0〜1)で分割する位置を返す。点pの線分上への射影。
+ * 射影tが線分範囲外の場合はnull(線分外のクリックを誤操作として弾く)。
  * @returns {{t:number,x:number,y:number}|null} pの射影が線分範囲内ならその座標
  */
 function parameterizeOnSegment(a, b, p) {
@@ -500,6 +504,7 @@ function parameterizeOnSegment(a, b, p) {
   const lengthSquared = dx * dx + dy * dy;
   if (lengthSquared < EPSILON) return null;
   const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared;
+  if (t < 0 || t > 1) return null;
   return { t, x: a.x + t * dx, y: a.y + t * dy };
 }
 

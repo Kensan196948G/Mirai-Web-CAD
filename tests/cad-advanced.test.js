@@ -326,6 +326,9 @@ test("trimEntityToBoundaries rejects no-intersection and off-line clicks", () =>
   const parallel = line("layer-structure", [0, 100], [1000, 100]); // 交差しない
   assert.throws(() => trimEntityToBoundaries(subject, [parallel], { x: 500, y: 0 }), /交差/);
   assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: 500, y: 500 }), /線分上/);
+  // クリック点が対象線分の範囲外(射影t<0)でもエラーにする(CodeRabbit Major対応)
+  assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: -100, y: 0 }), /線分上/);
+  assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: 1500, y: 0 }), /線分上/);
   assert.throws(() => trimEntityToBoundaries(rect("layer-structure", [0, 0], 10, 10), [], { x: 5, y: 5 }), /線分/);
 });
 
@@ -350,4 +353,12 @@ test("extendEntityToBoundary rejects when no boundary lies on the ray", () => {
   const boundary = line("layer-structure", [-500, -100], [-500, 100]); // 反対側のみ
   assert.throws(() => extendEntityToBoundary(subject, [boundary], { x: 350, y: 0 }), /見つかりません/);
   assert.throws(() => extendEntityToBoundary(rect("layer-structure", [0, 0], 10, 10), [], { x: 5, y: 5 }), /線分/);
+});
+
+test("collectBoundarySegments always closes hatch boundaries", () => {
+  // hatchEntityはclosedを持たないが、境界としては常に閉路(最終→先頭セグメント)を収集する
+  const hatchB = hatchEntity("layer-structure", [[0, 0], [100, 0], [100, 50]]);
+  const segments = collectBoundarySegments([hatchB]);
+  assert.equal(segments.length, 3, "hatch 3点の閉路 = 3セグメント(最終→先頭を含む)");
+  assert.deepEqual(segments[2], { a: { x: 100, y: 50 }, b: { x: 0, y: 0 } });
 });
