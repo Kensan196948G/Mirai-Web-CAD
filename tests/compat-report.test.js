@@ -41,6 +41,11 @@ test("dxf-roundtrip mode requires --file and scores a lossless export/reimport c
     assert.equal(body.totals.missing, 0);
     assert.equal(body.totals.extra, 0);
     assert.ok(body.score >= 0.95, `score=${body.score}`);
+    // 各段階の診断はimportWarningsへ混在させず、別フィールドで構造化出力する(CodeRabbit Major対応)
+    assert.ok(Array.isArray(body.firstImportWarnings));
+    assert.ok(Array.isArray(body.secondImportWarnings));
+    assert.ok(Array.isArray(body.exportSkipped));
+    assert.ok(Array.isArray(body.exportWarnings));
   });
 });
 

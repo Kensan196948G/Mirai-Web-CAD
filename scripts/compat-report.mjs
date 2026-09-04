@@ -97,19 +97,21 @@ async function runDxfRoundtrip(args) {
     return 1;
   }
   const content = await readFile(args.file, "utf8");
-  const expectedDrawing = importInto(createDrawing(), args.file, content).drawing;
+  const first = importInto(createDrawing(), args.file, content);
+  const expectedDrawing = first.drawing;
 
   const exported = exportDxf(expectedDrawing);
-  const exportedContent = exported.content;
-  const actualDrawing = importInto(
-    createDrawing(),
-    "roundtrip.dxf",
-    exportedContent
-  ).drawing;
+  const second = importInto(createDrawing(), "roundtrip.dxf", exported.content);
+  const actualDrawing = second.drawing;
 
   const report = compareDrawings(expectedDrawing, actualDrawing, TOLERANCE_V0, { mode: "dxf-roundtrip" });
   return emitReport(report, {
-    warnings: [...exported.skipped.map((entry) => `${entry.type} ${entry.id}: ${entry.reason}`), ...exported.warnings]
+    diagnostics: {
+      firstImportWarnings: first.warnings,
+      secondImportWarnings: second.warnings,
+      exportSkipped: exported.skipped,
+      exportWarnings: exported.warnings
+    }
   });
 }
 
@@ -120,7 +122,7 @@ function importInto(base, filename, content) {
   return { drawing: applied.drawing, warnings: result.warnings };
 }
 
-function emitReport(report, { calibration = false, warnings = [] } = {}) {
+function emitReport(report, { calibration = false, warnings = [], diagnostics = null } = {}) {
   if (calibration) {
     const deltas = report.findings.map((finding) => finding.delta).filter((value) => typeof value === "number").sort((a, b) => a - b);
     const distribution = {
@@ -134,23 +136,26 @@ function emitReport(report, { calibration = false, warnings = [] } = {}) {
   }
 
   const scored = scoreComparison(report);
-  console.log(
-    JSON.stringify(
-      {
-        mode: report.mode,
-        totals: report.totals,
-        axisScores: scored.axisScores,
-        score: scored.score,
-        grade: scored.grade,
-        criticalCount: scored.criticalCount,
-        blockers: scored.blockers,
-        findingCount: report.findings.length,
-        importWarnings: warnings
-      },
-      null,
-      2
-    )
-  );
+  const output = {
+    mode: report.mode,
+    totals: report.totals,
+    axisScores: scored.axisScores,
+    score: scored.score,
+    grade: scored.grade,
+    criticalCount: scored.criticalCount,
+    blockers: scored.blockers,
+    findingCount: report.findings.length,
+    importWarnings: warnings
+  };
+  // 往復比較では初回import/再import/export各段階の診断を分離して出力する
+  // (skippedは構造化情報のため文字列化せず別フィールドへ保つ)。
+  if (diagnostics) {
+    output.firstImportWarnings = diagnostics.firstImportWarnings;
+    output.secondImportWarnings = diagnostics.secondImportWarnings;
+    output.exportSkipped = diagnostics.exportSkipped;
+    output.exportWarnings = diagnostics.exportWarnings;
+  }
+  console.log(JSON.stringify(output, null, 2));
   return scored.grade === "pass80" || scored.grade === "pass90" ? 0 : 1;
 }
 
