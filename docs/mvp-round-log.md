@@ -321,3 +321,15 @@
 | 検証 | unit 170件(新規10件: セグメント分解/最近点/垂線の足/交点/共有端点除外/モード既定値/中点・交点・垂線・近接点スナップ/モード無効化)、e2e 48件(新規2件: OSnap対象の選択・保存・再読込)。`npm run verify`全成功 |
 | 文書 | README(作図補助行)、`docs/feature-catalog-coverage.md`(OSnap行・点/交点行)、`docs/improvement-register.md`(P0-44)、`state.json`(goal/P0-44/unit 170/e2e 48)を更新 |
 | 残課題 | 接線(tangent)スナップ、極トラッキング・追跡線、OSnapの空間インデックス最適化(現状は全可視entity走査)、正確なTRIM/EXTEND/OFFSET、MIRROR/ARRAY等の編集コマンド、寸法スタイル等は次Round以降(方針文書Phase 1、改善台帳P1-02〜P1-06) |
+
+## Round 10 追補 / 2026-09-04 機能カタログRound 3(精密編集コマンド: MIRROR/ARRAY/BREAK/JOIN)
+
+Goal Round 3として、カタログA-2「高精度編集: 移動、複写、回転、鏡像、配列、ストレッチ、トリム、延長、分割、結合、オフセット」のうち方針文書Phase 1で必須としつつ未実装だった鏡像・配列・分割・結合を実装した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Development | `src/cad-advanced.js`へ4関数を追加: `mirrorEntity`(軸2点で線対称。line/polyline/circle/textは同一型で変換、rectは閉じたpolylineへ型変換して置換、blockは挿入点基準のローカル軸でchildren反転+回転符号反転)、`arrayEntity`(矩形配列。元位置を除くcols×rows-1件を新ID採番で複写)、`breakEntity`(lineを分割点で2本に、開polylineを分割点で2本に。分割点の判定はセグメント長比1%を許容。新ID採番により重複IDを防止)、`joinLines`(端点が許容差内で一致し同一直線上の2線分のみ1本へ) |
+| CLI/UI | `src/cad-command.js`: MIRROR `[id] x1,y1 x2,y2`/ARRAY `[id] 列数 行数 列間隔 行間隔`/BREAK `[id] x,y`/JOIN `idA idB`(2ID明示優先、選択+IDも可)を登録しHELP更新。`src/app.js`: リボン「修正」に鏡像/配列/分割/結合ボタン+アイコン4種、OPERATION_LABELS追加、`parseTwoPointsValue`/`parseArrayValue`新設、applyOperationFormへ統合(型変換を伴う鏡像はdelete+addで置換) |
+| 検証 | unit 184件=183 pass+1 DB skip(+12件: 鏡像の軸種別/rect→polyline変換・面積保持/配列の格子座標・ID採番・バリデーション/分割のline・開polyline・不正点/結合の同一直線・非対応ケース、cad-command統合テスト)。e2e 50件(+2件: コマンドライン駆動でMIRROR/ARRAY/BREAK/JOINの図形数・座標検証)。`npm run verify`全成功 |
+| 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(鏡像/配列/分割/結合行)、`docs/improvement-register.md`(P0-45)、`state.json`(goal/P0-45/unit 183/e2e 50)を更新 |
+| 残課題 | 正確なTRIM/EXTEND(境界交点演算)、真の平行OFFSET(ポリライン)、STRETCH/EXPLODE/FILLET/CHAMFER/MATCHPROP、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |

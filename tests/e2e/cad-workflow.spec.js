@@ -523,3 +523,63 @@ test("システム設定でOSnap対象モードを選択・保存・再読込で
   await expect(page.getByLabel("交点")).not.toBeChecked();
   await expect(page.getByLabel("端点")).toBeChecked();
 });
+
+test("精密編集コマンド(MIRROR/ARRAY/BREAK/JOIN)がコマンドラインから動作する", async ({ page }) => {
+  await page.getByRole("button", { name: "新規図面" }).click();
+  await page.getByLabel("図面名").fill("精密編集E2E");
+  await page.getByLabel("テンプレート").selectOption("blank");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+
+  const quantity = quantityLocator(page);
+  const command = page.getByLabel("コマンド入力");
+  await command.fill("LINE 0,0 1000,0");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("1");
+  await expect(page.getByLabel("コマンドログ")).toContainText("CLI LINE");
+
+  // SELECT→MIRROR: x=0の縦軸で反転(y=0線分は負側へ)
+  const lineId = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("mirai-web-cad-mvp"));
+    return d.entities[0].id;
+  });
+  await command.fill(`SELECT ${lineId}`);
+  await command.press("Enter");
+  await command.fill("MIRROR 0,0 0,100");
+  await command.press("Enter");
+  await expect(page.getByLabel("コマンドログ")).toContainText("MIRROR");
+  const mirroredPoints = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("mirai-web-cad-mvp"));
+    return d.entities[0].points;
+  });
+  expect(mirroredPoints[1].x).toBe(-1000);
+
+  // ARRAY: 2×2、列間隔2000/行間隔1000 → +3件
+  await command.fill("ARRAY 2 2 2000 1000");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("4");
+  await expect(page.getByLabel("コマンドログ")).toContainText("ARRAY");
+
+  // BREAK: 別の線分を用意して分割
+  await command.fill("LINE 0,3000 1000,3000");
+  await command.press("Enter");
+  await expect(quantity).toHaveText("5");
+  const line2Id = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("mirai-web-cad-mvp"));
+    const e = d.entities.find((item) => item.points?.[0]?.y === 3000);
+    return e.id;
+  });
+  await command.fill(`BREAK ${line2Id} 500,3000`);
+  await command.press("Enter");
+  await expect(quantity).toHaveText("6");
+  await expect(page.getByLabel("コマンドログ")).toContainText("BREAK");
+
+  // JOIN: 分割後の2線分(同一線上)を再結合
+  const ids = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("mirai-web-cad-mvp"));
+    return d.entities.filter((item) => item.points?.[0]?.y === 3000).map((item) => item.id);
+  });
+  await command.fill(`JOIN ${ids[0]} ${ids[1]}`);
+  await command.press("Enter");
+  await expect(quantity).toHaveText("5");
+  await expect(page.getByLabel("コマンドログ")).toContainText("JOIN");
+});

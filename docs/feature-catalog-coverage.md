@@ -40,7 +40,7 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 機能カタログ | 状態 | 現状・対応 | 備考 |
 |---|---|---|---|
 | 移動/複写/回転/尺度変更/削除 | ✅ | MOVE/COPY/ROTATE/SCALE/ERASE | — |
-| 鏡像/配列/ストレッチ/分割/結合 | ⬜ | — | Phase 1 |
+| 鏡像/配列/分割/結合 | ◐ | **2026-09-04実装**: MIRROR(軸2点で線対称、rectは閉polyline化して置換)/ARRAY(矩形配列・元位置を除くcols×rows-1複写)/BREAK(line・開polylineを分割点で2分割)/JOIN(同一直線・端点一致2線分の結合)をcad-advanced.js+cad-command+リボン「修正」に追加 | ストレッチ/EXPLODE/FILLET/CHAMFERはPhase 1(P1-02) |
 | トリム/延長 | ◐ | 線端の座標移動のみ(境界交点演算でない) | 精密編集P1-02 |
 | オフセット | ◐ | LINE/CIRCLE/RECT/重心放射(真の平行曲線でない) | 精密編集P1-02 |
 | 面取り/フィレット/交差処理/境界作成 | ⬜ | — | Phase 1 |
