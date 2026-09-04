@@ -9,10 +9,11 @@
 //   node scripts/compat-report.mjs --mode=calibration --file=<import-json|dxf> [--expected=<json>]
 //   node scripts/compat-report.mjs --explain
 //
-// 終了コード: 0=成功(pass80以上またはcalibration/explain完了), 1=fail/エラー, 2=未実装モード
+// 終了コード: 0=成功(pass80以上またはcalibration/explain完了), 1=fail/エラー
 import { readFile } from "node:fs/promises";
 import { applyTransaction, createDrawing } from "../src/cad-core.js";
 import { parseCadImport } from "../src/importers.js";
+import { exportDxf } from "../src/dxf-export.js";
 import { compareDrawings } from "../src/drawing-compare.js";
 import { TOLERANCE_V0, describeRubric, scoreComparison } from "../src/compat-score.js";
 
@@ -31,8 +32,7 @@ async function main() {
   }
 
   if (mode === "dxf-roundtrip") {
-    console.error("DXF書出し未実装(Phase 1 / P1-03a)。ADR-0001参照。dxf-roundtrip比較は現時点で測定できません。");
-    return 2;
+    return await runDxfRoundtrip(args);
   }
 
   if (mode === "json-roundtrip") {
@@ -88,6 +88,33 @@ async function runDxfImport(args, { calibration = false } = {}) {
   return emitReport(report, { calibration, warnings: imported.warnings });
 }
 
+// DXF往復比較: 入力DXF→import(期待側)→export→import(実測側)の順で、DXF書出し
+// (src/dxf-export.js)がimporters.jsの読み取り能力と整合しているかを9軸採点する。
+// 実案件コーパス図面が到着する前の開発回帰ゲートとして機能させる。
+async function runDxfRoundtrip(args) {
+  if (!args.file) {
+    console.error("エラー: dxf-roundtripには--file=<dxf>が必要です");
+    return 1;
+  }
+  const content = await readFile(args.file, "utf8");
+  const first = importInto(createDrawing(), args.file, content);
+  const expectedDrawing = first.drawing;
+
+  const exported = exportDxf(expectedDrawing);
+  const second = importInto(createDrawing(), "roundtrip.dxf", exported.content);
+  const actualDrawing = second.drawing;
+
+  const report = compareDrawings(expectedDrawing, actualDrawing, TOLERANCE_V0, { mode: "dxf-roundtrip" });
+  return emitReport(report, {
+    diagnostics: {
+      firstImportWarnings: first.warnings,
+      secondImportWarnings: second.warnings,
+      exportSkipped: exported.skipped,
+      exportWarnings: exported.warnings
+    }
+  });
+}
+
 function importInto(base, filename, content) {
   const result = parseCadImport({ filename, content, drawing: base, currentLayerId: base.layers[0]?.id });
   const applied = applyTransaction(base, { source: "system", label: "corpus-import", commands: result.commands });
@@ -95,7 +122,7 @@ function importInto(base, filename, content) {
   return { drawing: applied.drawing, warnings: result.warnings };
 }
 
-function emitReport(report, { calibration = false, warnings = [] } = {}) {
+function emitReport(report, { calibration = false, warnings = [], diagnostics = null } = {}) {
   if (calibration) {
     const deltas = report.findings.map((finding) => finding.delta).filter((value) => typeof value === "number").sort((a, b) => a - b);
     const distribution = {
@@ -109,23 +136,26 @@ function emitReport(report, { calibration = false, warnings = [] } = {}) {
   }
 
   const scored = scoreComparison(report);
-  console.log(
-    JSON.stringify(
-      {
-        mode: report.mode,
-        totals: report.totals,
-        axisScores: scored.axisScores,
-        score: scored.score,
-        grade: scored.grade,
-        criticalCount: scored.criticalCount,
-        blockers: scored.blockers,
-        findingCount: report.findings.length,
-        importWarnings: warnings
-      },
-      null,
-      2
-    )
-  );
+  const output = {
+    mode: report.mode,
+    totals: report.totals,
+    axisScores: scored.axisScores,
+    score: scored.score,
+    grade: scored.grade,
+    criticalCount: scored.criticalCount,
+    blockers: scored.blockers,
+    findingCount: report.findings.length,
+    importWarnings: warnings
+  };
+  // 往復比較では初回import/再import/export各段階の診断を分離して出力する
+  // (skippedは構造化情報のため文字列化せず別フィールドへ保つ)。
+  if (diagnostics) {
+    output.firstImportWarnings = diagnostics.firstImportWarnings;
+    output.secondImportWarnings = diagnostics.secondImportWarnings;
+    output.exportSkipped = diagnostics.exportSkipped;
+    output.exportWarnings = diagnostics.exportWarnings;
+  }
+  console.log(JSON.stringify(output, null, 2));
   return scored.grade === "pass80" || scored.grade === "pass90" ? 0 : 1;
 }
 

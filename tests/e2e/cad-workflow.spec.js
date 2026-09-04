@@ -471,3 +471,24 @@ test("未保存のレイアウト選択はモデル/レイアウト空間切替�
   await expect(page.locator("#layoutForm select[name=paper]")).toHaveValue("A1");
   await expect(page.locator(".paper-note")).toContainText("A1");
 });
+
+test("DXF書出しは図面をASCII DXFとしてダウンロードできる", async ({ page }) => {
+  await page.getByRole("button", { name: "出力", exact: true }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "DXF書出し", exact: true }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.dxf$/);
+
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const content = Buffer.concat(chunks).toString("utf8");
+  expect(content).toContain("SECTION");
+  expect(content).toContain("ENTITIES");
+  expect(content).toContain("EOF");
+  // デモ図面の代表図形(entity)が含まれる(フレーム線・クレーン円・注記)
+  expect(content).toContain("LINE");
+  expect(content).toContain("CIRCLE");
+  expect(content).toContain("TEXT");
+});

@@ -17,7 +17,8 @@ import {
 } from "./cad-core.js";
 import { parseCadCommand } from "./cad-command.js";
 import { parseCadImport } from "./importers.js";
-import { clearDrawing, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
+import { clearDrawing, exportDxfFile, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
+import { exportDxf } from "./dxf-export.js";
 import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
 import { applyOrtho, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
@@ -210,7 +211,8 @@ const RIBBON = {
       label: "出力",
       buttons: [
         { icon: "print", title: "印刷 / PDF保存", act: "goLayoutSpace" },
-        { icon: "exp", title: "JSON書出し", act: "exportDrawing" }
+        { icon: "exp", title: "JSON書出し", act: "exportDrawing" },
+        { icon: "exp", title: "DXF書出し", act: "exportDrawingDxf" }
       ]
     }
   ]
@@ -228,7 +230,8 @@ const RIBBON_ACTIONS = {
   openDock: (arg) => openDock(arg),
   changeReviewState: (arg) => changeReviewState(arg),
   goLayoutSpace: () => goLayoutSpace(),
-  exportDrawing: () => exportDrawing()
+  exportDrawing: () => exportDrawing(),
+  exportDrawingDxf: () => exportDrawingDxf()
 };
 
 const state = {
@@ -1153,6 +1156,19 @@ function zoomOut() {
 
 function exportDrawing() {
   exportDrawingFile(state.drawing);
+}
+
+function exportDrawingDxf() {
+  const result = exportDxf(state.drawing);
+  const note = result.skipped.length > 0 ? `（スキップ: ${result.skipped.length}件）` : "";
+  log(`DXF書出し: ${result.exported}件${note}`);
+  if (result.skipped.length > 0) {
+    log(`DXF未対応: ${result.skipped.map((entry) => `${entry.type}:${entry.id}`).join(", ")}`);
+  }
+  for (const warning of result.warnings) {
+    log(warning);
+  }
+  exportDxfFile(state.drawing, result.content);
 }
 
 function openNewDrawingDialog(name = "") {
