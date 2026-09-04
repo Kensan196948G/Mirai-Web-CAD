@@ -19,7 +19,7 @@ import { parseCadCommand } from "./cad-command.js";
 import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDxfFile, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 import { exportDxf } from "./dxf-export.js";
-import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
+import { blockEntity, arrayEntity, breakEntity, dimensionEntity, editLineEndpoint, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity } from "./cad-advanced.js";
 import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 
@@ -91,6 +91,10 @@ const OPERATION_LABELS = {
   offset: "オフセット",
   trim: "トリム",
   extend: "延長",
+  mirror: "鏡像",
+  array: "配列",
+  break: "分割",
+  join: "結合",
   block: "ブロック化"
 };
 
@@ -109,6 +113,10 @@ const ICONS = {
   offset: "M4 16V6a2 2 0 0 1 2-2h10M8 20v-8a2 2 0 0 1 2-2h10",
   trim: "M5 4l14 16M19 4L5 20M15 4h4v4",
   extend: "M4 4v16M9 12h11M16 8l4 4-4 4",
+  mirror: "M5 20L19 4M5 20h4M5 20v-4M19 4h-4M19 4v4",
+  array: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  break: "M7 4v16M17 4v16M7 12h10",
+  join: "M5 12h10M12 8l4 4-4 4M19 5v14",
   erase: "M4 16L13 7l5 5-7 7H7l-3-3zM11 9l5 5",
   undo: "M7 5L3 9l4 4M3 9h11a5 5 0 0 1 0 10h-4",
   redo: "M17 5l4 4-4 4M21 9H10a5 5 0 0 0 0 10h4",
@@ -162,6 +170,10 @@ const RIBBON = {
         { icon: "offset", title: "オフセット", act: "beginOperation", arg: "offset" },
         { icon: "trim", title: "トリム", act: "beginOperation", arg: "trim" },
         { icon: "extend", title: "延長", act: "beginOperation", arg: "extend" },
+        { icon: "mirror", title: "鏡像", act: "beginOperation", arg: "mirror" },
+        { icon: "array", title: "配列", act: "beginOperation", arg: "array" },
+        { icon: "break", title: "分割", act: "beginOperation", arg: "break" },
+        { icon: "join", title: "結合", act: "beginOperation", arg: "join" },
         { icon: "erase", title: "削除", act: "deleteSelected" },
         { icon: "undo", title: "元に戻す", act: "undoLastTransaction" }
       ]
@@ -605,7 +617,7 @@ function propsDockHtml(drawing, selected) {
               .join("")}
           </select>
         </label>
-        <label>値<input name="value" aria-label="操作値" placeholder="例: 500,0 / 45 / 1.5" /></label>
+        <label>値<input name="value" aria-label="操作値" placeholder="移動 500,0 / 鏡像 0,0 0,100 / 配列 2 3 1000 800 / 結合 ID" /></label>
         <button type="submit" ${selected ? "" : "disabled"}>選択図形へ適用</button>
       </form>
       <p class="measure-result">${
@@ -1518,6 +1530,35 @@ async function applyOperationForm(event) {
     }
     if (operation === "offset") next = offsetEntity(selected, parseNumberValue(value, "距離"));
     if (["trim", "extend"].includes(operation)) next = editLineEndpoint(selected, parsePointValue(value, "x,y"), operation.toUpperCase());
+    if (operation === "mirror") {
+      const axis = parseTwoPointsValue(value, "x1,y1 x2,y2（鏡像軸の2点）");
+      next = mirrorEntity(selected, axis[0], axis[1]);
+    }
+    if (operation === "array") {
+      const { columns, rows, columnDistance, rowDistance } = parseArrayValue(value);
+      const copies = arrayEntity(selected, columns, rows, columnDistance, rowDistance);
+      if (copies.length === 0) throw new Error("配列の複写対象がありません。");
+      state.pendingOperation = null;
+      await commitCommands("配列", copies.map((copy) => ({ op: "add", entity: copy })));
+      return;
+    }
+    if (operation === "break") {
+      const pieces = breakEntity(selected, parsePointValue(value, "x,y"));
+      const first = /** @type {any} */ (pieces[0]);
+      state.selectedId = first?.id ?? state.selectedId;
+      state.pendingOperation = null;
+      await commitCommands("分割", [{ op: "delete", id: selected.id }, ...pieces.map((piece) => ({ op: "add", entity: /** @type {any} */ (piece) }))]);
+      return;
+    }
+    if (operation === "join") {
+      const target = state.drawing.entities.find((entity) => entity.id === value.trim());
+      if (!target) throw new Error("結合する相手の図形IDを値に入力してください(例: e_box_1)。");
+      const joined = joinLines(selected, target);
+      if (!joined) throw new Error("端点が一致し同一線上にある2線分のみ結合できます。");
+      state.pendingOperation = null;
+      await commitCommands("結合", [{ op: "delete", id: selected.id }, { op: "delete", id: target.id }, { op: "add", entity: joined }]);
+      return;
+    }
     if (operation === "block") {
       const name = value || `BLOCK_${selected.id}`;
       const child = transformEntity(selected);
@@ -1535,6 +1576,10 @@ async function applyOperationForm(event) {
       state.selectedId = next.id;
       state.pendingOperation = null;
       await commitCommands(operation === "copy" ? "図形複写" : "オフセット", [{ op: "add", entity: next }]);
+    } else if (operation === "mirror" && next.type !== selected.type) {
+      // rect→polyline等、型が変わる鏡像はdelete+addで置換する
+      state.pendingOperation = null;
+      await commitCommands("鏡像", [{ op: "delete", id: selected.id }, { op: "add", entity: next }]);
     } else {
       state.pendingOperation = null;
       await commitCommands(operation.toUpperCase(), [{ op: "update", id: selected.id, patch: withoutIdentity(next) }]);
@@ -2543,6 +2588,23 @@ function parseNumberValue(value, label) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${label}を数値で入力してください。`);
   return parsed;
+}
+
+function parseTwoPointsValue(value, label) {
+  const tokens = String(value).trim().split(/\s+/);
+  if (tokens.length !== 2) throw new Error(`${label}形式で入力してください。`);
+  return tokens.map((token) => parsePointValue(token, label));
+}
+
+function parseArrayValue(value) {
+  const tokens = String(value).trim().split(/\s+/);
+  if (tokens.length !== 4) throw new Error("列数 行数 列間隔 行間隔 の4値を入力してください(例: 2 3 1000 800)。");
+  const columns = parseNumberValue(tokens[0], "列数");
+  const rows = parseNumberValue(tokens[1], "行数");
+  if (columns < 1 || rows < 1 || !Number.isInteger(columns) || !Number.isInteger(rows)) throw new Error("列数・行数は1以上の整数で指定してください。");
+  const columnDistance = parseNumberValue(tokens[2], "列間隔");
+  const rowDistance = parseNumberValue(tokens[3], "行間隔");
+  return { columns, rows, columnDistance, rowDistance };
 }
 
 function entityAnchor(entity) {

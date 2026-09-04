@@ -1,5 +1,17 @@
 import { circle, entityArea, line, polyline, rect, text } from "./cad-core.js";
-import { blockEntity, dimensionEntity, editLineEndpoint, hatchEntity, measurePoints, offsetEntity, transformEntity } from "./cad-advanced.js";
+import {
+  arrayEntity,
+  blockEntity,
+  breakEntity,
+  dimensionEntity,
+  editLineEndpoint,
+  hatchEntity,
+  joinLines,
+  measurePoints,
+  mirrorEntity,
+  offsetEntity,
+  transformEntity
+} from "./cad-advanced.js";
 
 const TOOL_COMMANDS = {
   L: "line",
@@ -79,6 +91,10 @@ export function parseCadCommand(input, context) {
   if (["O", "OFFSET"].includes(command)) return offsetCommand(tokens, context);
   if (["TR", "TRIM"].includes(command)) return endpointCommand("TRIM", tokens, context);
   if (["EX", "EXTEND"].includes(command)) return endpointCommand("EXTEND", tokens, context);
+  if (["MI", "MIRROR"].includes(command)) return mirrorCommand(tokens, context);
+  if (["AR", "ARRAY"].includes(command)) return arrayCommand(tokens, context);
+  if (["BR", "BREAK"].includes(command)) return breakCommand(tokens, context);
+  if (["JOIN", "J"].includes(command)) return joinCommand(tokens, context);
   if (["D", "DIM", "DIMLINEAR"].includes(command)) {
     if (tokens.length < 2 || tokens.length > 3) throw new Error("形式: DIM x1,y1 x2,y2 [offset]");
     return transaction("DIM", [{ op: "add", entity: dimensionEntity(context.currentLayerId, point(tokens[0]), point(tokens[1]), { offset: tokens[2] === undefined ? 350 : number(tokens[2], "offset") }) }]);
@@ -154,7 +170,7 @@ export function parseCadCommand(input, context) {
   if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
+      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);
@@ -210,6 +226,66 @@ function endpointCommand(label, tokens, context) {
   requireCount(tokens, 1, `${label} [id] x,y`);
   const next = editLineEndpoint(entity, point(tokens[0]), label);
   return transaction(label, [{ op: "update", id: entity.id, patch: { points: next.points } }]);
+}
+
+function mirrorCommand(tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !tokens[0].includes(",")) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error("MIRRORする図形を選択するかIDを指定してください。");
+  requireCount(tokens, 2, "MIRROR [id] x1,y1 x2,y2 (鏡像軸の2点)");
+  const axisStart = point(tokens[0]);
+  const axisEnd = point(tokens[1]);
+  const next = mirrorEntity(entity, axisStart, axisEnd);
+  // rect→polyline等、型が変わる変換はdelete+addで置換する(updateでは整合しない)
+  const commands =
+    next.type === entity.type
+      ? [{ op: "update", id: entity.id, patch: withoutIdentity(next) }]
+      : [{ op: "delete", id: entity.id }, { op: "add", entity: next }];
+  return transaction("MIRROR", commands);
+}
+
+function arrayCommand(tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !tokens[0].includes(",") && !/^\d+$/.test(tokens[0] ?? "")) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error("ARRAYする図形を選択するかIDを指定してください。");
+  requireCount(tokens, 4, "ARRAY [id] 列数 行数 列間隔 行間隔");
+  const copies = arrayEntity(entity, number(tokens[0], "列数"), number(tokens[1], "行数"), number(tokens[2], "列間隔"), number(tokens[3], "行間隔"));
+  return transaction("ARRAY", copies.map((copy) => ({ op: "add", entity: copy })));
+}
+
+function breakCommand(tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && !tokens[0].includes(",")) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error("BREAKする図形を選択するかIDを指定してください。");
+  requireCount(tokens, 1, "BREAK [id] x,y");
+  const pieces = breakEntity(entity, point(tokens[0]));
+  const commands = [{ op: "delete", id: entity.id }, ...pieces.map((piece) => ({ op: "add", entity: piece }))];
+  return transaction("BREAK", commands);
+}
+
+function joinCommand(tokens, context) {
+  // 2ID明示指定(JOIN idA idB)を最優先。次に「選択図形+ID(JOIN idB)」。
+  let firstId;
+  let secondId;
+  if (tokens.length >= 2) {
+    [firstId, secondId] = tokens;
+  } else if (tokens.length === 1) {
+    firstId = context.selectedId;
+    secondId = tokens[0];
+  } else {
+    throw new Error("形式: JOIN [firstId] secondId(または図形を選択して JOIN secondId)");
+  }
+  if (!firstId || !secondId) throw new Error("形式: JOIN [firstId] secondId(または図形を選択して JOIN secondId)");
+  const first = context.drawing.entities.find((item) => item.id === firstId);
+  const second = context.drawing.entities.find((item) => item.id === secondId);
+  if (!first || !second) throw new Error("JOIN対象の線分が見つかりません。");
+  const joined = joinLines(first, second);
+  if (!joined) throw new Error("端点が一致し同一線上にある2線分のみ結合できます。");
+  const commands = [{ op: "delete", id: firstId }, { op: "delete", id: secondId }, { op: "add", entity: joined }];
+  return transaction("JOIN", commands);
 }
 
 function selectedEntity(tokens, context, label) {

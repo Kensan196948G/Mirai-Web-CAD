@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseCadCommand } from "../src/cad-command.js";
-import { applyTransaction, seedDrawing } from "../src/cad-core.js";
+import { applyTransaction, line, seedDrawing } from "../src/cad-core.js";
 
 function context(overrides = {}) {
   const drawing = seedDrawing();
@@ -61,4 +61,58 @@ test("advanced commands create and transform production CAD geometry", () => {
   assert.match(parseCadCommand("AREA e_box_1", selectedContext).message, /面積=/);
   assert.deepEqual(parseCadCommand("PAN 100,50", selectedContext), { kind: "ui", action: "pan", offset: { x: 100, y: 50 } });
   assert.deepEqual(parseCadCommand("PLOT", selectedContext), { kind: "ui", action: "plot" });
+});
+
+test("precision edit commands mirror, array, break and join geometry", () => {
+  // 専用の作業線を用意してから精密編集コマンドを検証する(デモ図面の線は分割位置が不明確なため)
+  const seed = seedDrawing();
+  const source = line("layer-structure", [0, 0], [1000, 0]);
+  const created = applyTransaction(seed, {
+    source: "user",
+    label: "test line",
+    commands: [{ op: "add", entity: source }]
+  });
+  assert.equal(created.ok, true);
+  const drawing = created.drawing;
+  const lineId = drawing.entities.find((entity) => entity.type === "line" && entity.points[0].x === 0 && entity.points[0].y === 0 && entity.points[1].x === 1000).id;
+  const ctx = context({ drawing, selectedId: lineId });
+
+  // MIRROR: y軸(x=0)で反転 → 点列が負側へ置換される
+  const mirror = parseCadCommand("MIRROR 0,0 0,100", ctx);
+  assert.equal(mirror.kind, "transaction");
+  const mirrored = applyTransaction(drawing, { source: "user", label: mirror.label, commands: mirror.commands });
+  assert.equal(mirrored.ok, true);
+  const afterMirror = mirrored.drawing.entities.find((entity) => entity.id === lineId);
+  assert.deepEqual(afterMirror.points, [{ x: 0, y: 0 }, { x: -1000, y: 0 }]);
+
+  // ARRAY: 反転済みの線分を2×2(列間隔2000,行間隔1000)で複写 → 3件追加
+  const array = parseCadCommand("ARRAY 2 2 2000 1000", ctx);
+  const arrayed = applyTransaction(mirrored.drawing, { source: "user", label: array.label, commands: array.commands });
+  assert.equal(arrayed.ok, true);
+  assert.equal(arrayed.drawing.entities.length, mirrored.drawing.entities.length + 3, "2×2-1=3件の複写");
+
+  // BREAK: 別の作業線を用意し(0,0)-(1000,0)を(500,0)で2分割
+  const line2 = line("layer-structure", [0, 2000], [1000, 2000]);
+  const withLine2 = applyTransaction(arrayed.drawing, {
+    source: "user",
+    label: "test line2",
+    commands: [{ op: "add", entity: line2 }]
+  });
+  assert.equal(withLine2.ok, true);
+  const line2Id = withLine2.drawing.entities.find((entity) => entity.type === "line" && entity.points[0].y === 2000).id;
+  const breakCmd = parseCadCommand("BREAK 500,2000", context({ drawing: withLine2.drawing, selectedId: line2Id }));
+  assert.equal(breakCmd.commands[0].op, "delete");
+  assert.equal(breakCmd.commands.filter((command) => command.op === "add").length, 2);
+  const broken = applyTransaction(withLine2.drawing, { source: "user", label: breakCmd.label, commands: breakCmd.commands });
+  assert.equal(broken.ok, true);
+
+  // JOIN: 分割された2線分(同一線上・端点一致)を再結合する
+  const pieces = broken.drawing.entities.filter((entity) => entity.type === "line" && entity.points[0].y === 2000);
+  assert.equal(pieces.length, 2);
+  const joinCmd = parseCadCommand(`JOIN ${pieces[0].id} ${pieces[1].id}`, context({ drawing: broken.drawing }));
+  const joined = applyTransaction(broken.drawing, { source: "user", label: joinCmd.label, commands: joinCmd.commands });
+  assert.equal(joined.ok, true);
+  const joinedPieces = joined.drawing.entities.filter((entity) => entity.type === "line" && entity.points[0].y === 2000);
+  assert.equal(joinedPieces.length, 1, "2線分が1本へ結合される");
+  assert.deepEqual(joinedPieces[0].points, [{ x: 0, y: 2000 }, { x: 1000, y: 2000 }]);
 });
