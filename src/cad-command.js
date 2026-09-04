@@ -4,13 +4,14 @@ import {
   blockEntity,
   breakEntity,
   dimensionEntity,
-  editLineEndpoint,
+  extendEntityToBoundary,
   hatchEntity,
   joinLines,
   measurePoints,
   mirrorEntity,
   offsetEntity,
-  transformEntity
+  transformEntity,
+  trimEntityToBoundaries
 } from "./cad-advanced.js";
 
 const TOOL_COMMANDS = {
@@ -223,8 +224,11 @@ function endpointCommand(label, tokens, context) {
   if (tokens[0] && !tokens[0].includes(",")) id = tokens.shift();
   const entity = context.drawing.entities.find((item) => item.id === id);
   if (!entity) throw new Error(`${label}する線分を選択するかIDを指定してください。`);
-  requireCount(tokens, 1, `${label} [id] x,y`);
-  const next = editLineEndpoint(entity, point(tokens[0]), label);
+  requireCount(tokens, 1, `${label} [id] x,y (クリック点)`);
+  const clickPoint = point(tokens[0]);
+  // 境界は選択図形以外の図面内エンティティ(正確なTRIM/EXTENDの境界交点演算)
+  const boundaries = context.drawing.entities.filter((item) => item.id !== id);
+  const next = label === "TRIM" ? trimEntityToBoundaries(entity, boundaries, clickPoint) : extendEntityToBoundary(entity, boundaries, clickPoint);
   return transaction(label, [{ op: "update", id: entity.id, patch: { points: next.points } }]);
 }
 

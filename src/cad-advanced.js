@@ -450,3 +450,181 @@ function metadata(options) {
 function randomId() {
   return globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Math.random().toString(16).slice(2, 10);
 }
+
+// --- 正確なTRIM/EXTEND(境界交点演算、機能カタログRound 5) ---
+
+/**
+ * 境界エンティティ群からクリップ・延長に使う直線セグメントを収集する。
+ * line/rect/polyline/hatch/dimension が対象。円弧を含む形状は直線近似しない。
+ * @param boundaries entity群
+ * @returns {{a:{x,y},b:{x,y}}[]}
+ */
+export function collectBoundarySegments(boundaries) {
+  const segments = [];
+  for (const boundary of boundaries ?? []) {
+    if (!boundary || typeof boundary !== "object") continue;
+    if (boundary.type === "line") {
+      if (boundary.points?.[0] && boundary.points?.[1]) segments.push({ a: boundary.points[0], b: boundary.points[1] });
+    } else if (boundary.type === "rect") {
+      if (!boundary.origin) continue;
+      const o = boundary.origin;
+      const corners = [
+        o,
+        { x: o.x + boundary.width, y: o.y },
+        { x: o.x + boundary.width, y: o.y + boundary.height },
+        { x: o.x, y: o.y + boundary.height }
+      ];
+      for (let i = 0; i < corners.length; i += 1) {
+        segments.push({ a: corners[i], b: corners[(i + 1) % corners.length] });
+      }
+    } else if (boundary.type === "polyline" || boundary.type === "hatch") {
+      if (!Array.isArray(boundary.points) || boundary.points.length < 2) continue;
+      for (let i = 0; i < boundary.points.length - 1; i += 1) {
+        segments.push({ a: boundary.points[i], b: boundary.points[i + 1] });
+      }
+      // hatchはclosedプロパティを持たないが常に閉領域として扱う(描画・面積計算と同じ解釈)。
+      // polylineもclosed時に最終→先頭セグメントを追加する。
+      const isClosed = boundary.type === "hatch" || boundary.closed === true;
+      if (isClosed && boundary.points.length > 2) {
+        segments.push({ a: boundary.points[boundary.points.length - 1], b: boundary.points[0] });
+      }
+    }
+  }
+  return segments;
+}
+
+/**
+ * セグメントabをパラメータt(0〜1)で分割する位置を返す。点pの線分上への射影。
+ * 射影tが線分範囲外の場合はnull(線分外のクリックを誤操作として弾く)。
+ * @returns {{t:number,x:number,y:number}|null} pの射影が線分範囲内ならその座標
+ */
+function parameterizeOnSegment(a, b, p) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < EPSILON) return null;
+  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared;
+  if (t < 0 || t > 1) return null;
+  return { t, x: a.x + t * dx, y: a.y + t * dy };
+}
+
+/**
+ * 2直線セグメントの交点を、両セグメントのパラメータ(t1,t2)付きで返す。
+ * 交差しない/平行/端点のみ接触の場合はnull。
+ * @returns {{t1:number,t2:number,x:number,y:number}|null}
+ */
+function segmentIntersectionParam(seg1, seg2) {
+  const p1 = seg1.a;
+  const p2 = seg1.b;
+  const q1 = seg2.a;
+  const q2 = seg2.b;
+  const d1x = p2.x - p1.x;
+  const d1y = p2.y - p1.y;
+  const d2x = q2.x - q1.x;
+  const d2y = q2.y - q1.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < EPSILON) return null;
+  const t1 = ((q1.x - p1.x) * d2y - (q1.y - p1.y) * d2x) / denom;
+  const t2 = ((q1.x - p1.x) * d1y - (q1.y - p1.y) * d1x) / denom;
+  const MARGIN = 1e-9;
+  if (t1 < -MARGIN || t1 > 1 + MARGIN || t2 < -MARGIN || t2 > 1 + MARGIN) return null;
+  // 端点のみの接触(共有端点)は交点とみなさない
+  const t1End = t1 < MARGIN || t1 > 1 - MARGIN;
+  const t2End = t2 < MARGIN || t2 > 1 - MARGIN;
+  if (t1End && t2End) return null;
+  return { t1: Math.max(0, Math.min(1, t1)), t2, x: p1.x + t1 * d1x, y: p1.y + t1 * d1y };
+}
+
+/**
+ * TRIM: 対象エンティティを境界セグメント群との交点で切り、keepPointを含む区間を残す。
+ * lineのみ対応(開polylineは頂点セグメントごとのクリップになるため対象外)。
+ * @param entity lineエンティティ
+ * @param boundaries 境界エンティティ群(他図形)
+ * @param keepPoint 残す側を示すクリック点(対象線上)
+ * @returns entity クリップ後のlineエンティティ
+ */
+export function trimEntityToBoundaries(entity, boundaries, keepPoint) {
+  if (entity.type !== "line") throw new Error("TRIMは線分だけに対応しています。");
+  const boundarySegments = collectBoundarySegments(boundaries);
+  const target = { a: entity.points[0], b: entity.points[1] };
+  const keep = parameterizeOnSegment(target.a, target.b, keepPoint);
+  if (!keep) throw new Error("クリック点が線分上にありません。");
+  // クリック点は対象線分の近傍(垂直距離が線分長の1%以内)でなければならない
+  const segLength = Math.hypot(target.b.x - target.a.x, target.b.y - target.a.y);
+  const perp = Math.hypot(keepPoint.x - keep.x, keepPoint.y - keep.y);
+  if (perp > Math.max(1e-6, segLength * 0.01)) throw new Error("クリック点が線分上にありません。");
+
+  const cutPoints = [];
+  for (const seg of boundarySegments) {
+    const hit = segmentIntersectionParam(target, seg);
+    if (hit) cutPoints.push(hit.t1);
+  }
+  if (cutPoints.length === 0) throw new Error("境界と交差していません。");
+  cutPoints.sort((x, y) => x - y);
+
+  // keepPointのtを挟む直前・直後の交点で切る
+  const t = keep.t;
+  let left = 0;
+  let right = 1;
+  for (const cut of cutPoints) {
+    if (cut < t && cut > left) left = cut;
+    if (cut > t && cut < right) right = cut;
+  }
+  const pointAt = (param) => ({ x: target.a.x + (target.b.x - target.a.x) * param, y: target.a.y + (target.b.y - target.a.y) * param });
+  const next = structuredClone(entity);
+  next.points = [pointAt(left), pointAt(right)];
+  return next;
+}
+
+/**
+ * EXTEND: 対象線分のpickPointに近い端点を、延長方向で最初に交差する境界まで伸ばす。
+ * lineのみ対応。境界と延長線上で交差しない場合はエラー。
+ * @param entity lineエンティティ
+ * @param boundaries 境界エンティティ群(他図形)
+ * @param pickPoint どの端点を伸ばすかを示すクリック点
+ * @returns entity 延長後のlineエンティティ
+ */
+export function extendEntityToBoundary(entity, boundaries, pickPoint) {
+  if (entity.type !== "line") throw new Error("EXTENDは線分だけに対応しています。");
+  const boundarySegments = collectBoundarySegments(boundaries);
+  const [a, b] = entity.points;
+  const pick = normalizePoint(pickPoint);
+  // pickPointに近い端点を特定する
+  const extendStart = Math.hypot(pick.x - a.x, pick.y - a.y) <= Math.hypot(pick.x - b.x, pick.y - b.y) ? a : b;
+  const fixedEnd = extendStart === a ? b : a;
+  const rayDirection = {
+    x: extendStart.x - fixedEnd.x,
+    y: extendStart.y - fixedEnd.y
+  };
+  const rayLength = Math.hypot(rayDirection.x, rayDirection.y);
+  if (rayLength < EPSILON) throw new Error("延長する線分の長さが0です。");
+
+  // レイ(半直線)と境界セグメントの交点を直接計算する。レイ側は正のパラメータ、
+  // 境界側は0..1を許可し、最小の正のレイパラメータを選択する(有限の仮想レイを使わない)。
+  const rayX = rayDirection.x;
+  const rayY = rayDirection.y;
+  let best = null;
+  let bestRayParam = Infinity;
+  for (const seg of boundarySegments) {
+    const sx = seg.b.x - seg.a.x;
+    const sy = seg.b.y - seg.a.y;
+    const denom = rayX * sy - rayY * sx;
+    if (Math.abs(denom) < EPSILON) continue; // 平行
+    const qx = seg.a.x - extendStart.x;
+    const qy = seg.a.y - extendStart.y;
+    const rayParam = (qx * sy - qy * sx) / denom;
+    const segParam = (qx * rayY - qy * rayX) / denom;
+    const MARGIN = 1e-9;
+    if (rayParam <= MARGIN) continue; // レイは正方向のみ
+    if (segParam < -MARGIN || segParam > 1 + MARGIN) continue; // 境界セグメント範囲内のみ
+    if (rayParam < bestRayParam) {
+      bestRayParam = rayParam;
+      best = { x: extendStart.x + rayParam * rayX, y: extendStart.y + rayParam * rayY };
+    }
+  }
+  if (!best) throw new Error("延長先の境界が見つかりません。");
+
+  const next = structuredClone(entity);
+  next.points = extendStart === a ? [best, b] : [a, best];
+  return next;
+}

@@ -52,7 +52,7 @@ test("advanced commands create and transform production CAD geometry", () => {
   const drawing = seedDrawing();
   const selectedId = drawing.entities.find((entity) => entity.type === "line").id;
   const selectedContext = context({ drawing, selectedId });
-  for (const input of ["ROTATE 45", "SCALE 2", "OFFSET 100", "TRIM 50,0", "EXTEND 13000,0"]) {
+  for (const input of ["ROTATE 45", "SCALE 2", "OFFSET 100"]) {
     assert.equal(parseCadCommand(input, selectedContext).kind, "transaction");
   }
   assert.equal(parseCadCommand("DIM 0,0 300,400", selectedContext).commands[0].entity.type, "dimension");

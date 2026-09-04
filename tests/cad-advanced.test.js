@@ -4,15 +4,18 @@ import {
   arrayEntity,
   blockEntity,
   breakEntity,
+  collectBoundarySegments,
   dimensionEntity,
   editLineEndpoint,
+  extendEntityToBoundary,
   hatchEntity,
   joinLines,
   measurePoints,
   mirrorEntity,
   offsetEntity,
   parallelOffsetPoints,
-  transformEntity
+  transformEntity,
+  trimEntityToBoundaries
 } from "../src/cad-advanced.js";
 import { entityArea, entityBounds, line, rect, validateDrawing } from "../src/cad-core.js";
 
@@ -283,4 +286,95 @@ test("parallelOffsetPoints preserves true parallelism for a slanted triangle", (
     const cross = Math.abs(orig.dx * off.dy - orig.dy * off.dx);
     assert.ok(cross < 1e-6, `辺${i}が元の辺と平行でない cross=${cross}`);
   }
+});
+
+// --- 高精度編集(Round 5): 境界交点演算による正確なTRIM/EXTEND ---
+
+test("collectBoundarySegments flattens line/rect/polyline boundaries into segments", () => {
+  const lineB = line("layer-structure", [0, 0], [100, 0]);
+  const rectB = rect("layer-structure", [0, 0], 100, 50);
+  const segments = collectBoundarySegments([lineB, rectB]);
+  assert.equal(segments.length, 5, "line 1本 + rect 4辺");
+});
+
+test("trimEntityToBoundaries clips a line at the nearest crossing boundary on the keep side", () => {
+  // 対象線(0,0)-(1000,0)を、境界線x=500の縦線で切る。クリック点(700,0)は右側を残す
+  const subject = line("layer-structure", [0, 0], [1000, 0], { id: "e_target" });
+  const boundary = line("layer-structure", [500, -100], [500, 100]);
+  const trimmed = trimEntityToBoundaries(subject, [boundary], { x: 700, y: 0 });
+  assert.deepEqual(trimmed.points, [{ x: 500, y: 0 }, { x: 1000, y: 0 }]);
+});
+
+test("trimEntityToBoundaries keeps the left side when the click point is on the left", () => {
+  const subject = line("layer-structure", [0, 0], [1000, 0], { id: "e_target" });
+  const boundary = line("layer-structure", [300, -100], [300, 100]);
+  const trimmed = trimEntityToBoundaries(subject, [boundary], { x: 100, y: 0 });
+  assert.deepEqual(trimmed.points, [{ x: 0, y: 0 }, { x: 300, y: 0 }]);
+});
+
+test("trimEntityToBoundaries supports multiple crossing boundaries", () => {
+  const subject = line("layer-structure", [0, 0], [1000, 0], { id: "e_target" });
+  const boundaryA = line("layer-structure", [200, -100], [200, 100]);
+  const boundaryB = line("layer-structure", [800, -100], [800, 100]);
+  // クリック点(500,0): 200〜800の区間を残す
+  const trimmed = trimEntityToBoundaries(subject, [boundaryA, boundaryB], { x: 500, y: 0 });
+  assert.deepEqual(trimmed.points, [{ x: 200, y: 0 }, { x: 800, y: 0 }]);
+});
+
+test("trimEntityToBoundaries rejects no-intersection and off-line clicks", () => {
+  const subject = line("layer-structure", [0, 0], [1000, 0], { id: "e_target" });
+  const parallel = line("layer-structure", [0, 100], [1000, 100]); // 交差しない
+  assert.throws(() => trimEntityToBoundaries(subject, [parallel], { x: 500, y: 0 }), /交差/);
+  assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: 500, y: 500 }), /線分上/);
+  // クリック点が対象線分の範囲外(射影t<0)でもエラーにする(CodeRabbit Major対応)
+  assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: -100, y: 0 }), /線分上/);
+  assert.throws(() => trimEntityToBoundaries(subject, [line("layer-structure", [500, -100], [500, 100])], { x: 1500, y: 0 }), /線分上/);
+  assert.throws(() => trimEntityToBoundaries(rect("layer-structure", [0, 0], 10, 10), [], { x: 5, y: 5 }), /線分/);
+});
+
+test("extendEntityToBoundary extends the nearer endpoint to the boundary", () => {
+  const subject = line("layer-structure", [0, 0], [300, 0], { id: "e_target" });
+  const boundary = line("layer-structure", [800, -100], [800, 100]);
+  // クリック点(350,0)は右端点に近い → (300,0)が(800,0)へ延長される
+  const extended = extendEntityToBoundary(subject, [boundary], { x: 350, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 0, y: 0 }, { x: 800, y: 0 }]);
+});
+
+test("extendEntityToBoundary extends only toward the boundary that is intersected", () => {
+  const subject = line("layer-structure", [1000, 0], [1500, 0], { id: "e_target" });
+  const boundary = line("layer-structure", [500, -100], [500, 100]);
+  // クリック点(1200,0)は左端点に近い。左側の境界x=500へ延長
+  const extended = extendEntityToBoundary(subject, [boundary], { x: 1200, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 500, y: 0 }, { x: 1500, y: 0 }]);
+});
+
+test("extendEntityToBoundary rejects when no boundary lies on the ray", () => {
+  const subject = line("layer-structure", [0, 0], [300, 0], { id: "e_target" });
+  const boundary = line("layer-structure", [-500, -100], [-500, 100]); // 反対側のみ
+  assert.throws(() => extendEntityToBoundary(subject, [boundary], { x: 350, y: 0 }), /見つかりません/);
+  assert.throws(() => extendEntityToBoundary(rect("layer-structure", [0, 0], 10, 10), [], { x: 5, y: 5 }), /線分/);
+});
+
+test("collectBoundarySegments always closes hatch boundaries", () => {
+  // hatchEntityはclosedを持たないが、境界としては常に閉路(最終→先頭セグメント)を収集する
+  const hatchB = hatchEntity("layer-structure", [[0, 0], [100, 0], [100, 50]]);
+  const segments = collectBoundarySegments([hatchB]);
+  assert.equal(segments.length, 3, "hatch 3点の閉路 = 3セグメント(最終→先頭を含む)");
+  assert.deepEqual(segments[2], { a: { x: 100, y: 50 }, b: { x: 0, y: 0 } });
+});
+test("extendEntityToBoundary is not limited by a finite virtual ray", () => {
+  // 極小の線分(1e-6長)でも、遠方(2単位先)の境界まで延長できる(CodeRabbit Major対応)
+  const subject = line("layer-structure", [0, 0], [1e-6, 0], { id: "e_tiny" });
+  const boundary = line("layer-structure", [2, -1], [2, 1]);
+  const extended = extendEntityToBoundary(subject, [boundary], { x: 1e-6, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 0, y: 0 }, { x: 2, y: 0 }]);
+});
+
+test("extendEntityToBoundary picks the nearest boundary on the ray", () => {
+  const subject = line("layer-structure", [0, 0], [1, 0], { id: "e_line" });
+  const near = line("layer-structure", [10, -1], [10, 1]);
+  const far = line("layer-structure", [50, -1], [50, 1]);
+  // クリック点(0.9,0)は右端点(1,0)に近いため、+x方向(境界x=10側)へ延長する
+  const extended = extendEntityToBoundary(subject, [near, far], { x: 0.9, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 0, y: 0 }, { x: 10, y: 0 }]);
 });
