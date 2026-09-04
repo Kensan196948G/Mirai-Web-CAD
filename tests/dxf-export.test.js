@@ -18,6 +18,23 @@ function drawingWith(entities, overrides = {}) {
   return applied.drawing;
 }
 
+test("半径・文字高さが0以下のentityは不正DXFとして出力せずskippedへ報告する", () => {
+  const drawing = drawingWith([
+    { id: "c1", type: "circle", layerId: "layer-temporary", center: { x: 0, y: 0 }, radius: 0 },
+    { id: "c2", type: "circle", layerId: "layer-temporary", center: { x: 0, y: 0 }, radius: -5 },
+    { id: "t1", type: "text", layerId: "layer-annotation", at: { x: 0, y: 0 }, value: "高さ0", size: 0 },
+    { id: "e1", type: "line", layerId: "layer-structure", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] }
+  ]);
+  const result = exportDxf(drawing);
+  assert.equal(result.exported, 1);
+  assert.deepEqual(
+    result.skipped.map((item) => item.type),
+    ["circle", "circle", "text"]
+  );
+  assert.doesNotMatch(result.content, /40\n-?0\b/);
+  assert.doesNotMatch(result.content, /\n40\n0\n1\n高さ0\n/);
+});
+
 test("DXF書出しはHEADER/TABLES/ENTITIES/EOFを含む最小構成を生成する", () => {
   const drawing = createDrawing();
   const { content } = exportDxf(drawing);

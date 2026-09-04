@@ -43,12 +43,30 @@ export function clearDrawing() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/**
+ * 書出しファイル名を生成する。図面名は日本語等のUnicodeを保持しつつ、
+ * OSのファイル名として安全でない文字(/ \ : * ? " < > | と制御文字)のみを除去する。
+ * @param name 図面名
+ * @param version 図面バージョン
+ * @param extension 拡張子(json/dxf)
+ * @returns {string} e.g. "道路拡幅_仮設施工図_v1.dxf"
+ */
+export function drawingFilename(name, version, extension) {
+  const cleaned = String(name ?? "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 100);
+  return `${cleaned || "drawing"}_v${Number.isInteger(version) ? version : 1}.${extension}`;
+}
+
 export function exportDrawingFile(drawing) {
   const blob = new Blob([JSON.stringify(drawing, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${drawing.name.replace(/[^\w-]+/g, "_")}_v${drawing.version}.json`;
+  anchor.download = drawingFilename(drawing.name, drawing.version, "json");
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -58,7 +76,7 @@ export function exportDxfFile(drawing, content) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${drawing.name.replace(/[^\w-]+/g, "_")}_v${drawing.version}.dxf`;
+  anchor.download = drawingFilename(drawing.name, drawing.version, "dxf");
   anchor.click();
   URL.revokeObjectURL(url);
 }

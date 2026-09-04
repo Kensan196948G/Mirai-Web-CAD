@@ -116,7 +116,9 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
     }
     case "circle": {
       const center = finitePoint(entity.center);
-      if (!center || !Number.isFinite(entity.radius)) return skipEntity(entity, skipped, "円の中心/半径が不正です");
+      if (!center || !Number.isFinite(entity.radius) || Number(entity.radius) <= 0) {
+        return skipEntity(entity, skipped, "円の中心/半径が不正です(半径は正の値が必要)");
+      }
       return ["0", "CIRCLE", ...base, ...point(center, 10), "40", num(entity.radius)];
     }
     case "polyline": {
@@ -152,7 +154,10 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
         warnings.push(`text ${entity.id}: 改行を含むため空白へ変換して書出しました`);
         value = value.replace(/[\r\n]+/g, " ");
       }
-      const size = Number.isFinite(entity.size) ? entity.size : 180;
+      const size = Number(entity.size);
+      if (!Number.isFinite(size) || size <= 0) {
+        return skipEntity(entity, skipped, "文字高さが不正です(正の値が必要)");
+      }
       return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", value];
     }
     default:

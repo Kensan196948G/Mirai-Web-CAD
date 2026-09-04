@@ -1165,6 +1165,9 @@ function exportDrawingDxf() {
   if (result.skipped.length > 0) {
     log(`DXF未対応: ${result.skipped.map((entry) => `${entry.type}:${entry.id}`).join(", ")}`);
   }
+  for (const warning of result.warnings) {
+    log(warning);
+  }
   exportDxfFile(state.drawing, result.content);
 }
 
