@@ -362,3 +362,19 @@ test("collectBoundarySegments always closes hatch boundaries", () => {
   assert.equal(segments.length, 3, "hatch 3点の閉路 = 3セグメント(最終→先頭を含む)");
   assert.deepEqual(segments[2], { a: { x: 100, y: 50 }, b: { x: 0, y: 0 } });
 });
+test("extendEntityToBoundary is not limited by a finite virtual ray", () => {
+  // 極小の線分(1e-6長)でも、遠方(2単位先)の境界まで延長できる(CodeRabbit Major対応)
+  const subject = line("layer-structure", [0, 0], [1e-6, 0], { id: "e_tiny" });
+  const boundary = line("layer-structure", [2, -1], [2, 1]);
+  const extended = extendEntityToBoundary(subject, [boundary], { x: 1e-6, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 0, y: 0 }, { x: 2, y: 0 }]);
+});
+
+test("extendEntityToBoundary picks the nearest boundary on the ray", () => {
+  const subject = line("layer-structure", [0, 0], [1, 0], { id: "e_line" });
+  const near = line("layer-structure", [10, -1], [10, 1]);
+  const far = line("layer-structure", [50, -1], [50, 1]);
+  // クリック点(0.9,0)は右端点(1,0)に近いため、+x方向(境界x=10側)へ延長する
+  const extended = extendEntityToBoundary(subject, [near, far], { x: 0.9, y: 0 });
+  assert.deepEqual(extended.points, [{ x: 0, y: 0 }, { x: 10, y: 0 }]);
+});

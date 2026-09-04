@@ -592,26 +592,34 @@ export function extendEntityToBoundary(entity, boundaries, pickPoint) {
   // pickPointに近い端点を特定する
   const extendStart = Math.hypot(pick.x - a.x, pick.y - a.y) <= Math.hypot(pick.x - b.x, pick.y - b.y) ? a : b;
   const fixedEnd = extendStart === a ? b : a;
-  const direction = {
+  const rayDirection = {
     x: extendStart.x - fixedEnd.x,
     y: extendStart.y - fixedEnd.y
   };
-  const rayLength = Math.hypot(direction.x, direction.y);
+  const rayLength = Math.hypot(rayDirection.x, rayDirection.y);
   if (rayLength < EPSILON) throw new Error("延長する線分の長さが0です。");
-  const unit = { x: direction.x / rayLength, y: direction.y / rayLength };
-  // 延長方向に十分長い仮想セグメント(図面対角相当の1e6倍)と境界の交点を探す
-  const rayEnd = { x: extendStart.x + unit.x * rayLength * 1e6, y: extendStart.y + unit.y * rayLength * 1e6 };
-  const ray = { a: extendStart, b: rayEnd };
 
+  // レイ(半直線)と境界セグメントの交点を直接計算する。レイ側は正のパラメータ、
+  // 境界側は0..1を許可し、最小の正のレイパラメータを選択する(有限の仮想レイを使わない)。
+  const rayX = rayDirection.x;
+  const rayY = rayDirection.y;
   let best = null;
-  let bestDistance = Infinity;
+  let bestRayParam = Infinity;
   for (const seg of boundarySegments) {
-    const hit = segmentIntersectionParam(ray, seg);
-    if (!hit) continue;
-    const d = Math.hypot(hit.x - extendStart.x, hit.y - extendStart.y);
-    if (d > EPSILON && d < bestDistance) {
-      bestDistance = d;
-      best = { x: hit.x, y: hit.y };
+    const sx = seg.b.x - seg.a.x;
+    const sy = seg.b.y - seg.a.y;
+    const denom = rayX * sy - rayY * sx;
+    if (Math.abs(denom) < EPSILON) continue; // 平行
+    const qx = seg.a.x - extendStart.x;
+    const qy = seg.a.y - extendStart.y;
+    const rayParam = (qx * sy - qy * sx) / denom;
+    const segParam = (qx * rayY - qy * rayX) / denom;
+    const MARGIN = 1e-9;
+    if (rayParam <= MARGIN) continue; // レイは正方向のみ
+    if (segParam < -MARGIN || segParam > 1 + MARGIN) continue; // 境界セグメント範囲内のみ
+    if (rayParam < bestRayParam) {
+      bestRayParam = rayParam;
+      best = { x: extendStart.x + rayParam * rayX, y: extendStart.y + rayParam * rayY };
     }
   }
   if (!best) throw new Error("延長先の境界が見つかりません。");
