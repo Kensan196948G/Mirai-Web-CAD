@@ -9,13 +9,13 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-09-04(機能カタログ受領、Goal Round 3/8完了時点)。「理想的な建設・土木2D CAD機能カタログ」全章を80-90%代替方針(Phase 0-5)に沿って全て追加する。Round 1(完了): カタログ監査マトリクス(docs/feature-catalog-coverage.md)とDXF書出し。Round 2(完了): OSnap拡張(中点/交点/垂線/近接点のモード別設定、P0-44)。Round 3(本ラウンド完了): 精密編集コマンド追加(P0-45)。cad-advanced.jsへmirrorEntity(軸2点線対称、rectは閉polylineへ型変換し置換)/arrayEntity(矩形配列、元位置除くcols×rows-1)/breakEntity(線・開polylineの2分割、新ID採番)/joinLines(同一直線・端点一致2線分の結合)を実装。cad-command.jsとリボン「修正」(MIRROR/ARRAY/BREAK/JOINボタン+アイコン)、操作フォーム(parseTwoPointsValue/parseArrayValue)へ統合。単体テスト+12件、e2e +2件。残る未着手: 正確なTRIM/EXTEND(境界交点演算)・真の平行OFFSET・STRETCH/EXPLODE/FILLET/CHAMFER、寸法各種/スタイル、レイヤー標準テンプレート、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
+  "goal": "2026-09-04(機能カタログ受領、Goal Round 4/8完了時点)。「理想的な建設・土木2D CAD機能カタログ」全章を80-90%代替方針(Phase 0-5)に沿って全て追加する。Round 1-3(完了): カタログ監査・DXF書出し・OSnap拡張・精密編集コマンド(MIRROR/ARRAY/BREAK/JOIN)。Round 4(本ラウンド完了): ポリライン/ハッチOFFSETの真の平行オフセット化(P0-46)。cad-advanced.jsのoffsetEntityを書き換え、parallelOffsetPoints(セグメント法線方向への平行移動+隣接オフセット直線の交点によるmiter join)を新規実装。閉は符号付き面積で内外判定(distance>0外側)、開は進行方向左側。ハッチは閉領域扱い。unit 192件=191 pass+1 DB skip、e2e 50件。残る未着手: 境界交点演算による正確なTRIM/EXTEND、STRETCH/EXPLODE/FILLET/CHAMFER、寸法各種/スタイル、レイヤー標準テンプレート、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 184,
+    "unit_test_count": 191,
     "e2e_test_count": 50,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
@@ -67,7 +67,8 @@
     "P0-42 Entra IDグループ所属によるRBAC動的マッピングの実装(src/entra-graph.js、resolveActorへACCESS_ROLE_MAP→Entra ID→ACCESS_DEFAULT_ROLEの3段階解決を追加)",
     "P0-43 DXF書出し(Phase 1 P1-03a相当、2026-09-04): src/dxf-export.js新規+UI「DXF書出し」+compat-report --mode=dxf-roundtrip実動化。機能カタログRound 1の確認(docs/feature-catalog-coverage.md新規)も同時完了",
     "P0-44 OSnap拡張(2026-09-04、カタログA-2「オブジェクトスナップ」対応): cad-draft-helpers.jsへentitySegments/closestPointOnSegment/perpendicularFoot/segmentIntersection/OSNAP_MODESを追加しfindOsnapPointをモード別選択へ拡張(既定: 端点/中点/中心/四分点/交点ON、垂線/近接点OFF)。設定ダイアログに「OSnap対象」チェックボックス群を追加しLocalStorageへ永続化。単体テスト+10件、e2e +2件",
-    "P0-45 精密編集コマンド追加(2026-09-04、カタログA-2「鏡像/配列/分割/結合」対応): cad-advanced.jsへmirrorEntity(軸2点線対称、rectは閉polyline化)/arrayEntity(矩形配列、新ID採番)/breakEntity(2図形化、新ID採番で重複防止)/joinLines(同一直線2線分の結合)を追加。cad-command.jsへMIRROR/ARRAY/BREAK/JOIN登録、リボン「修正」に4ボタン+アイコン追加。単体テスト+12件(advanced)、統合テスト、e2e +2件"
+    "P0-45 精密編集コマンド追加(2026-09-04、カタログA-2「鏡像/配列/分割/結合」対応): cad-advanced.jsへmirrorEntity(軸2点線対称、rectは閉polyline化)/arrayEntity(矩形配列、新ID採番)/breakEntity(2図形化、新ID採番で重複防止)/joinLines(同一直線2線分の結合)を追加。cad-command.jsへMIRROR/ARRAY/BREAK/JOIN登録、リボン「修正」に4ボタン+アイコン追加。単体テスト+12件(advanced)、統合テスト、e2e +2件",
+    "P0-46 ポリライン/ハッチOFFSETの真の平行オフセット化(2026-09-04、カタログA-2「オフセット」): offsetEntityをpolyline/hatchについて重心放射からmiter join式の平行オフセットへ書換え。parallelOffsetPoints新設(セグメント法線移動+隣接オフセット直線交点で頂点再構成)。閉は符号付き面積で外側/内側を判定、開は進行方向左側。単体テスト+7件"
   ],
   "blocked_issues": [
     {
@@ -110,5 +111,5 @@
       "Edit/Writeツールへ渡すJSON文字列パラメータ内で`\\u0000`等のUnicodeエスケープをテキストとして書こうとすると、JSON側の文字列デコードにより実際の制御バイトへ変換されてファイルに書き込まれてしまう(意図した`\\u0000`という6文字ではなく、実際のNULバイト1個になる)。正規表現の制御文字クラス(`/[\\u0000-\\u001f]/`等)をソースコードに書く際は、Edit/Writeツールを直接使わず、Pythonでのバイト列置換等でエスケープシーケンスのテキストそのもの(バックスラッシュ+u+16進数4桁)をファイルへ書き込む必要がある。NULバイトが混入するとgrep等がファイルをバイナリ扱いしテキスト検索が効かなくなる副作用もある"
     ]
   },
-  "last_updated": "2026-09-04T24:45:00+09:00"
+  "last_updated": "2026-09-04T25:30:00+09:00"
 }
