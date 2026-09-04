@@ -309,3 +309,15 @@
 | 検証 | `npm run verify`全成功(lint/typecheck/a11y/unit 158 pass+1 DB skip/build、**e2e 46件**=desktop+mobile、新規DXF書出しダウンロード検証2件を含む)。`tests/dxf-export.test.js`9件新規(構造・entity別エンコード・rect→LWPOLYLINE・skipped報告・改行・ACI近似・往復一致・座標丸め)。`tests/compat-report.test.js`のdxf-roundtripテストを「--file必須+合格スコア返却」へ更新 |
 | 文書 | README(Import行・CAD互換範囲・関連文書)、`docs/compat-scope-and-scoring.md`(必須範囲#1と測定不能表)、`docs/improvement-register.md`(P1-03に2026-09-04追記)、`state.json`(goal/P0-43/kpi)を更新 |
 | 残課題 | dimension/hatch/blockのDXF書出し、真色420・線種・線幅の保持、レイアウト/図枠/表題欄の保持、精密編集(TRIM/EXTEND/OFFSETの幾何精度)、寸法スタイル、レイヤーテンプレート等は次Round以降(改善台帳P1-02〜P1-06、方針文書Phase 1) |
+
+## Round 10 追補 / 2026-09-04 機能カタログRound 2(OSnap拡張: 中点・交点・垂線・近接点)
+
+ユーザー指示(DB移行確認)は既にP0-19で完了済みのためスキップ。Goal Round 2として、カタログA-2「高精度編集: 端点・中点・交点・垂線・接線・近接点・グリッド等へのオブジェクトスナップ」のうち未対応だった部分を実装した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Development | `src/cad-draft-helpers.js`を拡張: `entitySegments`(line/rect/polyline/hatch/dimensionの線分分解)、`closestPointOnSegment`(線分上の最近点)、`perpendicularFoot`(垂線の足、区間外はnull)、`segmentIntersection`(交差点、共有端点・平行はnull)、`OSNAP_MODES`(endpoint/midpoint/center/quadrant/intersection/perpendicular/nearest)、`DEFAULT_OSNAP_MODES`(既定: 端点/中点/中心/四分点/交点ON、垂線/近接点OFF)。`findOsnapPoint`をモード別候補選択へ改修し、交点は可視エンティティ間のみ・同一entity自己交差を除外、戻り値は従来契約の座標のみを維持 |
+| UI | `src/app.js`: DEFAULT_USER_SETTINGSへ`osnapModes`追加、設定ダイアログ「作図補助」に「OSnap対象」チェックボックス群(OSNAP_MODE_LABELS)、`sanitizeOsnapModes`(保存値の検証)と`osnapModesFromForm`(フォーム読取)を新設、`snapPoint`から選択モードを渡す。LocalStorageへ永続化(loadUserSettings/saveUserSettings対応) |
+| 検証 | unit 170件(新規10件: セグメント分解/最近点/垂線の足/交点/共有端点除外/モード既定値/中点・交点・垂線・近接点スナップ/モード無効化)、e2e 48件(新規2件: OSnap対象の選択・保存・再読込)。`npm run verify`全成功 |
+| 文書 | README(作図補助行)、`docs/feature-catalog-coverage.md`(OSnap行・点/交点行)、`docs/improvement-register.md`(P0-44)、`state.json`(goal/P0-44/unit 170/e2e 48)を更新 |
+| 残課題 | 接線(tangent)スナップ、極トラッキング・追跡線、OSnapの空間インデックス最適化(現状は全可視entity走査)、正確なTRIM/EXTEND/OFFSET、MIRROR/ARRAY等の編集コマンド、寸法スタイル等は次Round以降(方針文書Phase 1、改善台帳P1-02〜P1-06) |

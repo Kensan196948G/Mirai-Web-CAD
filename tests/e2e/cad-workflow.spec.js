@@ -492,3 +492,34 @@ test("DXF書出しは図面をASCII DXFとしてダウンロードできる", as
   expect(content).toContain("CIRCLE");
   expect(content).toContain("TEXT");
 });
+
+test("システム設定でOSnap対象モードを選択・保存・再読込できる", async ({ page }) => {
+  await page.getByRole("button", { name: "システム設定" }).click();
+  const dialog = page.getByRole("dialog", { name: "システム設定" });
+  await expect(dialog).toBeVisible();
+
+  // OSnap対象の既定状態: 端点/中点/中心/四分点/交点はON、垂線/近接点はOFF
+  await expect(page.getByLabel("端点")).toBeChecked();
+  await expect(page.getByLabel("中点")).toBeChecked();
+  await expect(page.getByLabel("中心")).toBeChecked();
+  await expect(page.getByLabel("四分点")).toBeChecked();
+  await expect(page.getByLabel("交点")).toBeChecked();
+  await expect(page.getByLabel("垂線")).not.toBeChecked();
+  await expect(page.getByLabel("近接点")).not.toBeChecked();
+
+  // OSnapを有効化し、垂線・近接点をON、交点をOFFへ変更
+  await page.getByLabel("図形スナップ（OSnap）").check();
+  await page.getByLabel("垂線").check();
+  await page.getByLabel("近接点").check();
+  await page.getByLabel("交点").uncheck();
+  await page.getByRole("button", { name: "適用", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "システム設定" }).click();
+  await expect(page.getByLabel("図形スナップ（OSnap）")).toBeChecked();
+  await expect(page.getByLabel("垂線")).toBeChecked();
+  await expect(page.getByLabel("近接点")).toBeChecked();
+  await expect(page.getByLabel("交点")).not.toBeChecked();
+  await expect(page.getByLabel("端点")).toBeChecked();
+});
