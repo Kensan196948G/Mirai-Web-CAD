@@ -344,3 +344,14 @@ Goal Round 4として、方針文書Phase 1「精密編集CAD Core」の最重�
 | 検証 | unit 192件=191 pass+1 DB skip(+7件: CCW矩形外側/CW矩形内側/閉polyline/開L字/hatch外側/斜め三角形の辺平行性(外積検証)/0長・縮退入力)。e2e 50件(既存OFFSETは矩形対象のため影響なし)。`npm run verify`全成功 |
 | 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(オフセット行)、`docs/improvement-register.md`(P0-46・P0-45の残タスク整理)、`state.json`(goal/P0-46/unit 191)を更新 |
 | 残課題 | 円弧バルジ・自己交差形状のオフセット、境界交点演算による正確なTRIM/EXTEND、STRETCH/EXPLODE/FILLET/CHAMFER、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |
+
+## Round 10 追補 / 2026-09-04 機能カタログRound 5(境界交点演算による正確なTRIM/EXTEND)
+
+Goal Round 5として、方針文書Phase 1「精密編集CAD Core」の残る核心ギャップ(READMEが「TRIM/EXTENDは境界交点でなく線端の座標移動」と明記)を解消した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Development | `src/cad-advanced.js`: `collectBoundarySegments`(line/rect/polyline/hatch境界のセグメント平坦化)、`parameterizeOnSegment`(線分上の射影パラメータ)、`segmentIntersectionParam`(両セグメントのパラメータ付き交点・共有端点除外)、`trimEntityToBoundaries`(クリック点を含む区間を境界交点でクリップ。クリック点は線分上かつ垂直距離が線分長1%以内を検証)、`extendEntityToBoundary`(クリック点に近い端点を、延長レイ上の最初の境界交点まで移動)を追加。`src/cad-command.js`/`src/app.js`のTRIM/EXTENDを置換(境界=選択図形以外の図面内エンティティ、操作値はクリック点x,y)。`editLineEndpoint`はモジュール・テストに残置 |
+| 検証 | unit 200件=199 pass+1 DB skip(+8件: 境界セグメント平坦化/右・左クリップ/複数交点/交差なし・線分外クリック拒否/近い端点延長/延長先なし拒否)。e2e 52件(+2件: コマンドライン駆動でTRIM→EXTENDの境界交点編集)。`npm run verify`全成功 |
+| 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(トリム/延長行)、`docs/improvement-register.md`(P0-47・P0-46の残タスク整理)、`state.json`(goal/P0-47/unit 199/e2e 52)を更新 |
+| 残課題 | polylineのクリップ/延長、円・円弧境界、STRETCH/EXPLODE/FILLET/CHAMFER、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |

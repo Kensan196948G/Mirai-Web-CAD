@@ -19,7 +19,7 @@ import { parseCadCommand } from "./cad-command.js";
 import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDxfFile, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 import { exportDxf } from "./dxf-export.js";
-import { blockEntity, arrayEntity, breakEntity, dimensionEntity, editLineEndpoint, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity } from "./cad-advanced.js";
+import { blockEntity, arrayEntity, breakEntity, dimensionEntity, extendEntityToBoundary, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity, trimEntityToBoundaries } from "./cad-advanced.js";
 import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 
@@ -617,7 +617,7 @@ function propsDockHtml(drawing, selected) {
               .join("")}
           </select>
         </label>
-        <label>値<input name="value" aria-label="操作値" placeholder="移動 500,0 / 鏡像 0,0 0,100 / 配列 2 3 1000 800 / 結合 ID" /></label>
+        <label>値<input name="value" aria-label="操作値" placeholder="移動 500,0 / トリム・延長はクリック点 / 鏡像 0,0 0,100 / 配列 2 3 1000 800" /></label>
         <button type="submit" ${selected ? "" : "disabled"}>選択図形へ適用</button>
       </form>
       <p class="measure-result">${
@@ -1529,7 +1529,11 @@ async function applyOperationForm(event) {
       next = transformEntity(selected, { scale, base: entityAnchor(selected) });
     }
     if (operation === "offset") next = offsetEntity(selected, parseNumberValue(value, "距離"));
-    if (["trim", "extend"].includes(operation)) next = editLineEndpoint(selected, parsePointValue(value, "x,y"), operation.toUpperCase());
+    if (["trim", "extend"].includes(operation)) {
+      const boundaries = state.drawing.entities.filter((item) => item.id !== selected.id);
+      const clickPoint = parsePointValue(value, "x,y");
+      next = operation === "trim" ? trimEntityToBoundaries(selected, boundaries, clickPoint) : extendEntityToBoundary(selected, boundaries, clickPoint);
+    }
     if (operation === "mirror") {
       const axis = parseTwoPointsValue(value, "x1,y1 x2,y2（鏡像軸の2点）");
       next = mirrorEntity(selected, axis[0], axis[1]);

@@ -583,3 +583,41 @@ test("精密編集コマンド(MIRROR/ARRAY/BREAK/JOIN)がコマンドライン�
   await expect(quantity).toHaveText("5");
   await expect(page.getByLabel("コマンドログ")).toContainText("JOIN");
 });
+
+test("TRIM/EXTENDは境界交点で線分を正確に編集する", async ({ page }) => {
+  await page.getByRole("button", { name: "新規図面" }).click();
+  await page.getByLabel("図面名").fill("TRIM/EXTEND E2E");
+  await page.getByLabel("テンプレート").selectOption("blank");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+
+  const command = page.getByLabel("コマンド入力");
+  // 対象線(0,0)-(1000,0)と、境界の縦線x=500を作成
+  await command.fill("LINE 0,0 1000,0");
+  await command.press("Enter");
+  await command.fill("LINE 500,-100 500,100");
+  await command.press("Enter");
+
+  const entities = () => page.evaluate(() => JSON.parse(localStorage.getItem("mirai-web-cad-mvp")).entities);
+  const targetId = await entities().then((list) => list.find((e) => e.type === "line" && e.points[1].x === 1000 && e.points[1].y === 0).id);
+
+  // TRIM: クリック点(800,0)で右側を残す → 線が(500,0)-(1000,0)になる
+  await command.fill(`SELECT ${targetId}`);
+  await command.press("Enter");
+  await command.fill("TRIM 800,0");
+  await command.press("Enter");
+  await expect(page.getByLabel("コマンドログ")).toContainText("TRIM");
+  const afterTrim = await entities().then((list) => list.find((e) => e.id === targetId));
+  expect(afterTrim.points[0].x).toBe(500);
+  expect(afterTrim.points[1].x).toBe(1000);
+
+  // EXTEND: 左端点(500,0)をx=-100の境界まで延長。クリック点(550,0)は(500,0)側に近い
+  await command.fill("LINE -100,-100 -100,100");
+  await command.press("Enter");
+  await command.fill(`EXTEND ${targetId} 550,0`);
+  await command.press("Enter");
+  await expect(page.getByLabel("コマンドログ")).toContainText("EXTEND");
+  const afterExtend = await entities().then((list) => list.find((e) => e.id === targetId));
+  // EXTENDはクリック点に近い端点(500,0)を、その外側にある境界x=-100まで延長する
+  expect(afterExtend.points.some((p) => p.x === -100)).toBe(true);
+  expect(afterExtend.points.some((p) => p.x === 1000)).toBe(true);
+});
