@@ -140,13 +140,30 @@ jobs:
           ghcr.io/gitleaks/gitleaks:v8.30.1
           dir /repo --redact --no-banner
 
+  terraform:
+    name: Terraform Format and Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.16.1"
+      - name: Check policy guardrails
+        run: node scripts/check-cloudflare-iac.mjs
+      - name: Check formatting
+        run: terraform -chdir=infra/cloudflare fmt -check -recursive
+      - name: Initialize providers without state backend
+        run: terraform -chdir=infra/cloudflare init -backend=false
+      - name: Validate configuration
+        run: terraform -chdir=infra/cloudflare validate
+
   preview:
     name: Deploy Preview
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
-    needs: [application, migration, recovery, secret-scan]
+    needs: [application, migration, recovery, secret-scan, terraform]
     runs-on: ubuntu-latest
     environment:
       name: preview

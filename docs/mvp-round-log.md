@@ -408,3 +408,13 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 - ローカルMVPはhealth 200、PostgreSQL connected、migration適用済み、実DB名`mirai_web_cad_mvp`を監視ジョブで確認した。公開URLは未認証でAccessログインへ302となり、保護境界は正常。
 - ローカル完全E2Eはdesktop/mobile 54/54成功。認証済み公開E2EはRound 11で成功済みだが、Round 13の再実行に必要な一時Service Tokenは削除済みであり、現行API tokenはAccess管理が`auth.forbidden`のため未実施。メール1件のallowポリシーは変更していない。
 - 改善台帳のIDは先頭列72件を機械検査し、重複は0件。依存欄の`P1-01`参照を重複IDと誤判定しないことを確認し、現行認証方式と異なる古いOTP表記を更新した。
+
+## Round 14 / 2026-09-05 Cloudflare Terraform・障害Runbook
+
+| 項目 | 内容 |
+| --- | --- |
+| Terraform | `infra/cloudflare/`へCloudflare provider v5.24構成を追加。共有のローカル管理Tunnel、2つのCNAME、MVP Access Applicationと`kensan1969@gmail.com`完全一致policyを定義 |
+| 安全性 | 既存資源はimport-first、既定`enable_management=false`、全3種に`prevent_destroy`。`infra:check`で広範囲許可と秘密値定義を禁止 |
+| CI | Terraform 1.16.1でfmt、provider init(バックエンド無し)、validateをPR必須ジョブ化 |
+| Runbook | サービス停止、Cloudflare Access変更、PostgreSQL障害を分離し、初動・切り分け・復旧・完了条件を明記 |
+| 保留 | 現行Cloudflare tokenはTunnel棚卸しはできるがDNS/Access APIは403、Access更新は`auth.forbidden`。対象限定の管理token発行後にID棚卸し、import、初回plan/applyを行う |

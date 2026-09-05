@@ -32,6 +32,14 @@ const required = [
   "deploy/systemd/mirai-web-cad-mvp-monitor.timer",
   "deploy/systemd/mirai-web-cad-mvp-restore-drill.service",
   "deploy/systemd/mirai-web-cad-mvp-restore-drill.timer",
+  "infra/cloudflare/main.tf",
+  "infra/cloudflare/variables.tf",
+  "infra/cloudflare/terraform.tfvars.example",
+  "infra/cloudflare/imports.tf",
+  "infra/cloudflare/README.md",
+  "docs/runbooks/cloudflare-access-change.md",
+  "docs/runbooks/database-incident.md",
+  "docs/runbooks/service-outage.md",
   "_headers",
   "seeds/demo.sql",
   "playwright.config.js",
@@ -61,6 +69,14 @@ const css = await readFile(path.join(root, "src/styles.css"), "utf8");
 const forbidden = ["TODO", "FIXME"];
 for (const token of forbidden) {
   if (css.includes(token)) failures.push(`src/styles.css: unresolved marker ${token}`);
+}
+
+const iacCheck = spawnSync(process.execPath, ["scripts/check-cloudflare-iac.mjs"], {
+  cwd: root,
+  encoding: "utf8"
+});
+if (iacCheck.status !== 0) {
+  failures.push(`Cloudflare IaC: ${iacCheck.stderr || iacCheck.stdout}`);
 }
 
 if (failures.length > 0) {

@@ -99,6 +99,8 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはCloudflare Accessで保護。未認証アクセスはエッジ層で302(Accessログインへのリダイレクト)、アプリ層に到達した場合は401 |
 | Cloudflare Pages(参考、ロールバック用) | `https://mirai-web-cad.pages.dev/` | mainマージでは更新されない。SPAのみ200、`/api`は移行前のコードのままで機能しない |
 
+Cloudflare設定は[Terraform運用手順](infra/cloudflare/README.md)でコード管理します。既存資源をimportして差分を確認するまで、Terraformの管理スイッチは無効です。障害時は[Runbook](docs/runbooks/service-outage.md)を参照してください。
+
 ## 🛠️ 開発者向けの起動方法
 
 ```bash

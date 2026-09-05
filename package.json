@@ -24,6 +24,7 @@
     "corpus:validate": "node scripts/corpus-ledger.mjs validate",
     "corpus:stats": "node scripts/corpus-ledger.mjs stats",
     "corpus:render": "node scripts/corpus-ledger.mjs render",
+    "infra:check": "node scripts/check-cloudflare-iac.mjs",
     "verify:fast": "npm run lint && npm run typecheck && npm run a11y && npm test && npm run build",
     "verify": "npm run verify:fast && npm run test:e2e"
   },

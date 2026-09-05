@@ -12,7 +12,7 @@
 - 2026-08-29ラウンド(Round 8)改善後: **PoC**、総合 48.6/100、競合代替率 32%(この時点で本番進行中障害を検出)
 - 2026-08-30ラウンド(Round 9)改善後: **PoC**、総合 49.9/100、競合代替率 32%
 - **✅ Issue #22解消(2026-08-30)**: 8/29に検出した本番Neon DB認証障害(`password authentication failed for user 'neondb_owner'`)について、ユーザー指示「Neonは今後2度と利用しない」に基づき、Neon依存そのものを除去する方針で対応した。`src/data-store.js`を`postgres`(postgres.js)へ全面書き換え、ローカルPostgreSQL 16 + Cloudflare Tunnel構成へ移行し、人間による承認(Cloudflare Pages Custom Domain解除、DNS切替のY/N確認)を経て本番切替を完了。本番実測でSPA/health/demo 200、write fail-closedを確認した
-- **✅ Cloudflare Access新設(2026-08-30、同日追加対応)**: 書き込みAPI(`/api/*`のうちhealth/demo以外)を保護するAccess Application(One-Time PIN、`kensan1969@gmail.com`のみallow)を新設。未認証書込みは以後302(Accessログインへのリダイレクト)を返す(既存の同種チェックは401も許容するよう合成監視を調整済み)。SPA/health/demoはbypass設定で引き続き匿名可
+- **✅ Cloudflare Access新設(2026-08-30、同日追加対応)**: 書き込みAPI(`/api/*`のうちhealth/demo以外)を保護するAccess Application(当時はOne-Time PIN、`kensan1969@gmail.com`のみallow)を新設。未認証書込みは以後302(Accessログインへのリダイレクト)を返す(既存の同種チェックは401も許容するよう合成監視を調整済み)。SPA/health/demoはbypass設定で引き続き匿名可。2026-09-05現在のMVPはCloudflareアカウント認証
 - **新たなリスク**: 本番の可用性が、Neonのマネージドサービスから、このホスト(kensan1969)単一障害点への依存へ変化した。ホスト停止・ネットワーク断で本番全体が停止する。オフサイトバックアップは未実施
 - 本番導入可否: 公開デモ閲覧と限定的な検証利用は可(Issue #22解消により復旧)。管理者本人(`kensan1969@gmail.com`)による作図・承認等の書込み動作確認は可能になった。ただし複数利用者への展開(Entra ID連携等)・案件単位RBACは未着手のため、本番図面の正本、施工成果物作成、協力会社との共有には不可
 - 投資判断: **条件付き継続**。Cloudflare Accessの複数利用者展開・Entra ID連携(Issue #5)、DXF往復、寸法・レイアウト・PDF、案件単位RBACを継続条件とする。バックアップのオフサイト化、ソーク運用後のCloudflare Pages関連ファイル削除・Neonプロジェクト削除(人間実施)も残課題
@@ -50,7 +50,7 @@
 | 設計 | 45 | 51 | 51 | 51 | 51 | コマンドモデル、API/Store分離。更新原子化を追加。案件境界と非同期処理なし |
 | コード品質 | 68 | 74 | 74 | 74 | 74 | 小規模で型検査・Lintあり。巨大な単一UIモジュールとJSDoc型が残る |
 | 性能・拡張性 | 18 | 21 | 21 | 21 | 21 | Canvas単一描画、ページングなし。要求の100k図形/30fpsは未証明 |
-| セキュリティ | 42 | 58 | 61 | 61 | 66 | JWT fail-closed、RBAC、CSP、サイズ制限、公開属性、CORS許可リスト。2026-08-30にNeon依存を除去し本番DB接続文字列がGitHub/Cloudflareいずれにも保存されなくなった(`~/.config/`のみ、mode 0600)。同日、Cloudflare Access(`/api/*`保護、One-Time PIN、`kensan1969@gmail.com`のみallow)を新設し、書き込みAPIへの永続的な認証経路が確立した。複数利用者・案件RBAC・WAF・SIEMなし |
+| セキュリティ | 42 | 58 | 61 | 61 | 66 | JWT fail-closed、RBAC、CSP、サイズ制限、公開属性、CORS許可リスト。2026-08-30にNeon依存を除去し本番DB接続文字列がGitHub/Cloudflareいずれにも保存されなくなった(`~/.config/`のみ、mode 0600)。同日、Cloudflare Access(`/api/*`保護、当時はOne-Time PIN、`kensan1969@gmail.com`のみallow)を新設し、書き込みAPIへの永続的な認証経路が確立した。2026-09-05現在のMVPはCloudflareアカウント認証。複数利用者・案件RBAC・WAF・SIEMなし |
 | 可用性・バックアップ | 20 | 38 | 38 | 25 | 40 | 2026-08-30にNeon依存を除去しローカルPostgreSQL + Cloudflare Tunnelへ移行。本番実測でSPA/health/demo 200を確認し、Issue #22(進行中障害)は解消。日次バックアップ(systemd timer)と鮮度検証を実機で動作確認。**新たなリスク**: 本番がこのホスト(kensan1969)単一障害点に依存するようになった(Neonのマネージド高可用性からの後退)。RTO実測・オフサイトバックアップは未実施 |
 | 監視・障害対応 | 18 | 30 | 34 | 38 | 38 | request ID、5xxログ、公開health、15分間隔の合成監視+Issue自動起票+復旧時自動close+任意Webhook通知。Custom Domainのみを対象に整理(`pages.dev`は移行後更新されないため監視対象から除外)。当番表、重大度別SLAなし |
 | テスト | 67 | 73 | 74 | 74 | 75 | 44 Unit/API、24 E2E(その後28件へ拡充)に加え、実PostgreSQLに対する統合テスト7件(`tests/data-store.pg.test.js`、本番DBへの誤書込み防止機構付き)を追加。性能・権限マトリクス・障害注入不足 |
@@ -108,7 +108,7 @@
 | --- | --- | --- |
 | ~~重大~~ | ~~本番Neon DB認証失敗~~ | ~~2026-08-29 12:46 UTC検出、500エラー~~ → **解消(2026-08-30)**: Neon依存を完全に除去しローカルPostgreSQL + Cloudflare Tunnelへ移行。本番実測でhealth/demo 200を確認 |
 | 高 | DXF書出しがない | 既存図面の忠実な往復ができず、成果物正本にできない。DWGは2026-08-30付ADR-0002により恒久的に対象外へ変更されたため、DWG非対応自体は今後もリスクとして再評価しない |
-| ~~重大~~ | ~~永続編集用SSO経路がない~~ | ~~Access Application未作成~~ → **一部解消(2026-08-30)**: Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護)を設定。管理者本人(`kensan1969@gmail.com`)による書込み動作は可能。ただしログイン方式はOne-Time PINのみ(Entra ID未連携)、複数利用者・組織ロール展開は未着手(Issue #5継続) |
+| ~~重大~~ | ~~永続編集用SSO経路がない~~ | ~~Access Application未作成~~ → **一部解消(2026-08-30)**: Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護)を設定。管理者本人(`kensan1969@gmail.com`)による書込み動作は可能。現行MVPはCloudflareアカウント認証で、Entra IDログイン連携、複数利用者・組織ロール展開は未着手(Issue #5継続) |
 | 重大 | 案件/図面単位RBACがない | Access利用者はIDを知れば任意図面を取得し得る。project_idも固定 |
 | 重大(新規、2026-08-30) | 本番がこのホスト(kensan1969)の単一障害点に依存する | Neonのマネージド高可用性から、ローカルマシン常時稼働への依存に変化した。ホスト停止・ネットワーク断・ディスク故障で本番全体が停止する。オフサイトバックアップ・複数ホスト冗長化は未実施 |
 | ~~重大~~ | ~~本番バックアップ自動化・本番復元試験なし~~ | ~~Neon履歴保持1日、RPO/RTO未合意~~ → **解消(2026-08-30)**: `mirai-web-cad-backup.timer`(systemd、日次03:10 JST、読み取り専用ロール)と鮮度検証timerを実機で動作確認。RTO実測とオフサイト転送は引き続き未実施 |
