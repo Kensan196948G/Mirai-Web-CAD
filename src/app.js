@@ -19,7 +19,7 @@ import { parseCadCommand } from "./cad-command.js";
 import { parseCadImport } from "./importers.js";
 import { clearDrawing, exportDxfFile, exportDrawingFile, loadDrawing, saveDrawing } from "./storage.js";
 import { exportDxf } from "./dxf-export.js";
-import { blockEntity, arrayEntity, breakEntity, dimensionEntity, extendEntityToBoundary, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity, trimEntityToBoundaries } from "./cad-advanced.js";
+import { arrayEntity, blockEntity, breakEntity, chamferLines, createBoundaryEntity, dimensionEntity, editPolyline, extendEntityToBoundary, filletLines, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity, trimEntityToBoundaries } from "./cad-advanced.js";
 import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 
@@ -95,6 +95,10 @@ const OPERATION_LABELS = {
   array: "配列",
   break: "分割",
   join: "結合",
+  chamfer: "面取り",
+  fillet: "フィレット",
+  boundary: "境界作成",
+  pedit: "ポリライン編集",
   block: "ブロック化"
 };
 
@@ -117,6 +121,10 @@ const ICONS = {
   array: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
   break: "M7 4v16M17 4v16M7 12h10",
   join: "M5 12h10M12 8l4 4-4 4M19 5v14",
+  chamfer: "M4 19h6L20 9V4M10 19l10-10",
+  fillet: "M4 20h5c6 0 11-5 11-11V4M9 20a11 11 0 0 0 11-11",
+  boundary: "M5 5h14v14H5zM5 5l14 14",
+  pedit: "M5 18l5-11 9 8M5 18h14M10 7v11",
   erase: "M4 16L13 7l5 5-7 7H7l-3-3zM11 9l5 5",
   undo: "M7 5L3 9l4 4M3 9h11a5 5 0 0 1 0 10h-4",
   redo: "M17 5l4 4-4 4M21 9H10a5 5 0 0 0 0 10h4",
@@ -174,6 +182,10 @@ const RIBBON = {
         { icon: "array", title: "配列", act: "beginOperation", arg: "array" },
         { icon: "break", title: "分割", act: "beginOperation", arg: "break" },
         { icon: "join", title: "結合", act: "beginOperation", arg: "join" },
+        { icon: "chamfer", title: "面取り", act: "beginOperation", arg: "chamfer" },
+        { icon: "fillet", title: "フィレット", act: "beginOperation", arg: "fillet" },
+        { icon: "boundary", title: "境界作成", act: "beginOperation", arg: "boundary" },
+        { icon: "pedit", title: "ポリライン編集", act: "beginOperation", arg: "pedit" },
         { icon: "erase", title: "削除", act: "deleteSelected" },
         { icon: "undo", title: "元に戻す", act: "undoLastTransaction" }
       ]
@@ -617,7 +629,7 @@ function propsDockHtml(drawing, selected) {
               .join("")}
           </select>
         </label>
-        <label>値<input name="value" aria-label="操作値" placeholder="移動 500,0 / トリム・延長はクリック点 / 鏡像 0,0 0,100 / 配列 2 3 1000 800" /></label>
+        <label>値<input name="value" aria-label="操作値" placeholder="移動 500,0 / 面取り 相手ID 100 / PEDIT MOVE 2 100,200" /></label>
         <button type="submit" ${selected ? "" : "disabled"}>選択図形へ適用</button>
       </form>
       <p class="measure-result">${
@@ -1561,6 +1573,62 @@ async function applyOperationForm(event) {
       if (!joined) throw new Error("端点が一致し同一線上にある2線分のみ結合できます。");
       state.pendingOperation = null;
       await commitCommands("結合", [{ op: "delete", id: selected.id }, { op: "delete", id: target.id }, { op: "add", entity: joined }]);
+      return;
+    }
+    if (["chamfer", "fillet"].includes(operation)) {
+      const parts = value.split(/\s+/).filter(Boolean);
+      const targetId = parts.shift();
+      const target = state.drawing.entities.find((entity) => entity.id === targetId);
+      if (!target) throw new Error(`${OPERATION_LABELS[operation]}する相手の線分IDを入力してください。`);
+      if (operation === "chamfer") {
+        if (parts.length < 1 || parts.length > 2) throw new Error("形式: 相手ID 距離1 [距離2]");
+        const result = chamferLines(selected, target, parseNumberValue(parts[0], "距離1"), parts[1] === undefined ? undefined : parseNumberValue(parts[1], "距離2"));
+        state.pendingOperation = null;
+        await commitCommands("面取り", [
+          { op: "update", id: selected.id, patch: { points: result.first.points } },
+          { op: "update", id: target.id, patch: { points: result.second.points } },
+          { op: "add", entity: result.connector }
+        ]);
+      } else {
+        if (parts.length !== 1) throw new Error("形式: 相手ID 半径");
+        const result = filletLines(selected, target, parseNumberValue(parts[0], "半径"));
+        state.pendingOperation = null;
+        await commitCommands("フィレット", [
+          { op: "update", id: selected.id, patch: { points: result.first.points } },
+          { op: "update", id: target.id, patch: { points: result.second.points } },
+          { op: "add", entity: result.arc }
+        ]);
+      }
+      return;
+    }
+    if (operation === "boundary") {
+      const ids = [selected.id, ...value.split(/\s+/).filter(Boolean).filter((id) => id !== selected.id)];
+      const entities = ids.map((id) => {
+        const entity = state.drawing.entities.find((item) => item.id === id);
+        if (!entity) throw new Error(`境界要素が見つかりません: ${id}`);
+        return entity;
+      });
+      const boundary = createBoundaryEntity(state.currentLayerId, entities);
+      state.selectedId = boundary.id;
+      state.pendingOperation = null;
+      await commitCommands("境界作成", [{ op: "add", entity: boundary }]);
+      return;
+    }
+    if (operation === "pedit") {
+      const parts = value.split(/\s+/).filter(Boolean);
+      const action = String(parts.shift() ?? "").toUpperCase();
+      let edited;
+      if (["CLOSE", "OPEN"].includes(action) && parts.length === 0) {
+        edited = editPolyline(selected, action);
+      } else if (action === "DELETE" && parts.length === 1) {
+        edited = editPolyline(selected, action, parseVertexNumber(parts[0]));
+      } else if (["MOVE", "ADD"].includes(action) && parts.length === 2) {
+        edited = editPolyline(selected, action, parseVertexNumber(parts[0]), parsePointValue(parts[1], "x,y"));
+      } else {
+        throw new Error("形式: MOVE|ADD|DELETE 頂点番号 [x,y] / CLOSE / OPEN");
+      }
+      state.pendingOperation = null;
+      await commitCommands("ポリライン編集", [{ op: "update", id: selected.id, patch: withoutIdentity(edited) }]);
       return;
     }
     if (operation === "block") {
@@ -2592,6 +2660,12 @@ function parseNumberValue(value, label) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${label}を数値で入力してください。`);
   return parsed;
+}
+
+function parseVertexNumber(value) {
+  const parsed = parseNumberValue(value, "頂点番号");
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("頂点番号は1以上の整数で入力してください。");
+  return parsed - 1;
 }
 
 function parseTwoPointsValue(value, label) {

@@ -4,10 +4,14 @@ import {
   arrayEntity,
   blockEntity,
   breakEntity,
+  chamferLines,
   collectBoundarySegments,
+  createBoundaryEntity,
   dimensionEntity,
   editLineEndpoint,
+  editPolyline,
   extendEntityToBoundary,
+  filletLines,
   hatchEntity,
   joinLines,
   measurePoints,
@@ -176,6 +180,69 @@ test("joinLines returns null for disjoint or non-collinear lines", () => {
   assert.equal(joinLines(disjoint, far), null, "端点が一致しない");
   const corner = line("layer-structure", [100, 0], [100, 100]);
   assert.equal(joinLines(disjoint, corner), null, "端点一致でも同一直線でない");
+});
+
+// --- 高精度編集(Round 6): CHAMFER / FILLET / BOUNDARY / PEDIT ---
+
+test("chamferLines trims two corner lines and creates a connector", () => {
+  const horizontal = line("layer-structure", [0, 0], [100, 0], { id: "e_horizontal" });
+  const vertical = line("layer-structure", [0, 0], [0, 100], { id: "e_vertical" });
+  const result = chamferLines(horizontal, vertical, 20, 30);
+  assert.deepEqual(roundPoints(result.first.points), [{ x: 20, y: 0 }, { x: 100, y: 0 }]);
+  assert.deepEqual(roundPoints(result.second.points), [{ x: 0, y: 30 }, { x: 0, y: 100 }]);
+  assert.deepEqual(roundPoints(result.connector.points), [{ x: 20, y: 0 }, { x: 0, y: 30 }]);
+});
+
+test("filletLines creates a tangent quarter arc as a polyline", () => {
+  const horizontal = line("layer-structure", [0, 0], [100, 0], { id: "e_horizontal" });
+  const vertical = line("layer-structure", [0, 0], [0, 100], { id: "e_vertical" });
+  const result = filletLines(horizontal, vertical, 20, 8);
+  assert.deepEqual(roundPoints(result.first.points), [{ x: 20, y: 0 }, { x: 100, y: 0 }]);
+  assert.deepEqual(roundPoints(result.second.points), [{ x: 0, y: 20 }, { x: 0, y: 100 }]);
+  assert.equal(result.arc.type, "polyline");
+  assert.equal(result.arc.closed, false);
+  assert.equal(result.arc.points.length, 9);
+  assert.deepEqual(roundPoints([result.arc.points[0], result.arc.points.at(-1)]), [{ x: 20, y: 0 }, { x: 0, y: 20 }]);
+  for (const point of result.arc.points) {
+    assert.ok(Math.abs(Math.hypot(point.x - result.center.x, point.y - result.center.y) - 20) < 1e-6);
+  }
+});
+
+test("chamferLines and filletLines reject invalid inputs", () => {
+  const first = line("layer-structure", [0, 0], [100, 0]);
+  const parallel = line("layer-structure", [0, 10], [100, 10]);
+  assert.throws(() => chamferLines(first, parallel, 10), /平行/);
+  assert.throws(() => filletLines(first, parallel, 10), /平行/);
+  assert.throws(() => chamferLines(first, line("layer-structure", [0, 0], [0, 100]), 0), /0より大きい/);
+});
+
+test("createBoundaryEntity orders connected lines into a closed polyline", () => {
+  const edges = [
+    line("layer-structure", [100, 0], [100, 50]),
+    line("layer-structure", [0, 50], [0, 0]),
+    line("layer-structure", [100, 50], [0, 50]),
+    line("layer-structure", [0, 0], [100, 0])
+  ];
+  const boundary = createBoundaryEntity("layer-structure", edges, { id: "e_boundary" });
+  assert.equal(boundary.closed, true);
+  assert.equal(boundary.points.length, 4);
+  assert.equal(entityArea(boundary), 5000);
+  assert.throws(() => createBoundaryEntity("layer-structure", edges.slice(0, 3)), /接続|閉合/);
+});
+
+test("editPolyline moves, adds, deletes, closes, and opens vertices", () => {
+  const source = { type: "polyline", layerId: "layer-structure", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }], closed: false };
+  const moved = editPolyline(source, "MOVE", 1, { x: 120, y: 10 });
+  assert.deepEqual(moved.points[1], { x: 120, y: 10 });
+  const added = editPolyline(source, "ADD", 0, { x: 50, y: 0 });
+  assert.deepEqual(added.points[1], { x: 50, y: 0 });
+  const deleted = editPolyline(added, "DELETE", 1);
+  assert.deepEqual(deleted.points, source.points);
+  assert.equal(editPolyline(source, "CLOSE").closed, true);
+  assert.equal(editPolyline({ ...source, closed: true }, "OPEN").closed, false);
+  assert.throws(() => editPolyline(source, "MOVE", 9, { x: 0, y: 0 }), /範囲外/);
+  assert.throws(() => editPolyline(source, "MOVE", 1, { x: 0, y: 0 }), /同一点/);
+  assert.throws(() => editPolyline(line("layer-structure", [0, 0], [1, 1]), "OPEN"), /ポリライン/);
 });
 
 // --- 高精度編集(Round 4): ポリライン/ハッチの真の平行オフセット ---

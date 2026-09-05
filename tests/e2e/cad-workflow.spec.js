@@ -621,3 +621,53 @@ test("TRIM/EXTENDは境界交点で線分を正確に編集する", async ({ pag
   expect(afterExtend.points.some((p) => p.x === -100)).toBe(true);
   expect(afterExtend.points.some((p) => p.x === 1000)).toBe(true);
 });
+
+test("CHAMFER/FILLET/BOUNDARY/PEDITをコマンドラインから実操作できる", async ({ page }) => {
+  await page.getByRole("button", { name: "新規図面" }).click();
+  await page.getByLabel("図面名").fill("精密編集Round 6 E2E");
+  await page.getByLabel("テンプレート").selectOption("blank");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+  const command = page.getByLabel("コマンド入力");
+  const entities = () => page.evaluate(() => JSON.parse(localStorage.getItem("mirai-web-cad-mvp")).entities);
+
+  for (const value of ["LINE 0,0 1000,0", "LINE 1000,0 1000,800", "LINE 1000,800 0,800", "LINE 0,800 0,0"]) {
+    await command.fill(value);
+    await command.press("Enter");
+  }
+  const edgeIds = await entities().then((list) => list.map((entity) => entity.id));
+  await command.fill(`BOUNDARY ${edgeIds.join(" ")}`);
+  await command.press("Enter");
+  const boundary = await entities().then((list) => list.find((entity) => entity.type === "polyline"));
+  expect(boundary.closed).toBe(true);
+
+  await command.fill(`PEDIT ${boundary.id} MOVE 2 1200,0`);
+  await command.press("Enter");
+  const edited = await entities().then((list) => list.find((entity) => entity.id === boundary.id));
+  expect(edited.points[1]).toEqual({ x: 1200, y: 0 });
+
+  await command.fill("LINE 2000,0 3000,0");
+  await command.press("Enter");
+  await command.fill("LINE 2000,0 2000,1000");
+  await command.press("Enter");
+  const chamferIds = await entities().then((list) => list.slice(-2).map((entity) => entity.id));
+  await command.fill(`CHAMFER ${chamferIds[0]} ${chamferIds[1]} 100`);
+  await command.press("Enter");
+  await expect(page.getByLabel("コマンドログ")).toContainText("CHAMFER");
+
+  await command.fill("LINE 4000,0 5000,0");
+  await command.press("Enter");
+  await command.fill("LINE 4000,0 4000,1000");
+  await command.press("Enter");
+  const filletIds = await entities().then((list) => list.slice(-2).map((entity) => entity.id));
+  await command.fill(`FILLET ${filletIds[0]} ${filletIds[1]} 100`);
+  await command.press("Enter");
+  await expect(page.getByLabel("コマンドログ")).toContainText("FILLET");
+  const arc = await entities().then((list) => list.at(-1));
+  expect(arc.type).toBe("polyline");
+  expect(arc.points.length).toBeGreaterThan(8);
+
+  await page.getByRole("button", { name: "ホーム", exact: true }).click();
+  for (const label of ["面取り", "フィレット", "境界作成", "ポリライン編集"]) {
+    await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+  }
+});

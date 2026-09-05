@@ -123,3 +123,39 @@ test("precision edit commands mirror, array, break and join geometry", () => {
   assert.equal(joinedPieces.length, 1, "2線分が1本へ結合される");
   assert.deepEqual(joinedPieces[0].points, [{ x: 0, y: 2000 }, { x: 1000, y: 2000 }]);
 });
+
+test("command line supports chamfer, fillet, boundary, and polyline vertex editing", () => {
+  const seed = seedDrawing();
+  const horizontal = line("layer-structure", [0, 0], [100, 0], { id: "e_horizontal" });
+  const vertical = line("layer-structure", [0, 0], [0, 100], { id: "e_vertical" });
+  const top = line("layer-structure", [0, 100], [100, 100], { id: "e_top" });
+  const right = line("layer-structure", [100, 100], [100, 0], { id: "e_right" });
+  const created = applyTransaction(seed, {
+    source: "user",
+    label: "precision fixtures",
+    commands: [horizontal, vertical, top, right].map((entity) => ({ op: "add", entity }))
+  });
+  assert.equal(created.ok, true);
+  const drawing = created.drawing;
+
+  const chamfer = parseCadCommand("CHAMFER e_vertical 10 20", context({ drawing, selectedId: "e_horizontal" }));
+  assert.equal(chamfer.kind, "transaction");
+  assert.equal(chamfer.commands.length, 3);
+  assert.equal(chamfer.commands[2].entity.type, "line");
+
+  const fillet = parseCadCommand("FILLET e_horizontal e_vertical 15", context({ drawing }));
+  assert.equal(fillet.kind, "transaction");
+  assert.equal(fillet.commands[2].entity.type, "polyline");
+  assert.equal(fillet.commands[2].entity.closed, false);
+
+  const boundary = parseCadCommand("BOUNDARY e_horizontal e_vertical e_top e_right", context({ drawing }));
+  assert.equal(boundary.commands[0].entity.type, "polyline");
+  assert.equal(boundary.commands[0].entity.closed, true);
+
+  const boundaryDrawing = applyTransaction(drawing, { source: "user", label: boundary.label, commands: boundary.commands }).drawing;
+  const boundaryId = boundaryDrawing.entities.at(-1).id;
+  const pedit = parseCadCommand(`PEDIT ${boundaryId} MOVE 2 120,0`, context({ drawing: boundaryDrawing }));
+  assert.deepEqual(pedit.commands[0].patch.points[1], { x: 120, y: 0 });
+  assert.equal(parseCadCommand(`PEDIT ${boundaryId} OPEN`, context({ drawing: boundaryDrawing })).commands[0].patch.closed, false);
+  assert.throws(() => parseCadCommand(`PEDIT ${boundaryId} DELETE 0`, context({ drawing: boundaryDrawing })), /1以上/);
+});

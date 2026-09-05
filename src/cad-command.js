@@ -3,8 +3,12 @@ import {
   arrayEntity,
   blockEntity,
   breakEntity,
+  chamferLines,
+  createBoundaryEntity,
   dimensionEntity,
+  editPolyline,
   extendEntityToBoundary,
+  filletLines,
   hatchEntity,
   joinLines,
   measurePoints,
@@ -96,6 +100,10 @@ export function parseCadCommand(input, context) {
   if (["AR", "ARRAY"].includes(command)) return arrayCommand(tokens, context);
   if (["BR", "BREAK"].includes(command)) return breakCommand(tokens, context);
   if (["JOIN", "J"].includes(command)) return joinCommand(tokens, context);
+  if (["CHA", "CHAMFER"].includes(command)) return chamferCommand(tokens, context);
+  if (["F", "FILLET"].includes(command)) return filletCommand(tokens, context);
+  if (["BO", "BOUNDARY"].includes(command)) return boundaryCommand(tokens, context);
+  if (["PE", "PEDIT"].includes(command)) return polylineEditCommand(tokens, context);
   if (["D", "DIM", "DIMLINEAR"].includes(command)) {
     if (tokens.length < 2 || tokens.length > 3) throw new Error("形式: DIM x1,y1 x2,y2 [offset]");
     return transaction("DIM", [{ op: "add", entity: dimensionEntity(context.currentLayerId, point(tokens[0]), point(tokens[1]), { offset: tokens[2] === undefined ? 350 : number(tokens[2], "offset") }) }]);
@@ -171,7 +179,7 @@ export function parseCadCommand(input, context) {
   if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
+      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);
@@ -291,6 +299,87 @@ function joinCommand(tokens, context) {
   if (!joined) throw new Error("端点が一致し同一線上にある2線分のみ結合できます。");
   const commands = [{ op: "delete", id: firstId }, { op: "delete", id: secondId }, { op: "add", entity: joined }];
   return transaction("JOIN", commands);
+}
+
+function chamferCommand(tokens, context) {
+  const { first, second, rest } = twoLineSelection(tokens, context, "CHAMFER");
+  if (rest.length < 1 || rest.length > 2) throw new Error("形式: CHAMFER [firstId] secondId distance1 [distance2]");
+  const result = chamferLines(first, second, number(rest[0], "distance1"), rest[1] === undefined ? undefined : number(rest[1], "distance2"));
+  return transaction("CHAMFER", [
+    { op: "update", id: first.id, patch: { points: result.first.points } },
+    { op: "update", id: second.id, patch: { points: result.second.points } },
+    { op: "add", entity: result.connector }
+  ]);
+}
+
+function filletCommand(tokens, context) {
+  const { first, second, rest } = twoLineSelection(tokens, context, "FILLET");
+  requireCount(rest, 1, "FILLET [firstId] secondId radius");
+  const result = filletLines(first, second, number(rest[0], "radius"));
+  return transaction("FILLET", [
+    { op: "update", id: first.id, patch: { points: result.first.points } },
+    { op: "update", id: second.id, patch: { points: result.second.points } },
+    { op: "add", entity: result.arc }
+  ]);
+}
+
+function boundaryCommand(tokens, context) {
+  const ids = [...tokens];
+  if (ids.length < 3) throw new Error("形式: BOUNDARY id1 id2 id3 [id4 ...]（接続された線分）");
+  const entities = ids.map((id) => {
+    const entity = context.drawing.entities.find((item) => item.id === id);
+    if (!entity) throw new Error(`境界要素が見つかりません: ${id}`);
+    return entity;
+  });
+  const boundary = createBoundaryEntity(context.currentLayerId, entities);
+  return transaction("BOUNDARY", [{ op: "add", entity: boundary }]);
+}
+
+function polylineEditCommand(tokens, context) {
+  let id = context.selectedId;
+  if (tokens[0] && context.drawing.entities.some((entity) => entity.id === tokens[0])) id = tokens.shift();
+  const entity = context.drawing.entities.find((item) => item.id === id);
+  if (!entity) throw new Error("PEDITするポリラインを選択するかIDを指定してください。");
+  const action = String(tokens.shift() ?? "").toUpperCase();
+  let next;
+  if (["CLOSE", "OPEN"].includes(action)) {
+    requireCount(tokens, 0, `PEDIT [id] ${action}`);
+    next = editPolyline(entity, action);
+  } else if (action === "DELETE") {
+    requireCount(tokens, 1, "PEDIT [id] DELETE vertexNumber");
+    next = editPolyline(entity, action, vertexNumber(tokens[0]));
+  } else if (["MOVE", "ADD"].includes(action)) {
+    requireCount(tokens, 2, `PEDIT [id] ${action} vertexNumber x,y`);
+    next = editPolyline(entity, action, vertexNumber(tokens[0]), point(tokens[1]));
+  } else {
+    throw new Error("形式: PEDIT [id] MOVE|ADD|DELETE vertexNumber [x,y] / CLOSE / OPEN");
+  }
+  return transaction("PEDIT", [{ op: "update", id: entity.id, patch: withoutIdentity(next) }]);
+}
+
+function twoLineSelection(tokens, context, label) {
+  const values = [...tokens];
+  let firstId = context.selectedId;
+  let secondId;
+  const firstTokenIsId = context.drawing.entities.some((entity) => entity.id === values[0]);
+  const secondTokenIsId = context.drawing.entities.some((entity) => entity.id === values[1]);
+  if (firstTokenIsId && secondTokenIsId) {
+    firstId = values.shift();
+    secondId = values.shift();
+  } else if (firstId && firstTokenIsId) {
+    secondId = values.shift();
+  }
+  if (!firstId || !secondId) throw new Error(`形式: ${label} [firstId] secondId value（または第1線分を選択）`);
+  const first = context.drawing.entities.find((entity) => entity.id === firstId);
+  const second = context.drawing.entities.find((entity) => entity.id === secondId);
+  if (!first || !second) throw new Error(`${label}対象の線分が見つかりません。`);
+  return { first, second, rest: values };
+}
+
+function vertexNumber(value) {
+  const parsed = number(value, "vertexNumber");
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("頂点番号は1以上の整数で指定してください。");
+  return parsed - 1;
 }
 
 function selectedEntity(tokens, context, label) {
