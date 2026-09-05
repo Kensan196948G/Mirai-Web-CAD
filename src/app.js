@@ -1425,6 +1425,7 @@ async function handleImportFile(event) {
       : imported.commands;
     const committed = await commitCommands(`Import: ${file.name}`, commands);
     if (committed) {
+      if (imported.unitConversion?.factor !== undefined && imported.unitConversion.factor !== 1) log(`DXF単位換算: ${imported.unitConversion.source} -> ${imported.unitConversion.target} (${imported.unitConversion.factor}倍)`);
       for (const warning of imported.warnings) log(`Import警告: ${warning}`);
       log(`Import完了: ${imported.entityCount}/${imported.sourceCount}図形`);
       fitCameraToDrawing();
@@ -2230,6 +2231,7 @@ function snapshotCommands(current, target) {
   for (const entity of current.entities) {
     if (!targetById.has(entity.id)) commands.push({ op: "delete", id: entity.id });
   }
+  if (current.unit !== target.unit) commands.push({ op: "set_empty_drawing_unit", unit: target.unit });
   for (const entity of target.entities) {
     const existing = currentById.get(entity.id);
     if (!existing) commands.push({ op: "add", entity: structuredClone(entity) });

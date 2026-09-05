@@ -192,6 +192,10 @@ export function applyTransaction(drawing, transaction) {
   const beforeHash = stableHash(next.entities);
 
   for (const command of transaction.commands) {
+    if (command.op === "set_empty_drawing_unit") {
+      if (!["mm", "m"].includes(command.unit) || next.entities.length > 0) return fail("単位の設定は図形がない図面でのみ可能です(mm/m)。", drawing);
+      next.unit = command.unit;
+    }
     if (command.op === "save_selection" || command.op === "delete_selection") {
       if (typeof command.name !== "string" || !command.name.trim() || command.name.length > 80) return fail("選択セット名が不正です。", drawing);
       next.selectionSets ??= [];
