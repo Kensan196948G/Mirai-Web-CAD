@@ -23,6 +23,28 @@ async function drag(page, a, b, beforeUp) {
 
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("mirai-web-cad-mvp")));
 
+test("associative dimension follows editing, shows broken references and recovers with Undo", async ({ page }, testInfo) => {
+  const command = async (value) => {
+    await page.locator("#commandInput").fill(value);
+    await page.locator("#commandInput").press("Enter");
+  };
+  await command("DIMASSOC first 200");
+  const dimension = (await stored(page)).entities.find((entity) => entity.type === "dimension");
+  expect(dimension.associationStatus).toBe("associated");
+  await command(`SELECT ${dimension.id}`);
+  await expect(page.locator("#propertyForm")).toContainText("1200");
+  await command("STRETCH 1500,300 1700,500 400,0 first");
+  await expect(page.locator("#propertyForm")).toContainText("1600");
+  await command('DIMSTYLE 2 180 100 "L=" "mm"');
+  await expect(page.locator("#propertyForm")).toContainText("L=1600.00mm");
+  await command("ERASE first");
+  await expect(page.locator("#propertyForm")).toContainText("参照切れ");
+  await expect(page.locator("#propertyForm")).toContainText("[?]");
+  await command("UNDO");
+  await expect(page.locator("#propertyForm")).toContainText("L=1600.00mm");
+  await testInfo.attach("associative-dimension", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+});
+
 test("window selection, group preview cancellation, atomic move, undo and delete", async ({ page }, testInfo) => {
   const canvas = page.locator("#cadCanvas");
   await drag(page, { x: 65, y: 55 }, { x: 185, y: 130 });

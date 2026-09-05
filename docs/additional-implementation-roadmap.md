@@ -16,7 +16,9 @@ DXF交換・精密CAD Core・尺度保証PDFをAI拡張より先に完成させ�
 - STRETCH (LINE/PLINE/HATCH/SPLINE頂点)、EXPLODE (RECT/PLINE/属性なしBLOCK)、MATCHPROP (layerId/style)。CLIとプロパティパネルの操作メニューへ接続。
 - ブロックの移動・回転・尺度で子座標を二重変換しない修正。
 
-これらは限定対応。Multi-grip、選択インデックス、曲線選択の厳密解、連想寸法、属性付きBlock分解、全属性MATCHPROP、全形式STRETCHは未完了。ELLIPSE/SPLINEの選択は既存sampling精度。回転RECT等の既存変換制約は後続精密編集で解消する。複数選択時の個別プロパティ更新は無効化し、コピーはMATCHPROPを使用する。
+これらは限定対応。Multi-grip、選択インデックス、曲線選択の厳密解、属性付きBlock分解、全属性MATCHPROP、全形式STRETCHは未完了。ELLIPSE/SPLINEの選択は既存sampling精度。回転RECT等の既存変換制約は後続精密編集で解消する。複数選択時の個別プロパティ更新は無効化し、プロパティのコピーはMATCHPROPを使用する。
+
+継続開発で[連想寸法の第1段階](associative-dimensions.md)を追加。Aligned/水平/垂直/半径/直径、参照切れ検出、書式Override、オフセットグリップ、JSON参照の再割当、選択セットCOPYの参照付け替えに対応。完全な寸法エンジンとDXF/PDF受入は引き続き未完了。
 
 ## 操作例
 
@@ -40,7 +42,7 @@ STRETCHは2点の矩形と移動量、MATCHPROPはコピー元IDを指定する�
 
 ## 受入ゲート
 
-今回の検証: `npm run verify:fast`成功 (単体228成功、DB接続が必要な1件はskip)、Playwrightはdesktop/mobile合計60件成功。実DB・実案件100図面・実機印刷による認定は未実施。
+選択編集PR #73の検証: `npm run verify:fast`成功 (単体228成功、ローカルではDB接続が必要な1件はskip)、Playwrightはdesktop/mobile合計60件成功。GitHub CIでPostgreSQL統合・Migration・Backup/Restoreも成功しmainへマージ。連想寸法追加後のE2Eは62件成功。実案件100図面・実機印刷による認定は未実施。
 
 1. G1: 順序1-10のCAD基盤を機能別に検証。日本語フォント、線幅、用紙寸法、実測尺度を含むPDF受入を実施。
 2. G2: 利用許諾付き実案件DXF100件で往復し、font/linetype/layer/block/dimensionの保持を認定。台帳と実体の不足は[外部入力台帳](external-input-status.md)で管理。
@@ -134,18 +136,18 @@ STRETCHは2点の矩形と移動量、MATCHPROPはコピー元IDを指定する�
 
 | ID | 実装対象 | 状態 |
 | --- | --- | --- |
-| DIM-01 | Linear/Aligned | 後続 |
+| DIM-01 | Linear/Aligned | 一部実装: 連想Aligned/水平/垂直 |
 | DIM-02 | Angular/Arc Length | 後続 |
-| DIM-03 | Radius/Diameter | 後続 |
+| DIM-03 | Radius/Diameter | 一部実装: 円/円弧への連想寸法 |
 | DIM-04 | Ordinate/Coordinate | 後続 |
 | DIM-05 | Baseline/Continued/Chain | 後続 |
 | DIM-06 | Center Mark/Center Line/Jogged | 後続 |
 | DIM-07 | Break/Space | 後続 |
-| DIM-08 | Dimension Style/文字/矢印 | 後続 |
-| DIM-09 | 単位・尺度・精度・Prefix/Suffix | 後続 |
+| DIM-08 | Dimension Style/文字/矢印 | 一部実装: 書式Override、文字/矢印寸法 |
+| DIM-09 | 単位・尺度・精度・Prefix/Suffix | 一部実装: measurementScale、精度、Prefix/Suffix |
 | DIM-10 | 公差・上下許容差・補助線 | 後続 |
 | DIM-11 | Override/Styleコピー/テンプレート | 後続 |
-| DIM-12 | Associative/尺度別注釈 | 後続 |
+| DIM-12 | Associative/尺度別注釈 | 一部実装: 参照追従、参照切れ、JSON往復 |
 
 ### TEXT: 文字・注記
 
@@ -621,4 +623,4 @@ STRETCHは2点の矩形と移動量、MATCHPROPはコピー元IDを指定する�
 | ACL-07 | AI Usage/Cost/Provider | 後続 |
 | ACL-08 | Feature Flags/Maintenance/System Health | 後続 |
 
-合計 263作業項目。次の着手対象はGRIP残件/EDIT精度とDIMモデル設計。全領域の実装完了を意味しない。
+合計 263作業項目。次の着手対象はGRIP残件/EDIT精度、DIM角度・公差・Style管理とHATCH/BLOCKモデル。全領域の実装完了を意味しない。

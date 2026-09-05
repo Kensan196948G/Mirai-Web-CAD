@@ -31,12 +31,23 @@ function parseJsonImport(content, drawing, currentLayerId) {
   const layers = createLayerMapping(sourceLayers, drawing, currentLayerId);
   const commands = [...layers.commands];
   const warnings = [];
+  const importedIds = new Map();
   for (const [index, entity] of sourceEntities.entries()) {
     try {
-      commands.push({ op: "add", entity: normalizeJsonEntity(entity, layers.resolve(entity?.layerId), index) });
+      const normalized = normalizeJsonEntity(entity, layers.resolve(entity?.layerId), index);
+      if (entity.id) importedIds.set(entity.id, normalized.id);
+      commands.push({ op: "add", entity: normalized });
     } catch (error) {
       warnings.push(`entity ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  for (const command of commands) {
+    if (command.op !== "add" || command.entity.type !== "dimension" || !command.entity.references) continue;
+    command.entity.references = command.entity.references.map((ref) => {
+      const id = importedIds.get(ref.entityId);
+      if (!id) warnings.push(`寸法参照先を復元できません: ${ref.entityId}`);
+      return { ...ref, entityId: id ?? `missing_${crypto.randomUUID()}` };
+    });
   }
   return importResult(commands, warnings, sourceEntities.length);
 }
@@ -153,7 +164,9 @@ function normalizeJsonEntity(entity, layerId, index) {
   }
   if (entity.type === "dimension") {
     return dimensionEntity(layerId, pair(entity.points, 2), pair(entity.points, 2, 1), {
-      ...options, offset: finite(entity.offset ?? 350, "offset"), precision: Number(entity.precision ?? 0), suffix: entity.suffix ?? ""
+      ...options, offset: finite(entity.offset ?? 350, "offset"), precision: Number(entity.precision ?? 0), suffix: entity.suffix ?? "",
+      dimensionType: entity.dimensionType, prefix: entity.prefix, textSize: entity.textSize,
+      arrowSize: entity.arrowSize, measurementScale: entity.measurementScale, references: entity.references
     });
   }
   if (entity.type === "hatch") {

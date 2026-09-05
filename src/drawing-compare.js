@@ -439,6 +439,11 @@ function evaluateDimensionAxis(pairs, effectiveTolerance, findings) {
     else findings.push(entityFinding("dimension", expected, actual, "precision"));
     if (expected.suffix === actual.suffix) passed += 1;
     else findings.push(entityFinding("dimension", expected, actual, "suffix"));
+    for (const [key, fallback] of [["dimensionType", "aligned"], ["prefix", ""], ["textSize", 180], ["arrowSize", 120], ["measurementScale", 1]]) {
+      checked += 1;
+      if ((expected[key] ?? fallback) === (actual[key] ?? fallback)) passed += 1;
+      else findings.push(entityFinding("dimension", expected, actual, key));
+    }
   }
   return { checked, passed };
 }
