@@ -379,6 +379,175 @@ export function joinLines(firstEntity, secondEntity, tolerance = 1e-6) {
   return lineLike(firstEntity, [outerFirst, outerSecond]);
 }
 
+/**
+ * 2本の線分を交点から指定距離で切り、面取り線を作成する。
+ * 戻り値のfirst/secondは元IDを保持し、connectorだけを新規追加する。
+ */
+export function chamferLines(firstEntity, secondEntity, firstDistance, secondDistance = firstDistance) {
+  const corner = lineCornerGeometry(firstEntity, secondEntity);
+  const distanceA = positiveDistance(firstDistance, "第1面取り距離");
+  const distanceB = positiveDistance(secondDistance, "第2面取り距離");
+  const pointA = pointAlong(corner.intersection, corner.firstDirection, distanceA);
+  const pointB = pointAlong(corner.intersection, corner.secondDirection, distanceB);
+  const first = replaceNearestEndpoint(firstEntity, corner.intersection, pointA);
+  const second = replaceNearestEndpoint(secondEntity, corner.intersection, pointB);
+  return { first, second, connector: lineLike(firstEntity, [pointA, pointB]) };
+}
+
+/**
+ * 2本の線分間へ接線フィレットを作成する。
+ * 現行モデルには円弧entityがないため、円弧は分割polylineで保持する。
+ */
+export function filletLines(firstEntity, secondEntity, radius, segmentCount = 16) {
+  const corner = lineCornerGeometry(firstEntity, secondEntity);
+  const value = positiveDistance(radius, "フィレット半径");
+  const dot = Math.max(-1, Math.min(1, corner.firstDirection.x * corner.secondDirection.x + corner.firstDirection.y * corner.secondDirection.y));
+  const angle = Math.acos(dot);
+  if (angle < 1e-6 || Math.PI - angle < 1e-6) throw new Error("平行または一直線の線分はフィレットできません。");
+  const tangentDistance = value / Math.tan(angle / 2);
+  const pointA = pointAlong(corner.intersection, corner.firstDirection, tangentDistance);
+  const pointB = pointAlong(corner.intersection, corner.secondDirection, tangentDistance);
+  const bisector = normalizeVector({
+    x: corner.firstDirection.x + corner.secondDirection.x,
+    y: corner.firstDirection.y + corner.secondDirection.y
+  });
+  const centerDistance = value / Math.sin(angle / 2);
+  const center = pointAlong(corner.intersection, bisector, centerDistance);
+  const startAngle = Math.atan2(pointA.y - center.y, pointA.x - center.x);
+  const cross = corner.firstDirection.x * corner.secondDirection.y - corner.firstDirection.y * corner.secondDirection.x;
+  const delta = cross > 0 ? -angle : angle;
+  const count = Math.max(4, Math.min(128, Math.round(Number(segmentCount) || 16)));
+  const points = [];
+  for (let index = 0; index <= count; index += 1) {
+    const current = startAngle + (delta * index) / count;
+    points.push({ x: center.x + value * Math.cos(current), y: center.y + value * Math.sin(current) });
+  }
+  const first = replaceNearestEndpoint(firstEntity, corner.intersection, pointA);
+  const second = replaceNearestEndpoint(secondEntity, corner.intersection, pointB);
+  const arc = lineLike(firstEntity, points, { polyline: true });
+  return { first, second, arc, center, radius: value };
+}
+
+/** 接続された線分群を1つの閉じたポリラインへ変換する。 */
+export function createBoundaryEntity(layerId, entities, options = {}) {
+  const tolerance = Number(options.tolerance ?? 1e-6);
+  if (!Number.isFinite(tolerance) || tolerance <= 0) throw new Error("境界接続の許容差は0より大きい数値で指定してください。");
+  if (!Array.isArray(entities) || entities.length < 3) throw new Error("境界作成には3本以上の線分が必要です。");
+  if (entities.some((entity) => entity?.type !== "line")) throw new Error("境界作成は線分だけに対応しています。");
+  const remaining = entities.map((entity) => ({ a: normalizePoint(entity.points[0]), b: normalizePoint(entity.points[1]) }));
+  const first = remaining.shift();
+  const points = [first.a, first.b];
+  let current = first.b;
+  while (remaining.length > 0) {
+    const matches = [];
+    for (let index = 0; index < remaining.length; index += 1) {
+      if (samePoint(remaining[index].a, current, tolerance)) matches.push({ index, next: remaining[index].b });
+      if (samePoint(remaining[index].b, current, tolerance)) matches.push({ index, next: remaining[index].a });
+    }
+    if (matches.length === 0) throw new Error("線分が接続されていないため閉境界を作成できません。");
+    if (matches.length > 1) throw new Error("分岐した線分からは境界を一意に決定できません。");
+    const match = matches[0];
+    remaining.splice(match.index, 1);
+    current = match.next;
+    if (remaining.length > 0) points.push(current);
+  }
+  if (!samePoint(current, points[0], tolerance)) throw new Error("線分が閉合していません。");
+  if (Math.abs(signedArea(points)) < EPSILON) throw new Error("境界の面積が0です。");
+  return {
+    id: options.id ?? `e_boundary_${randomId()}`,
+    type: "polyline",
+    layerId,
+    points,
+    closed: true,
+    style: { strokeWidth: 1.5, lineDash: [], fill: "transparent", ...(options.style ?? {}) },
+    meta: metadata(options)
+  };
+}
+
+/** ポリライン頂点を移動・追加・削除し、開閉状態を変更する。indexは0始まり。 */
+export function editPolyline(entity, action, index, point) {
+  if (entity?.type !== "polyline") throw new Error("PEDITはポリラインだけに対応しています。");
+  const next = structuredClone(entity);
+  const mode = String(action).toUpperCase();
+  if (mode === "CLOSE") {
+    if (next.points.length < 3) throw new Error("ポリラインを閉じるには3頂点以上必要です。");
+    next.closed = true;
+    return next;
+  }
+  if (mode === "OPEN") {
+    next.closed = false;
+    return next;
+  }
+  const vertexIndex = Number(index);
+  if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= next.points.length) {
+    throw new Error(`頂点番号が範囲外です: ${Number(index) + 1}`);
+  }
+  if (mode === "MOVE") {
+    next.points[vertexIndex] = normalizePoint(point);
+  } else if (mode === "ADD") {
+    next.points.splice(vertexIndex + 1, 0, normalizePoint(point));
+  } else if (mode === "DELETE") {
+    const minimum = next.closed ? 3 : 2;
+    if (next.points.length <= minimum) throw new Error(`頂点は${minimum}点未満にできません。`);
+    next.points.splice(vertexIndex, 1);
+  } else {
+    throw new Error("PEDIT操作はMOVE / ADD / DELETE / CLOSE / OPENを指定してください。");
+  }
+  const segments = next.closed ? [...next.points, next.points[0]] : next.points;
+  for (let current = 1; current < segments.length; current += 1) {
+    if (samePoint(segments[current - 1], segments[current], 1e-9)) {
+      throw new Error("隣接頂点が同一点になる編集はできません。");
+    }
+  }
+  return next;
+}
+
+function lineCornerGeometry(firstEntity, secondEntity) {
+  if (firstEntity?.type !== "line" || secondEntity?.type !== "line") throw new Error("2本の線分を指定してください。");
+  if (firstEntity.id && secondEntity.id && firstEntity.id === secondEntity.id) throw new Error("異なる2本の線分を指定してください。");
+  const intersection = lineIntersection(firstEntity.points[0], firstEntity.points[1], secondEntity.points[0], secondEntity.points[1]);
+  if (!intersection) throw new Error("平行な線分は処理できません。");
+  return {
+    intersection,
+    firstDirection: directionToFarEndpoint(firstEntity, intersection),
+    secondDirection: directionToFarEndpoint(secondEntity, intersection)
+  };
+}
+
+function directionToFarEndpoint(entity, intersection) {
+  const [a, b] = entity.points.map(normalizePoint);
+  const target = Math.hypot(a.x - intersection.x, a.y - intersection.y) >= Math.hypot(b.x - intersection.x, b.y - intersection.y) ? a : b;
+  return normalizeVector({ x: target.x - intersection.x, y: target.y - intersection.y });
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y);
+  if (length < EPSILON) throw new Error("長さ0の線分は処理できません。");
+  return { x: vector.x / length, y: vector.y / length };
+}
+
+function pointAlong(origin, direction, distance) {
+  return { x: origin.x + direction.x * distance, y: origin.y + direction.y * distance };
+}
+
+function replaceNearestEndpoint(entity, reference, replacement) {
+  const next = structuredClone(entity);
+  const firstDistance = Math.hypot(next.points[0].x - reference.x, next.points[0].y - reference.y);
+  const secondDistance = Math.hypot(next.points[1].x - reference.x, next.points[1].y - reference.y);
+  next.points[firstDistance <= secondDistance ? 0 : 1] = replacement;
+  return next;
+}
+
+function positiveDistance(value, label) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${label}は0より大きい数値で指定してください。`);
+  return parsed;
+}
+
+function samePoint(a, b, tolerance) {
+  return Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
+}
+
 function lineLike(source, points, options = {}) {
   const next = structuredClone(source);
   next.type = options.polyline ? "polyline" : "line";

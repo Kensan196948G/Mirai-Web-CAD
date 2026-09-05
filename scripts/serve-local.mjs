@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { handleApiRequest } from "../src/api-handler.js";
+import { developmentServerUrls } from "./lib/network-addresses.mjs";
 import {
   CONTENT_TYPES,
   RequestBodyTooLargeError,
@@ -16,6 +17,7 @@ import {
 const root = process.cwd();
 const staticRoot = path.join(root, "dist");
 const port = Number(process.env.PORT ?? 4174);
+const host = String(process.env.HOST ?? "0.0.0.0").trim() || "0.0.0.0";
 
 const headerRules = await loadHeaderRules(path.join(root, "_headers")).catch((error) => {
   console.warn(`_headersを読み込めませんでした(ローカル開発では継続します): ${error.message}`);
@@ -78,6 +80,8 @@ const server = createServer(async (req, res) => {
   res.end(await readFile(file));
 });
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Mirai Web CAD local server: http://127.0.0.1:${port}/`);
+server.listen(port, host, () => {
+  console.log(`Mirai Web CAD local server (${host}:${port})`);
+  const urls = host === "0.0.0.0" ? developmentServerUrls(port) : [{ kind: "URL", url: `http://${host}:${port}/` }];
+  for (const entry of urls) console.log(`  ${entry.kind}: ${entry.url}`);
 });
