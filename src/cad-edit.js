@@ -17,7 +17,12 @@ export function explodeEntity(entity) {
   if (entity.type === "block") {
     if (!entity.children?.length) throw new Error("EXPLODE: empty block");
     if (Object.keys(entity.attributes ?? {}).length || entity.attributeReferences?.length) throw new Error("EXPLODE: attributed blocks require attribute conversion");
-    if (entity.definitionId) return blockWorldEntities(entity).map((child) => ({ ...child, id: `e_explode_${crypto.randomUUID()}` }));
+    if (entity.definitionId) return blockWorldEntities(entity).map((child) => {
+      const next = structuredClone(child);
+      delete next.dxfRecordId;
+      next.id = `e_explode_${crypto.randomUUID()}`;
+      return next;
+    });
     return entity.children.map((child) => ({
       ...transformEntity(child.type === "rect" ? {
         ...child, type: "polyline", closed: true,

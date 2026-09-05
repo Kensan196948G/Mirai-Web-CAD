@@ -4,6 +4,7 @@ import { circle, line, seedDrawing } from "../src/cad-core.js";
 import { dimensionEntity } from "../src/cad-advanced.js";
 import { IGNORED_FIELDS, compareDrawings, pairEntities } from "../src/drawing-compare.js";
 import { TOLERANCE_V0 } from "../src/compat-score.js";
+import { nativeBlockDrawing } from "./fixtures/native-block.js";
 
 test("concentric circles pair by radius after reordering and ID reassignment", () => {
   const expected = seedDrawing();
@@ -35,6 +36,15 @@ test("compareDrawings gives every axis a perfect score with zero findings for an
   for (const axis of Object.values(report.axes)) {
     assert.equal(axis.score, 1);
   }
+});
+
+test("native BLOCK text oblique uses angle tolerance instead of coordinate tolerance", () => {
+  const expected = nativeBlockDrawing();
+  expected.entities[1].attributeReferences[0].oblique = 0;
+  const actual = structuredClone(expected);
+  actual.entities[1].attributeReferences[0].oblique = TOLERANCE_V0.angle * 5;
+  const report = compareDrawings(expected, actual, TOLERANCE_V0);
+  assert.ok(report.axes.block.score < 1);
 });
 
 test("compareDrawings treats a coordinate shift within tolerance as passing and beyond tolerance as a finding", () => {

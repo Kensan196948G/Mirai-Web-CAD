@@ -4,6 +4,7 @@ import { applyTransaction, createDrawing, line, polyline, rect } from "../src/ca
 import { blockEntity } from "../src/cad-advanced.js";
 import { explodeEntity, matchProperties, stretchEntity } from "../src/cad-edit.js";
 import { parseCadCommand } from "../src/cad-command.js";
+import { nativeBlockDrawing } from "./fixtures/native-block.js";
 
 const layer = "layer-structure";
 test("stretch moves vertices inside the crossing box without moving the other endpoint", () => {
@@ -25,6 +26,14 @@ test("explode preserves closure, style and transformed block geometry", () => {
   assert.ok(Math.abs(box.points[1].x - 100) < 1e-9);
   assert.ok(Math.abs(box.points[1].y - 220) < 1e-9);
   assert.throws(() => explodeEntity({ ...block, attributes: { name: "A" } }), /attribute/);
+});
+
+test("exploding a native BLOCK creates new source-independent entities", () => {
+  const drawing = nativeBlockDrawing();
+  drawing.blockDefinitions.flatMap((definition) => definition.entities).forEach((entity, index) => { entity.dxfRecordId = `source-${index}`; });
+  const pieces = explodeEntity(drawing.entities[0]);
+  assert.ok(pieces.length > 0);
+  assert.ok(pieces.every((piece) => piece.id.startsWith("e_explode_") && piece.dxfRecordId === undefined));
 });
 
 test("match properties copies appearance and layer without geometry or identity", () => {

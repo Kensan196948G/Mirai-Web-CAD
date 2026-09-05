@@ -9,6 +9,7 @@ import { createDxfSourceDocument, inspectDxfSourceDocument } from "./dxf-source-
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
+const MAX_IMPORT_COMMAND_BYTES = 750_000;
 const IMPORT_COLORS = ["#1574b8", "#1e946f", "#a26a1d", "#d14f4f", "#6f56a5", "#337f8f"];
 const DxfParser = /** @type {any} */ (DxfParserPackage);
 
@@ -137,7 +138,7 @@ function parseDxfImport(content, drawing, currentLayerId) {
   const commands = [...layers.commands, ...units.commands];
   const warnings = [];
   const sourceDocument = createDxfSourceDocument(content);
-  const sourceRecords = inspectDxfSourceDocument(sourceDocument).records.filter((record) => record.section === "ENTITIES" && !["ATTRIB", "SEQEND"].includes(record.type));
+  const sourceRecords = inspectDxfSourceDocument(sourceDocument).records.filter((record) => record.section === "ENTITIES" && !["ATTRIB", "VERTEX", "SEQEND"].includes(record.type));
   for (const [index, entity] of sourceEntities.entries()) {
     try {
       const normalized = normalizeDxfEntity(entity, layers.resolve(entity.layer), index);
@@ -150,9 +151,16 @@ function parseDxfImport(content, drawing, currentLayerId) {
   if (warnings.length) throw new Error(`DXF取込を中止しました。変換不能Entity ${warnings.length}件: ${warnings.slice(0, 10).join(" / ")}。図面は変更していません。`);
   const sourceResource = { op: "set_block_resources", definitions: drawing.blockDefinitions ?? [], sources: [...(drawing.dxfSources ?? []), sourceDocument] };
   const sourceWarnings = [...units.warnings];
+  let sourceArchived = false;
   if (!(drawing.entities.length || drawing.dxfSources?.length) && new TextEncoder().encode(JSON.stringify(sourceResource)).length <= BLOCK_RESOURCE_MAX_BYTES) {
     commands.splice(layers.commands.length + units.commands.length, 0, sourceResource);
+    sourceArchived = true;
   } else sourceWarnings.push("原本DXFは容量または複数原本の制約により編集用アーカイブへ保持されませんでした。");
+  if (new TextEncoder().encode(JSON.stringify(commands)).length > MAX_IMPORT_COMMAND_BYTES && sourceArchived) {
+    commands.splice(commands.indexOf(sourceResource), 1);
+    sourceWarnings.push("原本DXFは取込コマンド容量の制約により編集用アーカイブへ保持されませんでした。");
+  }
+  if (new TextEncoder().encode(JSON.stringify(commands)).length > MAX_IMPORT_COMMAND_BYTES) throw new Error("DXF取込がAPI容量上限を超えます。図面を分割してください。");
   if (units.factor !== 1) sourceWarnings.push(`DXF単位換算: ${units.sourceUnit} -> ${units.targetUnit} (${units.factor}倍)`);
   return { ...importResult(commands, sourceWarnings, inventory.total), unitConversion: { source: units.sourceUnit, target: units.targetUnit, factor: units.factor } };
 }

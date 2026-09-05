@@ -25,6 +25,7 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
   const equal = (a, b, omit) => JSON.stringify(semantic(a, drawing, omit)) === JSON.stringify(semantic(b, original, omit));
   if (drawing.unit !== original.unit || !equal(drawing.layout, original.layout) || !equal(drawing.layers, original.layers)) return null;
   const view = inspectDxfBlocks(document), inspected = inspectDxfSourceDocument(document);
+  const sourceRecordsById = new Map(inspected.records.map((record) => [record.id, record]));
   const sourceReferences = new Map(view.references.map((reference) => [reference.recordId, reference]));
   const used = new Set(), patches = [], removeRecordIds = [], insertions = [];
   const add = (recordId, code, value, occurrence = 0) => patches.push({ recordId, code, value, occurrence });
@@ -76,7 +77,10 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
     if (entity.radius !== undefined && entity.radius !== before.radius) add(recordId, 40, entity.radius);
     if (entity.startAngle !== undefined && entity.startAngle !== before.startAngle) add(recordId, 50, entity.startAngle);
     if (entity.endAngle !== undefined && entity.endAngle !== before.endAngle) add(recordId, 51, entity.endAngle);
-    if (entity.closed !== undefined && entity.closed !== before.closed) add(recordId, 70, entity.closed ? 1 : 0);
+    if (entity.closed !== undefined && entity.closed !== before.closed) {
+      const originalFlags = Number(dxfGroup(sourceRecordsById.get(recordId), 70, 0));
+      add(recordId, 70, entity.closed ? originalFlags | 1 : originalFlags & ~1);
+    }
     return true;
   };
   const patchCollection = (current, baseline, section, beforeRecordId = null) => {
@@ -117,12 +121,13 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
   const blockTable = inspected.records[blockTableIndex];
   const blockTableEnd = inspected.records.slice(blockTableIndex + 1).find((record) => record.type === "ENDTAB");
   if ((drawing.blockDefinitions.some((definition) => !definition.dxfRecordId) || original.blockDefinitions.some((definition) => !currentDefinitionIds.has(definition.dxfRecordId))) && (!blockTable || !blockTableEnd || !dxfGroup(blockTable, 5))) return null;
-  const usedHandles = inspected.records.map((record) => dxfGroup(record, 5)).filter(Boolean).map((handle) => Number.parseInt(handle, 16)).filter(Number.isFinite);
+  const usedHandles = inspected.records.flatMap((record) => [dxfGroup(record, 5), dxfGroup(record, 105)]).filter(Boolean).map((handle) => Number.parseInt(handle, 16)).filter(Number.isFinite);
   let nextHandle = Math.max(0x100, ...usedHandles) + 1;
-  let tableDelta = 0;
+  let tableDelta = 0, handleAllocated = false;
   for (const definition of drawing.blockDefinitions) {
     if (!definition.dxfRecordId) {
       const owner = (nextHandle++).toString(16).toUpperCase();
+      handleAllocated = true;
       const record = ["0", "BLOCK_RECORD", "5", owner, "330", dxfGroup(blockTable, 5), "100", "AcDbSymbolTableRecord", "100", "AcDbBlockTableRecord", "2", sourceText(definition.name), "70", "0"].join(eol) + eol;
       insertions.push({ section: "TABLES", beforeRecordId: blockTableEnd.id, content: record });
       insertions.push({ section: "BLOCKS", content: encodeDefinition(definition, drawing, owner).replaceAll("\n", eol) });
@@ -163,7 +168,8 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
   const removedHandles = new Set(inspected.records.filter((record) => removed.has(record.id)).map((record) => dxfGroup(record, 5)).filter(Boolean));
   const handleReference = (code) => (code >= 320 && code <= 369) || (code >= 390 && code <= 399) || code === 480 || code === 481 || code === 1005;
   if (inspected.records.some((record) => !removed.has(record.id) && record.groups.some((group) => handleReference(group.code) && removedHandles.has(group.value.trim())))) return null;
-  return { content: rewriteDxfSourceDocument(document, { patches, removeRecordIds, insertions }), exported: drawing.entities.length, skipped: [],
+  const headerPatches = handleAllocated ? [{ section: "HEADER", name: "$HANDSEED", code: 5, value: nextHandle.toString(16).toUpperCase() }] : [];
+  return { content: rewriteDxfSourceDocument(document, { patches, removeRecordIds, insertions, headerPatches }), exported: drawing.entities.length, skipped: [],
     preservation: { mode: "source-patch", changedGroups: patches.length, removedRecords: removeRecordIds.length, insertedRecords: insertions.length },
     warnings: [] };
 }

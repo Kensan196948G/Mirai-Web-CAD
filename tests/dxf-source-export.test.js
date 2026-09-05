@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDrawing, applyTransaction, line } from "../src/cad-core.js";
+import { createDrawing, applyTransaction, line, polyline } from "../src/cad-core.js";
 import { parseCadImport } from "../src/importers.js";
 import { exportDxf } from "../src/dxf-export.js";
 import { transformEntity } from "../src/cad-advanced.js";
 import { nativeBlockDrawing } from "./fixtures/native-block.js";
-import { createDxfSourceDocument, inspectDxfBlocks, patchDxfSourceValues } from "../src/dxf-source-document.js";
+import { createDxfSourceDocument, inspectDxfBlocks, inspectDxfSourceDocument, patchDxfSourceValues, rewriteDxfSourceDocument } from "../src/dxf-source-document.js";
 import { blockReference } from "../src/cad-block.js";
 
 function imported(content, filename = "sample.dxf") {
@@ -104,7 +104,7 @@ test("add/delete and existing BLOCK definition geometry edits preserve opaque so
 });
 
 test("new, renamed and removed BLOCK definitions update BLOCK_RECORD without rebuilding OBJECTS", () => {
-  const content = source();
+  const content = source().replace("281\n1\n0\nENDSEC", "281\n1\n105\nFFFF\n0\nENDSEC");
   const addedDrawing = imported(content);
   const template = addedDrawing.blockDefinitions.find((item) => item.name === "INNER");
   const addedDefinition = structuredClone(template);
@@ -117,6 +117,8 @@ test("new, renamed and removed BLOCK definitions update BLOCK_RECORD without reb
   let output = exportDxf(addedDrawing);
   assert.equal(output.preservation?.mode, "source-patch");
   assert.equal(output.preservation.insertedRecords, 3);
+  assert.match(output.content, /9\n\$HANDSEED\n5\n10001\n/);
+  assert.match(output.content, /0\nBLOCK_RECORD\n5\n10000\n/);
   let reloaded = imported(output.content);
   assert.ok(reloaded.blockDefinitions.some((item) => item.name === "ADDED_DEFINITION"));
   assert.ok(reloaded.entities.some((item) => item.name === "ADDED_DEFINITION"));
@@ -137,6 +139,14 @@ test("new, renamed and removed BLOCK definitions update BLOCK_RECORD without reb
   assert.equal(output.preservation?.mode, "source-patch");
   reloaded = imported(output.content);
   assert.ok(!reloaded.blockDefinitions.some((item) => item.name === "OUTER"));
+});
+
+test("record removal wins over a patch targeting the same source record", () => {
+  const document = createDxfSourceDocument(source());
+  const recordId = inspectDxfBlocks(document).references[0].recordId;
+  const before = inspectDxfSourceDocument(document).records.filter((record) => record.type === "INSERT").length;
+  const output = rewriteDxfSourceDocument(document, { patches: [{ recordId, code: 50, value: 25 }], removeRecordIds: [recordId] });
+  assert.equal(inspectDxfSourceDocument(createDxfSourceDocument(output)).records.filter((record) => record.type === "INSERT").length, before - 1);
 });
 
 test("layer/layout/unit and record reordering never claim source preservation", () => {
@@ -173,6 +183,30 @@ test("plain DXF keeps its source while existing primitives change and new primit
     [{ x: 0, y: 0 }, { x: 150, y: 0 }], [{ x: 0, y: 10 }, { x: 100, y: 10 }],
     [{ x: 0, y: 20 }, { x: 100, y: 20 }], [{ x: 0, y: 30 }, { x: 100, y: 30 }]
   ]);
+});
+
+test("LWPOLYLINE closed edits preserve unrelated code-70 flags", () => {
+  const base = createDrawing();
+  base.entities = [polyline(base.layers[0].id, [[0, 0], [100, 0]], { closed: false })];
+  const content = exportDxf(base).content.replace("90\n2\n70\n0", "90\n2\n70\n128");
+  const drawing = imported(content);
+  drawing.entities[0].closed = true;
+  const output = exportDxf(drawing);
+  assert.equal(output.preservation?.mode, "source-patch");
+  assert.match(output.content, /90\n2\n70\n129\n/);
+});
+
+test("legacy POLYLINE vertices do not shift source record IDs for following entities", () => {
+  const content = ["0", "SECTION", "2", "HEADER", "0", "ENDSEC", "0", "SECTION", "2", "ENTITIES",
+    "0", "POLYLINE", "8", "0", "66", "1", "70", "0", "10", "0", "20", "0", "30", "0",
+    "0", "VERTEX", "8", "0", "10", "0", "20", "0", "30", "0", "0", "VERTEX", "8", "0", "10", "100", "20", "0", "30", "0", "0", "SEQEND",
+    "0", "LINE", "8", "0", "10", "0", "20", "10", "11", "100", "21", "10", "0", "ENDSEC", "0", "EOF"].join("\n");
+  const drawing = imported(content);
+  assert.deepEqual(drawing.entities.map((entity) => entity.type), ["polyline", "line"]);
+  drawing.entities[1].points[1].x = 150;
+  const output = exportDxf(drawing);
+  assert.equal(output.preservation?.mode, "source-patch", output.warnings.join(" / "));
+  assert.deepEqual(imported(output.content).entities[1].points[1], { x: 150, y: 10 });
 });
 
 test("source patch rejects group injection, duplicate writes and handle edits", () => {

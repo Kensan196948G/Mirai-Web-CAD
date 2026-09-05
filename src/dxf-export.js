@@ -325,7 +325,14 @@ function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions)
       if (!Number.isFinite(size) || size <= 0) {
         return skipEntity(entity, skipped, "文字高さが不正です(正の値が必要)");
       }
-      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD"), ...textTransformGroups(entity)];
+      const widthFactor = Number(entity.widthFactor ?? 1);
+      const oblique = Number(entity.oblique ?? 0);
+      const generationFlags = Number(entity.generationFlags ?? 0);
+      if (!Number.isFinite(widthFactor) || widthFactor <= 0 || !Number.isFinite(oblique) || Math.abs(oblique) >= 90 || ![0, 2, 4, 6].includes(generationFlags)) {
+        return skipEntity(entity, skipped, "文字の幅係数・傾斜角・生成フラグが不正です");
+      }
+      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD"),
+        ...textTransformGroups({ ...entity, widthFactor, oblique, generationFlags })];
     }
     default:
       return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です(現Phase: dimension/hatch/block)");

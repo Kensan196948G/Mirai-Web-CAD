@@ -67,11 +67,13 @@ export function patchDxfSourceValues(document, patches) {
   return rewriteDxfSourceDocument(document, { patches });
 }
 
-export function rewriteDxfSourceDocument(document, { patches = [], removeRecordIds = [], insertions = [] }) {
-  const { records } = inspectDxfSourceDocument(document);
+export function rewriteDxfSourceDocument(document, { patches = [], removeRecordIds = [], insertions = [], headerPatches = [] }) {
+  const { records, sections } = inspectDxfSourceDocument(document);
   const byId = new Map(records.map((record) => [record.id, record]));
+  const removed = new Set(removeRecordIds);
   const edits = [], used = new Set();
   for (const { recordId, code, value, occurrence = 0 } of patches) {
+    if (removed.has(recordId)) continue;
     const record = byId.get(recordId);
     const allowedByType = {
       INSERT: [2, 10, 20, 41, 42, 43, 50], ATTRIB: [1, 10, 20, 40, 41, 50, 51, 71], ATTDEF: [1, 3, 10, 20, 40, 41, 50, 51, 70, 71],
@@ -99,16 +101,26 @@ export function rewriteDxfSourceDocument(document, { patches = [], removeRecordI
       edits.push({ start: at, end: at, value: `${code}${eol}${value}${eol}` });
     }
   }
-  for (const recordId of new Set(removeRecordIds)) {
+  for (const recordId of removed) {
     const record = byId.get(recordId);
     if (!record) throw new Error("Unknown DXF record removal");
     edits.push({ start: record.groups[0].codeStart, end: record.groups.at(-1).pairEnd, value: "" });
   }
   const eol = document.source.match(/\r\n|\n|\r/)?.[0] ?? "\n";
+  for (const { section: sectionName, name, code, value } of headerPatches) {
+    if (sectionName !== "HEADER" || name !== "$HANDSEED" || code !== 5 || !/^[0-9A-F]+$/i.test(String(value))) throw new Error("Unsupported DXF header patch");
+    const section = sections.find((item) => item.name === sectionName);
+    if (!section) throw new Error("Missing DXF header section");
+    const variableIndex = section.header.findIndex((group) => group.code === 9 && group.value.trim() === name);
+    const group = variableIndex < 0 ? null : section.header.slice(variableIndex + 1).find((item) => item.code === code || item.code === 9);
+    if (group?.code === code) edits.push({ start: group.valueStart, end: group.valueEnd, value: String(value) });
+    else if (variableIndex < 0) edits.push({ start: section.endStart, end: section.endStart, value: `9${eol}${name}${eol}${code}${eol}${value}${eol}` });
+    else throw new Error("Malformed DXF header variable");
+  }
   for (const insertion of insertions) {
     if (typeof insertion.content !== "string" || /\r|\n/.test(insertion.content.replaceAll(eol, ""))) throw new Error("Invalid DXF record insertion");
     const before = insertion.beforeRecordId ? byId.get(insertion.beforeRecordId) : null;
-    const section = inspectDxfSourceDocument(document).sections.find((item) => item.name === insertion.section);
+    const section = sections.find((item) => item.name === insertion.section);
     if (!section || (before && before.section !== section.name)) throw new Error("Invalid DXF insertion target");
     edits.push({ start: before ? before.groups[0].codeStart : section.endStart, end: before ? before.groups[0].codeStart : section.endStart,
       value: insertion.content.endsWith(eol) ? insertion.content : insertion.content + eol });

@@ -409,7 +409,7 @@ function blockShape(value, layers) {
 }
 
 function blockValuesEqual(a, b, coordinateTolerance, angleTolerance, key = "") {
-  if (typeof a === "number" && typeof b === "number") return /angle|rotation/i.test(key) ? angleDelta(a, b) <= angleTolerance : Math.abs(a - b) <= coordinateTolerance;
+  if (typeof a === "number" && typeof b === "number") return /angle|rotation|oblique/i.test(key) ? angleDelta(a, b) <= angleTolerance : Math.abs(a - b) <= coordinateTolerance;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return a === b;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((childKey) => Object.hasOwn(b, childKey) && blockValuesEqual(a[childKey], b[childKey], coordinateTolerance, angleTolerance, childKey));
