@@ -24,6 +24,7 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
     next.insertion = transform(next.insertion);
     next.rotation = (next.rotation ?? 0) + angle;
     next.scale = (next.scale ?? 1) * scale;
+    if (next.definitionId) next.scaleZ = (next.scaleZ ?? 1) * scale;
     return next;
   }
   for (const key of ["origin", "center", "at", "insertion"]) {
@@ -252,6 +253,7 @@ export function measurePoints(start, end) {
  * @returns entity 変換後のentity(rect→polylineへ型が変わり得る)
  */
 export function mirrorEntity(entity, axisStart, axisEnd) {
+  if (entity.definitionId) throw new Error("定義参照BLOCKのMIRRORは未対応です。");
   const a = normalizePoint(axisStart);
   const b = normalizePoint(axisEnd);
   const length = Math.hypot(b.x - a.x, b.y - a.y);

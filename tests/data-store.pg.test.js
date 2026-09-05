@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDataStore, closeDataStorePool } from "../src/data-store.js";
 import { createDrawing } from "../src/cad-core.js";
+import { nativeBlockDrawing } from "./fixtures/native-block.js";
+import { createDxfSourceDocument } from "../src/dxf-source-document.js";
+import { exportDxf } from "../src/dxf-export.js";
 
 // 本番用DATABASE_URLを設定したシェルでうっかりnpm testを実行しても本番DBへ
 // 書き込まないよう、専用の環境変数TEST_DATABASE_URLのみを見る(DATABASE_URLは
@@ -27,7 +30,8 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
   });
 
   await t.test("createDrawingAtomicallyが成功し、同一Idempotency-Keyの再送は23505経由でfalseになる", async () => {
-    const drawing = createDrawing();
+    const drawing = nativeBlockDrawing();
+    drawing.dxfSources = [createDxfSourceDocument(exportDxf(drawing).content)];
     drawing.id = `dwg_it_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     drawing.currentRole = "drafter";
     const auditEntry = {
@@ -48,6 +52,8 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
     const reloaded = await store.getDrawing(drawing.id, false);
     assert.deepEqual(reloaded.entities, drawing.entities, "JSONBから図面配列をそのまま復元する");
     assert.deepEqual(reloaded.layers, drawing.layers, "JSONBからレイヤー配列をそのまま復元する");
+    assert.deepEqual(reloaded.blockDefinitions, drawing.blockDefinitions);
+    assert.deepEqual(reloaded.dxfSources, drawing.dxfSources);
 
     const duplicate = await store.createDrawingAtomically(drawing, auditEntry, idempotencyKey, "it@test", "/api/drawings");
     assert.equal(duplicate, false, "同一Idempotency-Keyの再送はfalseを返す(トランザクション書き換え後も冪等性を維持)");

@@ -27,6 +27,11 @@ jobs:
           node-version: "22"
       - name: Verify original DXF archive byte equality (not editable compatibility)
         run: node scripts/dxf-source-archive.mjs pack DXF-Test-Corpus artifacts/dxf-source-archive
+      - run: npm ci
+      - name: Generate limited native BLOCK roundtrips, including edits
+        run: node scripts/check-native-block-corpus.mjs
+      - name: Compare against original geometry and attributes with ezdxf
+        run: /tmp/corpus-venv/bin/python scripts/audit-native-block-corpus.py
       - name: Upload generation audit (not CAD compatibility certification)
         if: always()
         uses: actions/upload-artifact@v7
@@ -35,6 +40,8 @@ jobs:
           path: |
             DXF-Test-Corpus/00_manifest/verification.json
             artifacts/dxf-source-archive/report.json
+            artifacts/native-block-corpus/report.json
+            artifacts/native-block-corpus/audit.json
           retention-days: 14
 
   application:

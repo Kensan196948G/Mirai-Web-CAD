@@ -15,13 +15,13 @@ export function stretchEntity(entity, a, b, delta) {
 export function explodeEntity(entity) {
   if (entity.type === "block") {
     if (!entity.children?.length) throw new Error("EXPLODE: empty block");
-    if (Object.keys(entity.attributes ?? {}).length) throw new Error("EXPLODE: attributed blocks require attribute conversion");
+    if (Object.keys(entity.attributes ?? {}).length || entity.attributeReferences?.length) throw new Error("EXPLODE: attributed blocks require attribute conversion");
     return entity.children.map((child) => ({
       ...transformEntity(child.type === "rect" ? {
         ...child, type: "polyline", closed: true,
         points: explodeEntity(child).map((edge) => edge.points[0])
       } : child, { dx: entity.insertion.x, dy: entity.insertion.y, angle: entity.rotation ?? 0, scale: entity.scale ?? 1 }),
-      layerId: entity.layerId,
+      layerId: entity.definitionId ? child.layerId : entity.layerId,
       id: `e_explode_${crypto.randomUUID()}`
     }));
   }
@@ -67,8 +67,16 @@ export function reverseEntity(entity) {
 
 export function unusedLayerIds(drawing, currentLayerId) {
   const used = new Set([currentLayerId]);
-  const visit = (entity) => { used.add(entity.layerId); for (const child of entity.children ?? []) visit(child); };
+  const visit = (entity) => {
+    used.add(entity.layerId);
+    for (const attribute of entity.attributeReferences ?? []) used.add(attribute.layerId);
+    for (const child of entity.children ?? []) visit(child);
+  };
   drawing.entities.forEach(visit);
+  for (const definition of drawing.blockDefinitions ?? []) {
+    definition.entities.forEach(visit);
+    definition.attributeDefinitions.forEach((attribute) => used.add(attribute.layerId));
+  }
   const keep = drawing.layers.find((layer) => layer.id === currentLayerId)?.id ?? drawing.layers[0]?.id;
   used.add(keep);
   return drawing.layers.filter((layer) => !used.has(layer.id) && !layer.locked).map((layer) => layer.id);

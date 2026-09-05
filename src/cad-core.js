@@ -3,6 +3,8 @@ const EPSILON = 1e-9;
 import { transformEntity } from "./cad-advanced.js";
 
 import { dimensionGeometry, dimensionReferencePoints, resolveDimensions } from "./cad-dimension.js";
+import { resolveBlocks, BLOCK_RESOURCE_MAX_BYTES } from "./cad-block.js";
+import { inspectDxfSourceDocument } from "./dxf-source-document.js";
 
 export const DEFAULT_LAYERS = [
   { id: "layer-frame", name: "図枠", color: "#5b6b7a", visible: true, locked: false, printable: true },
@@ -33,6 +35,8 @@ export function createDrawing(overrides = {}) {
     currentRole: overrides.currentRole ?? "drafter",
     layers: structuredClone(DEFAULT_LAYERS),
     entities: [],
+    blockDefinitions: [],
+    dxfSources: [],
     selectionSets: [],
     comments: [],
     dimensionStyles: [{ id: "dim-standard", name: "標準", textSize: 180, arrowSize: 120, precision: 0, suffix: "" }],
@@ -192,8 +196,16 @@ export function applyTransaction(drawing, transaction) {
   const beforeHash = stableHash(next.entities);
 
   for (const command of transaction.commands) {
+    if (command.op === "set_block_resources") {
+      if (!Array.isArray(command.definitions) || !Array.isArray(command.sources) || new TextEncoder().encode(JSON.stringify(command)).length > BLOCK_RESOURCE_MAX_BYTES) return fail("BLOCKリソースが不正または容量超過です。", drawing);
+      const locked = new Set(next.layers.filter((layer) => layer.locked).map((layer) => layer.id));
+      if (next.entities.some((entity) => entity.definitionId && locked.has(entity.layerId))) return fail("ロック中のBLOCK参照があるため定義を変更できません。", drawing);
+      try { command.sources.forEach(inspectDxfSourceDocument); } catch { return fail("DXF原本が不正です。", drawing); }
+      next.blockDefinitions = structuredClone(command.definitions);
+      next.dxfSources = structuredClone(command.sources);
+    }
     if (command.op === "set_empty_drawing_unit") {
-      if (!["mm", "m"].includes(command.unit) || next.entities.length > 0) return fail("単位の設定は図形がない図面でのみ可能です(mm/m)。", drawing);
+      if (!["mm", "m"].includes(command.unit) || next.entities.length > 0 || next.blockDefinitions?.length) return fail("単位の設定は図形・BLOCK定義がない図面でのみ可能です(mm/m)。", drawing);
       next.unit = command.unit;
     }
     if (command.op === "save_selection" || command.op === "delete_selection") {
@@ -216,6 +228,7 @@ export function applyTransaction(drawing, transaction) {
         warnings.push(`レイヤーは追加済みです: ${layer.name}`);
         continue;
       }
+      if (layer.name === "0" && next.layers.some((item) => item.name === "0")) return fail("0レイヤーは重複できません。", drawing);
       next.layers.push({
         id: layer.id,
         name: layer.name.slice(0, 80),
@@ -294,6 +307,7 @@ export function applyTransaction(drawing, transaction) {
         if (key === "name" && typeof value === "string" && value.trim()) allowedPatch.name = value.trim().slice(0, 80);
         if (key === "color" && typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) allowedPatch.color = value;
       }
+      if (allowedPatch.name && allowedPatch.name !== target.name && (allowedPatch.name === "0" || target.name === "0")) return fail("0レイヤーの名称は変更できません。", drawing);
       Object.assign(target, structuredClone(allowedPatch));
     }
 
@@ -336,10 +350,11 @@ export function applyTransaction(drawing, transaction) {
   }
 
   try {
+    resolveBlocks(next);
     resolveDimensions(next);
     for (const entity of next.entities) if (entity.type === "dimension") dimensionGeometry(entity);
   } catch (error) {
-    return fail(`寸法更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`, drawing);
+    return fail(`図形参照更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`, drawing);
   }
   next.updatedAt = new Date().toISOString();
   next.revision = (drawing.revision ?? 1) + 1;
@@ -632,12 +647,10 @@ export function entityBounds(entity) {
     return boundsFromPoints(sampleSpline(entity));
   }
   if (entity.type === "text") {
-    return {
-      minX: entity.at.x,
-      minY: entity.at.y - entity.size,
-      maxX: entity.at.x + entity.value.length * entity.size * 0.55,
-      maxY: entity.at.y
-    };
+    const width = entity.value.length * entity.size * 0.55;
+    return boundsFromPoints(transformEntity({ points: [{ x: 0, y: -entity.size }, { x: width, y: -entity.size }, { x: width, y: 0 }, { x: 0, y: 0 }] }, {
+      dx: entity.at.x, dy: entity.at.y, angle: entity.rotation ?? 0
+    }).points);
   }
   if (entity.type === "dimension") {
     try { return boundsFromPoints(dimensionGeometry(entity).segments.flat()); } catch { return null; }
@@ -645,7 +658,7 @@ export function entityBounds(entity) {
   if (entity.type === "hatch") return boundsFromPoints(entity.points);
   if (entity.type === "block") {
     const bounds = (entity.children ?? []).map(entityBounds).filter(Boolean);
-    if (!bounds.length) return null;
+    if (!bounds.length) return entity.definitionId && isFinitePoint(entity.insertion) ? boundsFromPoints([entity.insertion]) : null;
     const combined = {
       minX: Math.min(...bounds.map((value) => value.minX)), minY: Math.min(...bounds.map((value) => value.minY)),
       maxX: Math.max(...bounds.map((value) => value.maxX)), maxY: Math.max(...bounds.map((value) => value.maxY))
