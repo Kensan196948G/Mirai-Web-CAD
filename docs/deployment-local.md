@@ -31,6 +31,29 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 
 MVP用envは`production.env`と同じ必須項目を持つ。ただし`DATABASE_URL`のDB名、`CF_ACCESS_AUD`、`CORS_ORIGIN`をMVP専用値にし、`ACCESS_ROLE_MAP`は許可メール1件だけにする。Access Applicationはbypass policyを作らず、サイト全体へ適用する。
 
+バックアップと復元ドリルは、アプリ用envとは分離した`~/.config/mirai-web-cad/mvp-backup.env`を使用する。ファイルは所有者だけが読める`0600`とし、次の2変数を必ず設定する。`DATABASE_URL`は読取り専用backupロールでMVP DBを参照し、`RESTORE_DATABASE_URL`は同じロールが所有する隔離DBだけを参照する。
+
+```bash
+install -m 0600 /dev/null ~/.config/mirai-web-cad/mvp-backup.env
+```
+
+```dotenv
+DATABASE_URL=postgresql://mirai_web_cad_backup:<password>@127.0.0.1:5432/mirai_web_cad_mvp
+RESTORE_DATABASE_URL=postgresql://mirai_web_cad_backup:<password>@127.0.0.1:5432/mirai_web_cad_mvp_recovery
+```
+
+初回だけ、PostgreSQL管理者がbackupロールへMVP DBの読取り権限を付け、隔離DBを作成する。アプリDBへの書込み権限は付与しない。
+
+```sql
+grant connect on database mirai_web_cad_mvp to mirai_web_cad_backup;
+\connect mirai_web_cad_mvp
+grant usage on schema public to mirai_web_cad_backup;
+grant select on all tables in schema public to mirai_web_cad_backup;
+alter default privileges for role mirai_web_cad_app in schema public
+  grant select on tables to mirai_web_cad_backup;
+create database mirai_web_cad_mvp_recovery owner mirai_web_cad_backup;
+```
+
 公開URLの自動確認には`npm run test:e2e:mvp`を使う。PC/スマホ表示、Canvas描画、health、接続DB名、新規図面、LINE作図、サーバー同期を確認する。自動テスト用Access Service Tokenはテスト時だけ作成し、テスト直後にpolicyとtokenの両方を削除する。通常利用のAccess policyへService Tokenを残してはいけない。
 
 ### 1. DB/ロール作成(実施済み)
