@@ -46,7 +46,7 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 
 セットアップ手順、systemdユニット一覧、日常運用(デプロイ・バックアップ・ログ確認・ロールバック)は[ローカルデプロイ運用メモ](deployment-local.md)を参照してください。
 
-MVP URLはサイト全体をCloudflare Accessで保護し、`kensan1969@gmail.com`だけを許可する。本番の公開デモ用bypass policyはMVPへ引き継がない。MVPと本番は同じソースとTunnelを使うが、待受ポート、環境ファイル、PostgreSQLデータベースを分離する。
+MVP URLはサイト全体をCloudflare Accessで保護し、`kensan1969@gmail.com`だけを許可する。本番の公開デモ用bypass policyはMVPへ引き継がない。MVPと本番は同じソースとTunnelを使うが、待受ポート、環境ファイル、PostgreSQLデータベース、バックアップ保存先を分離する。`mirai-web-cad-mvp-monitor.timer`は15分ごとにローカルAPI、DB名、公開URLのAccess 302境界を検証する。`mirai-web-cad-mvp-restore-drill.timer`は毎週、最新バックアップを専用の隔離DBへ復元する。
 
 Cloudflare Pages(`functions/api/`、`wrangler.toml`)はロールバック手段として当面残置していますが、`main`へのマージでは自動デプロイされません(`.github/workflows/production.yml`のdeployジョブは削除済み、`CLOUDFLARE_DEPLOY_ENABLED`変数もPR Preview用途にのみ影響します)。
 
