@@ -11,6 +11,7 @@
     "a11y": "node scripts/a11y-static.mjs",
     "test": "node --test tests/*.test.js",
     "test:e2e": "playwright test",
+    "test:e2e:mvp": "node scripts/verify-mvp-domain.mjs",
     "db:verify": "bash scripts/verify-database.sh",
     "db:backup": "bash scripts/backup-database.sh",
     "db:restore": "bash scripts/restore-database.sh",

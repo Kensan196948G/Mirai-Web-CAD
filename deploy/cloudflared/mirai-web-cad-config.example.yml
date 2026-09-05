@@ -7,6 +7,9 @@ tunnel: <cloudflared tunnel create mirai-web-cad が出力するUUID>
 credentials-file: /home/kensan/.cloudflared/<UUID>.json
 
 ingress:
+  # MVPはホスト全体をCloudflare Accessで保護し、ローカルの専用DBへ接続する。
+  - hostname: mirai-web-cad-mvp.mirai-dx-platform.com
+    service: http://localhost:18813
   - hostname: mirai-web-cad.mirai-dx-platform.com
     service: http://localhost:18812
   - service: http_status:404

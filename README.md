@@ -1,18 +1,41 @@
 # Mirai Web CAD
 
-Agentic AIと決定論的な2D CAD Coreを組み合わせた、土木施工図向けWeb CADのMVPです。
+建設・土木の図面を、Webブラウザで作成・修正・確認するための**試作版2D CAD**です。専用ソフトのインストールは不要です。
 
-GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-Enterprise-OS/Mirai-Web-CAD`から履歴を保持して移行しました。
+## まず使う方へ
 
-現在のMVPは、ブラウザ単体で次の主要フローを実操作できます。**段階**は実装レベルを示します。「試作」は基本動作するがAutoCAD/ARES相当の精度・堅牢性はなく実案件使用非推奨、「限定対応」は主要ケースで動作するが既知の制約がある、「実案件認定済み」は実案件データでのUAT合格実績がある、を意味します(2026-08-29時点、実案件認定済みは0件)。詳細な制約は[本番運用適合性評価書](docs/production-readiness-assessment.md)を参照してください。
+1. [MVP版を開く](https://mirai-web-cad-mvp.mirai-dx-platform.com/)
+2. 「Cloudflare」を選び、`kensan1969@gmail.com`のCloudflareアカウントでログインする
+3. ログイン後、Mirai Web CADの画面が表示されたことを確認する
+4. 画面左の作図ボタン、または画面下のコマンド欄から操作する
+
+このMVP版は**上記メールアドレスだけ**が利用できます。図面データはCloudflare上ではなく、この開発PC内の専用PostgreSQLデータベース`mirai_web_cad_mvp`に保存されます。PCの電源停止やネットワーク障害中は利用できません。
+
+## できること
+
+- 線、円、矩形、ポリライン、文字、寸法、ハッチなどの基本作図
+- 移動、複写、回転、鏡像、配列、切断、結合、トリム、延長、オフセット
+- 面取り、フィレット、閉じた境界の作成、ポリライン頂点の編集
+- レイヤーの作成、表示、ロック、色・線幅の変更
+- DXFとMirai JSONの読込み、限定的なDXF書出し
+- 図面の保存、レビュー、承認、操作履歴の記録
+- AIが提案した変更を、人が内容を確認してから図面へ反映
+
+## まだ業務の正式成果品には使わないでください
+
+これはMVP（実用性を確かめる試作版）です。DWG、SXF、電子納品、尺度保証付きPDF、道路縦横断、測量座標、BIM/CIMなどは未完成です。重要な図面は、必ず既存CADと原本ファイルにも残してください。
+
+以下は、開発者・評価担当者向けの詳しい実装状況です。**試作**は動作確認用、**限定対応**は主なケースのみ対応、**実案件認定済み**は実案件による受入試験済み、という意味です。現在、実案件認定済みの機能はありません。
+
+GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-Enterprise-OS/Mirai-Web-CAD`から履歴を保持して移行しました。
 
 | 領域 | 段階 | 内容 |
 | --- | --- | --- |
 | 図面作成 | 限定対応 | 空図面/デモ図面の新規作成、図面名、単位（mm/m）。案件・工区管理なし |
-| 作図 | 限定対応 | 基本図形、パン・ズーム、移動、複写、回転、尺度、Undo/Redoは動作。**精密編集(2026-09-04追加)**: MIRROR(鏡像・軸2点指定)/ARRAY(矩形配列)/BREAK(分割)/JOIN(結合)/**正確なTRIM・EXTEND(境界交点演算)**をコマンド・リボンから利用可能。**ポリライン/ハッチOFFSETは真の平行オフセット(miter join)に改善(2026-09-04)** |
+| 作図 | 限定対応 | 基本図形、パン・ズーム、移動、複写、回転、尺度、Undo/Redoは動作。**精密編集(2026-09-04〜05追加)**: MIRROR/ARRAY/BREAK/JOIN、境界交点TRIM・EXTEND、真の平行OFFSETに加え、**CHAMFER(直線2本の面取り)/FILLET(接線円弧を分割polyline化)/BOUNDARY(接続線分の閉境界化)/PEDIT(頂点移動・追加・削除・開閉)**をコマンド・リボンから利用可能。STRETCH/EXPLODE/ネイティブ円弧は未対応 |
 | UI | 限定対応 | リボン、モデル/レイアウト空間タブ、タブ式右ドック、ステータスバーは動作。モバイルは固定コマンドラインがCanvasを覆う等、編集用途では未成熟(閲覧・朱書き用途を推奨) |
 | 作図補助 | 限定対応 | グリッド表示・スナップ、直交モードは動作。**OSnap(2026-09-04拡張)**: 端点・中点・中心・四分点・交点を既定とし、垂線・近接点は設定ダイアログの「OSnap対象」から追加ON可能。接線・極トラッキング・追跡線は未対応 |
-| コマンドライン | 限定対応 | 基本作図コマンドは動作。`DIM`は2点間の簡易寸法のみ(角度/半径/直径/公差/連続寸法/寸法スタイル/連想更新は未対応)。`HATCH`は島・境界探索・連想更新なし。`BLOCK`は1図形をchildrenへ包む簡易構造(定義/参照分離、属性、再定義、分解、ライブラリは未対応) |
+| コマンドライン | 限定対応 | 基本作図・精密編集コマンドは動作。`DIM`は2点間の簡易寸法のみ(角度/半径/直径/公差/連続寸法/寸法スタイル/連想更新は未対応)。`HATCH`は島・境界探索・連想更新なし。`BLOCK`は1図形をchildrenへ包む簡易構造(定義/参照分離、属性、再定義、分解、ライブラリは未対応) |
 | Import | 限定対応 | Mirai JSON、ASCII DXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTを読込。ARCはネイティブ円弧でなくポリラインへ変換。**DXF書出し(2026-09-04〜)**: line/circle/polyline/rect/text+LayersをASCII DXFへ出力(リボン「DXF書出し」)。dimension/hatch/blockは「黙って捨てず」スキップ理由付きで報告。DWGは対象外です([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
 | レイヤー | 限定対応 | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更は動作 |
 | プロパティ | 限定対応 | 選択図形の種類・ID確認、レイヤー・線幅編集は動作。選択は単一図形のみで、窓・交差・複数選択は未対応 |
@@ -20,27 +43,35 @@ GitHub正本は独立リポジトリ`Kensan196948G/Mirai-Web-CAD`です。2026-0
 | AI提案 | 限定対応 | Promptから構造化コマンドを生成し、Canvasへプレビュー後、人の承認で適用。ルールベース(3パターン)を優先し、拾えない場合のみサーバー側プロキシ経由でOpenAI/Anthropicへフォールバックする(2026-08-30〜)。有効化状態は`GET /api/ai/status`で確認可能(鍵は返さない) |
 | 検査 | 限定対応 | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出。API未接続時は「検査不能」表示に切り替え、承認操作を無効化する(2026-08-29修正) |
 | 版/承認 | 限定対応 | 下書き、レビュー提出、承認、承認済み版の直接変更禁止、新版作成は動作。API接続確認(`state.apiStatus.state === "ok"`)が取れている場合のみ操作を許可し、未接続時はサーバー権限を経由しないローカル完結を行わない(2026-08-29修正) |
-| 権限 | 限定対応 | 閲覧者、作図者、レビュアー、承認者、CAD管理者の主要操作制御は動作。ロール切替はAPI接続確認後にサーバー実効権限へロックされる。ロール解決はメール個別指定(`ACCESS_ROLE_MAP`)が最優先、次点でEntra IDグループ所属(`ENTRA_GROUP_ROLE_MAP`、非対話式Graph API、任意設定、2026-08-30〜)を参照する。ログイン自体はCloudflare Access One-Time PINのまま(Entra IDへの差し替えなし) |
+| 権限 | 限定対応 | 閲覧者、作図者、レビュアー、承認者、CAD管理者の主要操作制御は動作。ロール切替はAPI接続確認後にサーバー実効権限へロックされる。ロール解決はメール個別指定(`ACCESS_ROLE_MAP`)が最優先、次点でEntra IDグループ所属(`ENTRA_GROUP_ROLE_MAP`、非対話式Graph API、任意設定、2026-08-30〜)を参照する。ログインはCloudflareアカウントを使用する |
 | 保存 | 限定対応 | LocalStorage自動保存(平文)、JSON出力、デモ初期化。認証済みAPI接続時はローカルPostgreSQLへ同期(2026-08-30〜、Issue #22で移行完了) |
 | API | 限定対応 | `/api/health`、図面取得、Transaction、AI Run、承認、監査ログ、重複実行拒否を実装。本番はローカル常駐サーバー(`scripts/serve-production.mjs`)経由でCloudflare Tunnelから配信 |
 | 状態確認 | 限定対応 | 正常、空、Loading、Errorを画面内のState Reviewで切替 |
 | システム設定 | 限定対応 | 上部設定からグリッド表示、スナップ、間隔、コマンドログ行数をブラウザ単位で保存 |
 | DB | 限定対応 | ローカルPostgreSQL 16(このホスト常駐)へ接続し、図面、AI Run、監査、Idempotencyを永続化。2026-08-30にNeon PostgreSQLから移行完了(Issue #22) |
 
-## Preview / 本番
+## 利用URL
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
-| Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはCloudflare Access(One-Time PIN、`kensan1969@gmail.com`のみallow、2026-08-30設定)で保護。未認証アクセスはエッジ層で302(Accessログインへのリダイレクト)、アプリ層に到達した場合は401 |
+| MVP（今回の確認用） | `https://mirai-web-cad-mvp.mirai-dx-platform.com/` | Cloudflare Accessでサイト全体を保護。`kensan1969@gmail.com`だけログイン可能。データはローカルPostgreSQLの専用DB`mirai_web_cad_mvp`へ保存 |
+| Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはCloudflare Accessで保護。未認証アクセスはエッジ層で302(Accessログインへのリダイレクト)、アプリ層に到達した場合は401 |
 | Cloudflare Pages(参考、ロールバック用) | `https://mirai-web-cad.pages.dev/` | mainマージでは更新されない。SPAのみ200、`/api`は移行前のコードのままで機能しない |
 
-## 起動
+## 開発者向けの起動方法
 
 ```bash
 npm run dev
 ```
 
-`http://localhost:4174` を開きます。ローカルサーバーはSPAと`/api`を同一オリジンで提供します(既定はメモリストア)。
+起動時に端末へ自動割当された有効なLAN IPv4アドレスを検出し、次の形式でアクセス先を表示します。IPアドレスがDHCP等で変わった場合も、次回起動時に再検出されます。
+
+```text
+Local: http://127.0.0.1:4174/
+Network (eno1): http://192.168.x.x:4174/
+```
+
+同一LAN上の端末からは`Network` URLを開きます。LANへ公開しない場合は`HOST=127.0.0.1 npm run dev`でループバックだけに制限できます。開発サーバーはSPAと`/api`を同一オリジンで提供します(既定はメモリストア)。
 
 本番相当のサーバー(`scripts/serve-production.mjs`)の詳細は[ローカルデプロイ運用メモ](docs/deployment-local.md)を参照してください。
 
@@ -67,7 +98,7 @@ npm run verify
 DATABASE_URL="postgresql://..." npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`から`0005_audit_log_immutability.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)を検証します。ローカルPostgreSQL 16での適用を確認済みです。
+`db:verify`は`0001_initial.sql`から`0006_normalize_jsonb_columns.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)、JSONBの二重保存がないことを検証します。ローカルPostgreSQL 16での適用を確認済みです。
 
 バックアップ/復元ドリル:
 

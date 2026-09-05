@@ -5,18 +5,20 @@
     "start_date": "2026-08-26",
     "phase_mode": "development",
     "production_url": "https://mirai-web-cad.mirai-dx-platform.com",
+    "mvp_url": "https://mirai-web-cad-mvp.mirai-dx-platform.com",
+    "mvp_host": "kensan1969 (local PostgreSQL mirai_web_cad_mvp, systemd + Cloudflare Tunnel + Access)",
     "production_host": "kensan1969 (local, systemd + Cloudflare Tunnel)",
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-09-04(機能カタログ受領、Goal Round 5/8完了時点)。「理想的な建設・土木2D CAD機能カタログ」全章を80-90%代替方針(Phase 0-5)に沿って全て追加する。Round 1-4(完了): カタログ監査・DXF書出し・OSnap拡張・精密編集コマンド(MIRROR/ARRAY/BREAK/JOIN)・真の平行OFFSET。Round 5(本ラウンド完了): 境界交点演算による正確なTRIM/EXTEND(P0-47)。cad-advanced.jsへcollectBoundarySegments/parameterizeOnSegment/segmentIntersectionParam/trimEntityToBoundaries(クリック点を含む区間を境界交点でクリップ)/extendEntityToBoundary(クリック点に近い端点を延長レイ上の最初の交点まで)を追加し、cad-command.jsとapp.jsのTRIM/EXTENDを置換。unit 200件=199 pass+1 DB skip、e2e 52件。残る未着手: polylineのクリップ/延長、円・円弧境界、STRETCH/EXPLODE/FILLET/CHAMFER、寸法各種/スタイル、レイヤー標準テンプレート、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
+  "goal": "2026-09-05(機能カタログRound 6とMVP公開完了)。CHAMFER/FILLET/BOUNDARY/PEDIT(P0-48)、自動割当LAN IP表示(P0-49)に加え、指定Cloudflare URL・メール1件限定Access・専用ローカルPostgreSQL・公開URL E2E(P0-50)を完了。E2Eで発見したJSONB二重保存をsql.json()とmigration 0006で修正(P0-51)。unit 211件=210 pass+1 DB skip、PostgreSQL統合7/7、e2e 54/54、公開MVP desktop/mobile smoke成功。残る未着手: STRETCH/EXPLODE/MATCHPROP、ネイティブARC/ELLIPSE/SPLINE、Canvasグリップ、寸法各種/スタイル、レイヤー標準テンプレート、尺度保証PDF、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 202,
-    "e2e_test_count": 52,
+    "unit_test_count": 211,
+    "e2e_test_count": 54,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
     "blocker_count": 0
@@ -69,7 +71,11 @@
     "P0-44 OSnap拡張(2026-09-04、カタログA-2「オブジェクトスナップ」対応): cad-draft-helpers.jsへentitySegments/closestPointOnSegment/perpendicularFoot/segmentIntersection/OSNAP_MODESを追加しfindOsnapPointをモード別選択へ拡張(既定: 端点/中点/中心/四分点/交点ON、垂線/近接点OFF)。設定ダイアログに「OSnap対象」チェックボックス群を追加しLocalStorageへ永続化。単体テスト+10件、e2e +2件",
     "P0-45 精密編集コマンド追加(2026-09-04、カタログA-2「鏡像/配列/分割/結合」対応): cad-advanced.jsへmirrorEntity(軸2点線対称、rectは閉polyline化)/arrayEntity(矩形配列、新ID採番)/breakEntity(2図形化、新ID採番で重複防止)/joinLines(同一直線2線分の結合)を追加。cad-command.jsへMIRROR/ARRAY/BREAK/JOIN登録、リボン「修正」に4ボタン+アイコン追加。単体テスト+12件(advanced)、統合テスト、e2e +2件",
     "P0-46 ポリライン/ハッチOFFSETの真の平行オフセット化(2026-09-04、カタログA-2「オフセット」): offsetEntityをpolyline/hatchについて重心放射からmiter join式の平行オフセットへ書換え。parallelOffsetPoints新設(セグメント法線移動+隣接オフセット直線交点で頂点再構成)。閉は符号付き面積で外側/内側を判定、開は進行方向左側。単体テスト+7件",
-    "P0-47 境界交点演算による正確なTRIM/EXTEND(2026-09-04、カタログA-2「トリム/延長」): cad-advanced.jsへcollectBoundarySegments/segmentIntersectionParam/trimEntityToBoundaries/extendEntityToBoundaryを追加し、TRIM/EXTENDを「線端の座標移動」から境界交点クリップ/延長へ置換。クリック点で残す側/延長端点を指定。単体テスト+8件、e2e +2件"
+    "P0-47 境界交点演算による正確なTRIM/EXTEND(2026-09-04、カタログA-2「トリム/延長」): cad-advanced.jsへcollectBoundarySegments/segmentIntersectionParam/trimEntityToBoundaries/extendEntityToBoundaryを追加し、TRIM/EXTENDを「線端の座標移動」から境界交点クリップ/延長へ置換。クリック点で残す側/延長端点を指定。単体テスト+8件、e2e +2件",
+    "P0-48 CHAMFER/FILLET/BOUNDARY/PEDIT追加(2026-09-05、カタログA-2「面取り/フィレット/境界作成/ポリライン編集」): cad-advanced.jsへchamferLines/filletLines/createBoundaryEntity/editPolylineを追加。CLIとリボン/操作フォームへ接続しHELP更新。単体テスト+5件、command統合+1件、e2e +2件",
+    "P0-49 開発サーバーの自動割当LAN IP対応(2026-09-05): networkInterfacesから物理IPv4を自動検出し、起動時にLocal/Network URLを表示。Docker bridge/veth/link-localを除外しHOST環境変数による待受制限へ対応。単体テスト+2件、LAN IP health疎通確認済み",
+    "P0-50 Cloudflare MVP専用URL(2026-09-05): mirai-web-cad-mvp.mirai-dx-platform.comをTunnelへ追加し、Accessはホスト全体をkensan1969@gmail.comだけallow。systemd 127.0.0.1:18813とローカルDB mirai_web_cad_mvpを本番から分離。公開desktop/mobile E2E成功、テスト資格情報削除済み",
+    "P0-51 PostgreSQL JSONB二重保存修正(2026-09-05): postgres.js書込みをsql.json()へ統一し、旧string scalarを正規化するmigration 0006、読込み互換、実DB回帰を追加。PostgreSQL統合7/7、MVP実測content=object/entities=1"
   ],
   "blocked_issues": [
     {
@@ -112,5 +118,5 @@
       "Edit/Writeツールへ渡すJSON文字列パラメータ内で`\\u0000`等のUnicodeエスケープをテキストとして書こうとすると、JSON側の文字列デコードにより実際の制御バイトへ変換されてファイルに書き込まれてしまう(意図した`\\u0000`という6文字ではなく、実際のNULバイト1個になる)。正規表現の制御文字クラス(`/[\\u0000-\\u001f]/`等)をソースコードに書く際は、Edit/Writeツールを直接使わず、Pythonでのバイト列置換等でエスケープシーケンスのテキストそのもの(バックスラッシュ+u+16進数4桁)をファイルへ書き込む必要がある。NULバイトが混入するとgrep等がファイルをバイナリ扱いしテキスト検索が効かなくなる副作用もある"
     ]
   },
-  "last_updated": "2026-09-05T02:30:00+09:00"
+  "last_updated": "2026-09-05T12:21:33+09:00"
 }

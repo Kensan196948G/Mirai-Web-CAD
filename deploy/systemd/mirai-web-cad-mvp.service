@@ -1,6 +1,6 @@
 [Unit]
-Description=Mirai Web CAD (local PostgreSQL backend, Cloudflare Access auth)
-Documentation=https://github.com/Kensan196948G/Mirai-Web-CAD/blob/main/docs/operations.md
+Description=Mirai Web CAD MVP (local PostgreSQL, Cloudflare Access)
+Documentation=https://github.com/Kensan196948G/Mirai-Web-CAD/blob/main/docs/deployment-local.md
 After=network.target postgresql.service
 Requires=postgresql.service
 StartLimitIntervalSec=300
@@ -11,8 +11,8 @@ Type=simple
 User=kensan
 Group=kensan
 WorkingDirectory=/home/kensan/Projects/Mirai-DX-Project/Mirai-Web-CAD
-EnvironmentFile=/home/kensan/.config/mirai-web-cad/production.env
-Environment=PORT=18812
+EnvironmentFile=/home/kensan/.config/mirai-web-cad/mvp.env
+Environment=PORT=18813
 Environment=NODE_ENV=production
 Environment=PATH=/home/kensan/.npm-global/bin:/home/kensan/.nvm/versions/node/v22.22.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/home/kensan/.nvm/versions/node/v22.22.3/bin/node scripts/serve-production.mjs

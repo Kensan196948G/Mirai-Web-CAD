@@ -355,3 +355,29 @@ Goal Round 5として、方針文書Phase 1「精密編集CAD Core」の残る�
 | 検証 | unit 200件=199 pass+1 DB skip(+8件: 境界セグメント平坦化/右・左クリップ/複数交点/交差なし・線分外クリック拒否/近い端点延長/延長先なし拒否)。e2e 52件(+2件: コマンドライン駆動でTRIM→EXTENDの境界交点編集)。`npm run verify`全成功 |
 | 文書 | README(作図行)、`docs/feature-catalog-coverage.md`(トリム/延長行)、`docs/improvement-register.md`(P0-47・P0-46の残タスク整理)、`state.json`(goal/P0-47/unit 199/e2e 52)を更新 |
 | 残課題 | polylineのクリップ/延長、円・円弧境界、STRETCH/EXPLODE/FILLET/CHAMFER、寸法スタイル、レイヤーテンプレート等は次Round以降(方針文書Phase 1、P1-02) |
+
+## Round 10 追補 / 2026-09-05 機能カタログRound 6(CHAMFER/FILLET/BOUNDARY/PEDIT)
+
+Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち、面取り、フィレット、境界作成、ポリライン頂点編集を実装した。
+
+| 項目 | 内容 |
+| --- | --- |
+| Development | `src/cad-advanced.js`へ`chamferLines`(2直線を交点から個別距離で切り面取り線を追加)、`filletLines`(半径と内角から接点・中心を算出し接線円弧を16分割polyline化)、`createBoundaryEntity`(順不同の接続線分3本以上を閉polyline化、未接続・分岐・面積0を拒否)、`editPolyline`(MOVE/ADD/DELETE/CLOSE/OPEN)を追加。平行線、ゼロ距離、不正頂点番号等を明示エラーにした |
+| CLI/UI | `src/cad-command.js`へCHAMFER/FILLET/BOUNDARY/PEDITと短縮名を登録しHELP更新。`src/app.js`のリボン「修正」へ4ボタンを追加し、右ドック操作フォームからも同じ幾何APIを実行可能にした。BOUNDARYのCLIは曖昧性を避けて全線分ID明示、UIは選択線+入力ID群とした |
+| 検証 | `npm run verify`全成功。unit **209件=208 pass+1 DB skip**(advanced 5件、command統合1件を追加)、e2e **54件**(desktop/mobile各27件、4コマンドの保存図形・座標・リボン表示を実ブラウザ検証) |
+| 文書 | README、`docs/feature-catalog-coverage.md`、`docs/improvement-register.md`(P0-48)を更新。フィレットはネイティブ円弧でなく分割polylineであること、各機能の対象形状を限定対応として明記 |
+| 残課題 | STRETCH/EXPLODE/MATCHPROP、ネイティブARC/ELLIPSE/SPLINE、Canvasグリップ、曲線PEDIT、polyline TRIM/EXTEND、寸法スタイル、標準レイヤーテンプレート等は次Round以降(P1-02〜P1-06) |
+
+### Round 6 追補: 開発サーバーの自動割当IP対応
+
+`scripts/serve-local.mjs`の全IPv4インターフェース待受を維持しつつ、起動時に物理ネットワークインターフェースのIPv4を自動検出して`Local`/`Network` URLを表示するようにした。Docker bridge、veth、リンクローカルは候補から除外し、`HOST=127.0.0.1`によるLAN公開抑止にも対応。実機では`eno1=192.168.0.185`を検出し、loopback/LAN IPの両方でhealth 200を確認した。`npm run verify`はunit 211件(210 pass+1 DB skip)、e2e 54件で全成功。
+
+## Round 11 / 2026-09-05 Cloudflare MVP公開・専用DB・最終E2E
+
+| 項目 | 内容 |
+| --- | --- |
+| Cloudflare | 既存Tunnel `mirai-web-cad`へ`mirai-web-cad-mvp.mirai-dx-platform.com`のDNS/ingressを追加。Access Application `mirai-web-cad-mvp`はホスト全体を対象にし、allow policyは`kensan1969@gmail.com` 1件のみ。未認証の`/`と`/api/health`はいずれも302でAccessログインへ転送することを実測 |
+| Local service/DB | `mirai-web-cad-mvp.service`を新設し`127.0.0.1:18813`のみで常時稼働。秘密値はGit外の`~/.config/mirai-web-cad/mvp.env`(0600)。ローカルPostgreSQLへMVP専用DB`mirai_web_cad_mvp`を作成し、本番`mirai_web_cad`と分離。初期化後はseed図面1件のみ |
+| Public E2E | `scripts/verify-mvp-domain.mjs`を追加。指定HTTPS URL経由でdesktop/mobileのCanvas描画(各11,740 sampled pixels)、healthの`database=mirai_web_cad_mvp`/`migrated=true`、新規図面、`LINE`作図、サーバー同期を確認。テスト用Service Token/policyは実行直後に削除し、最終policyがメール1件のみ・一時token 0件であることをCloudflare APIで再確認 |
+| DB不具合修正 | 公開E2E後のDB検査で、postgres.jsへ`JSON.stringify`済み値を渡したためJSONBがstring scalarになる既存不具合を発見。書込みを`sql.json()`へ統一し、読込み互換処理とmigration `0006_normalize_jsonb_columns.sql`を追加。図面・command・AI proposal・監査detailを正規化し、監査追記専用triggerを再作成する |
+| Verify | ローカルPostgreSQL統合7/7成功。公開MVP専用E2E成功後、テストデータを消去してDB再初期化。`npm run verify`成功(unit 211件=210 pass+1 DB skip、desktop/mobile E2E 54/54)。最終origin health 200、外部未認証302、MVP systemd active/enabled |
