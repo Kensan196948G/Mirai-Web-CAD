@@ -2,6 +2,7 @@ import DxfParserPackage from "dxf-parser";
 import { arc, circle, ellipse, line, polyline, rect, spline, text } from "./cad-core.js";
 import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 import { sourceEntityInventory } from "./dxf-source-inventory.js";
+import { importUnits, dxfUnit } from "./import-units.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -29,8 +30,10 @@ function parseJsonImport(content, drawing, currentLayerId) {
   if (!Array.isArray(sourceEntities)) throw new Error("JSONにentities配列がありません。");
   assertEntityLimit(sourceEntities.length);
   const sourceLayers = Array.isArray(parsed?.layers) ? parsed.layers : [];
+  const units = importUnits(drawing, parsed?.unit ?? drawing.unit);
+  if (units.factor !== 1) throw new Error("JSONの単位が既存図面と異なります。空図面へ取り込んでください。");
   const layers = createLayerMapping(sourceLayers, drawing, currentLayerId);
-  const commands = [...layers.commands];
+  const commands = [...layers.commands, ...units.commands];
   const warnings = [];
   const importedIds = new Map();
   for (const [index, entity] of sourceEntities.entries()) {
@@ -82,6 +85,7 @@ function parseDxfImport(content, drawing, currentLayerId) {
     throw new Error("DXFを解析できませんでした。ASCII DXFか確認してください。");
   }
   const sourceEntities = parsed?.entities ?? [];
+  const units = importUnits(drawing, dxfUnit(parsed.header));
   const parsedTypes = new Map();
   for (const entity of sourceEntities) parsedTypes.set(entity.type, (parsedTypes.get(entity.type) ?? 0) + 1);
   if (sourceEntities.length !== inventory.total || Object.entries(inventory.types).some(([type, count]) => parsedTypes.get(type) !== count)) {
@@ -94,19 +98,19 @@ function parseDxfImport(content, drawing, currentLayerId) {
     drawing,
     currentLayerId
   );
-  const commands = [...layers.commands];
+  const commands = [...layers.commands, ...units.commands];
   const warnings = [];
   for (const [index, entity] of sourceEntities.entries()) {
     try {
       const normalized = normalizeDxfEntity(entity, layers.resolve(entity.layer), index);
-      if (normalized) commands.push({ op: "add", entity: normalized });
+      if (normalized) commands.push({ op: "add", entity: units.convert(normalized) });
       else warnings.push(`${entity.type ?? "UNKNOWN"}は未対応のためスキップしました。`);
     } catch (error) {
       warnings.push(`${entity.type ?? "UNKNOWN"} ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   if (warnings.length) throw new Error(`DXF取込を中止しました。変換不能Entity ${warnings.length}件: ${warnings.slice(0, 10).join(" / ")}。図面は変更していません。`);
-  return importResult(commands, warnings, inventory.total);
+  return { ...importResult(commands, units.warnings, inventory.total), unitConversion: { source: units.sourceUnit, target: units.targetUnit, factor: units.factor } };
 }
 
 function createLayerMapping(sourceLayers, drawing, fallbackId) {

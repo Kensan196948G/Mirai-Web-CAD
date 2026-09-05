@@ -63,7 +63,7 @@ async function runJsonRoundtrip(args, { calibration = false } = {}) {
   const first = importInto(base, args.file, content);
   const expected = first.drawing;
 
-  const serialized = JSON.stringify({ layers: expected.layers, entities: expected.entities });
+  const serialized = JSON.stringify({ unit: expected.unit, layers: expected.layers, entities: expected.entities });
   const second = importInto(base, "roundtrip.json", serialized);
   const actual = second.drawing;
 
