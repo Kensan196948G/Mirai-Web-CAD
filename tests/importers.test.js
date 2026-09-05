@@ -3,6 +3,26 @@ import assert from "node:assert/strict";
 import { applyTransaction, seedDrawing } from "../src/cad-core.js";
 import { parseCadImport } from "../src/importers.js";
 
+test("DXF preflight rejects unsupported records atomically before parser loss", () => {
+  for (const type of ["HATCH", "LEADER", "VIEWPORT", "DIMENSION", "INSERT", "ACAD_PROXY_ENTITY", "CUSTOM_ENTITY", "__proto__"]) {
+    const drawing = seedDrawing(), before = structuredClone(drawing);
+    const content = ["0", "SECTION", "2", "ENTITIES", "0", "LINE", "10", "0", "20", "0", "11", "1", "21", "1", "0", type, "0", "ENDSEC", "0", "EOF"].join("\n");
+    assert.throws(() => parseCadImport({ filename: "mixed.dxf", content, drawing, currentLayerId: "layer-structure" }), (error) => error.message.includes(`${type} 1件`) && error.message.includes("図面は変更していません"));
+    assert.deepEqual(drawing, before);
+  }
+});
+
+test("DXF preflight rejects malformed supported entities without partial commands", () => {
+  const drawing = seedDrawing();
+  const content = "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nCIRCLE\n10\n5\n20\n5\n40\n-1\n0\nENDSEC\n0\nEOF";
+  assert.throws(() => parseCadImport({ filename: "invalid.dxf", content, drawing, currentLayerId: "layer-structure" }), /変換不能Entity 1件/);
+});
+
+test("DXF original entity limit applies before unsupported records disappear", () => {
+  const content = `0\nSECTION\n2\nENTITIES\n${"0\nHATCH\n".repeat(10001)}0\nENDSEC\n0\nEOF`;
+  assert.throws(() => parseCadImport({ filename: "large.dxf", content, drawing: seedDrawing() }), /10000件まで/);
+});
+
 test("JSON export geometry imports through add-layer and add commands", () => {
   const drawing = seedDrawing();
   const source = {
