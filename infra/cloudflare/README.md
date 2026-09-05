@@ -18,8 +18,8 @@ Tunnel ingress自体はローカルの`~/.cloudflared/mirai-web-cad-config.yml`�
 ## 初回import
 
 1. `terraform.tfvars.example`を`terraform.tfvars`へ複製する。
-2. `enable_management=false`のまま、APIまたはZero Trust画面から既存Access Application IDとDNS record IDを調べる。
-3. 3つのIDを`terraform.tfvars`へ入力する。IDを推測してはいけない。
+2. `enable_management=false`のまま、APIまたはZero Trust画面から既存Access Application ID、そのApplication内のallow policy ID、2つのDNS record IDを調べる。policyの名前、decision、precedence、include/exclude/requireもコードと一致することを記録する。
+3. 4つのIDを`terraform.tfvars`へ入力する。IDを推測してはいけない。
 4. `enable_management=true`へ変更し、次を実行する。`imports.tf`はIDが全て揃うまで無効で、ID不足のまま管理を有効化するとplanが強制停止する。
 
 ```bash
@@ -31,7 +31,7 @@ terraform -chdir=infra/cloudflare plan -out=first-import.tfplan
 terraform -chdir=infra/cloudflare show first-import.tfplan
 ```
 
-最初のplanは4資源のimportだけ、または既存値とコードの説明可能な差分だけでなければ中止します。特にAccess policyの削除、`everyone`、`email_domain`、`bypass`、Service Tokenの常設、Tunnel/DNSの置換が表示された場合はapplyしません。
+最初のplanは4資源のimportだけで、Access policyを含む既存値に更新・追加・削除差分がないことを要求します。特にAccess policyの変更、`everyone`、`email_domain`、`bypass`、Service Tokenの常設、Tunnel/DNSの置換が表示された場合はapplyしません。
 
 ## 変更手順
 

@@ -49,5 +49,5 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 | `npm run verify:fast` | PASS。Lint、Type、static A11y、34 Unit/API/性能baseline、Build |
 | PostgreSQL 18空DB | PASS。Migration 0001-0005/Seedを2回適用、監査追記専用トリガー検証込み |
 | Neon Preview原子更新 | PASS。revision 2、audit 2、idempotency 2を別queryで確認後、試験レコード削除 |
-| backup/restore drill | PASS。custom archiveを空DBへ復元、projects/drawings/versions/audits各1以上 |
+| backup/restore drill | PASS。custom archiveを空DBへ復元、projects/drawings/versions/audits各1以上、元DBとの4表件数・最新版署名一致、JSONB形状、全図面の最新版参照を検証 |
 | 未実施 | Production実データbackup/restore、100k図形負荷、障害注入、SSO実利用者E2E |

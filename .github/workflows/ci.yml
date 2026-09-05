@@ -109,6 +109,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_source
+      SOURCE_DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_source
       RESTORE_DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_recovery
       BACKUP_FILE: artifacts/mirai-web-cad.dump
       ALLOW_DATABASE_RESTORE: "yes"
@@ -145,6 +146,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.16.1"

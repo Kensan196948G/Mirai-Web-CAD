@@ -7,10 +7,18 @@
 ```bash
 sudo systemctl status postgresql mirai-web-cad.service mirai-web-cad-mvp.service mirai-web-cad-cloudflared.service --no-pager
 sudo journalctl -u mirai-web-cad.service -u mirai-web-cad-mvp.service -u mirai-web-cad-cloudflared.service --since '-30 minutes' --no-pager
-curl --fail --silent http://127.0.0.1:18812/api/health
-curl --fail --silent http://127.0.0.1:18813/api/health
-curl --silent --output /dev/null --write-out '%{http_code}\n' https://mirai-web-cad-mvp.mirai-dx-platform.com/
+
+set -a
+source /home/kensan/.config/mirai-web-cad/mvp.env
+set +a
+LOCAL_URL=http://127.0.0.1:18813 \
+PUBLIC_URL=https://mirai-web-cad-mvp.mirai-dx-platform.com \
+EXPECTED_DATABASE=mirai_web_cad_mvp \
+DATABASE_URL="$DATABASE_URL" \
+bash scripts/check-mvp-health.sh
 ```
+
+この検査はローカルhealthを15秒、公開URLを20秒で打ち切り、JSONの`status=ok`、`db.mode=connected`、`db.migrated=true`、実DB名、公開HTTP 302、Cloudflare Accessの`Location` headerをすべて検証します。本番はサイト全体をAccess保護していないため、同じ公開302検査を流用せず、`production.env`を読み込んでローカルhealthとDB名を個別確認します。
 
 - ローカルhealthのみ失敗: アプリまたはDBを調査する。
 - ローカルhealth成功、公開のみ失敗: Tunnel、DNS、Accessを調査する。
