@@ -1,4 +1,6 @@
 import { arc, circle, ellipse, entityArea, line, polyline, rect, spline, text } from "./cad-core.js";
+import { explodeEntity, matchProperties, stretchEntity } from "./cad-edit.js";
+import { selectableEntities } from "./cad-selection.js";
 import {
   arrayEntity,
   blockEntity,
@@ -114,9 +116,28 @@ export function parseCadCommand(input, context) {
   }
 
   if (["E", "ERASE", "DELETE"].includes(command)) {
-    const id = tokens[0] ?? context.selectedId;
-    if (!id) throw new Error("削除する図形を選択するかIDを指定してください。");
-    return transaction("ERASE", [{ op: "delete", id }]);
+    const entities = selectedEntities(tokens, context);
+    return transaction("ERASE", entities.map(({ id }) => ({ op: "delete", id })));
+  }
+  if (["X", "EXPLODE"].includes(command)) {
+    return transaction("EXPLODE", selectedEntities(tokens, context).flatMap((entity) => [
+      { op: "delete", id: entity.id }, ...explodeEntity(entity).map((piece) => ({ op: "add", entity: piece }))
+    ]));
+  }
+  if (["MA", "MATCHPROP"].includes(command)) {
+    const sourceId = tokens.shift();
+    const source = context.drawing.entities.find((entity) => entity.id === sourceId);
+    if (!source) throw new Error("MATCHPROP sourceId [targetId ...]");
+    return transaction("MATCHPROP", selectedEntities(tokens, context).filter((entity) => entity.id !== source.id).map((entity) => ({
+      op: "update", id: entity.id, patch: withoutIdentity(matchProperties(source, entity))
+    })));
+  }
+  if (command === "STRETCH") {
+    if (tokens.length < 3) throw new Error("STRETCH x1,y1 x2,y2 dx,dy [id ...]");
+    const a = point(tokens.shift()), b = point(tokens.shift()), delta = point(tokens.shift());
+    return transaction("STRETCH", selectedEntities(tokens, context).map((entity) => ({
+      op: "update", id: entity.id, patch: withoutIdentity(stretchEntity(entity, a, b, delta))
+    })));
   }
   if (["M", "MOVE"].includes(command)) return transformCommand("MOVE", tokens, context, false);
   if (["CO", "COPY"].includes(command)) return transformCommand("COPY", tokens, context, true);
@@ -194,6 +215,7 @@ export function parseCadCommand(input, context) {
   }
   if (["PLOT", "PRINT"].includes(command)) return { kind: "ui", action: "plot" };
   if (["S", "SELECT"].includes(command)) {
+    if (tokens[0]?.toUpperCase() === "ALL") return { kind: "ui", action: "selectMany", entityIds: selectableEntities(context.drawing).map((entity) => entity.id) };
     if (!tokens[0]) throw new Error("SELECTには図形IDが必要です。");
     if (!context.drawing.entities.some((entity) => entity.id === tokens[0])) {
       throw new Error(`図形が見つかりません: ${tokens[0]}`);
@@ -214,34 +236,41 @@ export function parseCadCommand(input, context) {
   throw new Error(`未対応のコマンドです: ${command}`);
 }
 
+function selectedEntities(tokens, context) {
+  const ids = tokens.length ? tokens : context.selectedIds?.length ? context.selectedIds : [context.selectedId].filter(Boolean);
+  if (!ids.length) throw new Error("図形を選択するかIDを指定してください。");
+  return [...new Set(ids)].map((id) => {
+    const entity = context.drawing.entities.find((item) => item.id === id);
+    if (!entity) throw new Error(`図形が見つかりません: ${id}`);
+    return entity;
+  });
+}
+
 function transformCommand(label, tokens, context, copy) {
-  let id = context.selectedId;
-  if (tokens[0] && !tokens[0].includes(",")) id = tokens.shift();
-  if (!id) throw new Error(`${label}する図形を選択するかIDを指定してください。`);
-  const entity = context.drawing.entities.find((item) => item.id === id);
-  if (!entity) throw new Error(`図形が見つかりません: ${id}`);
+  const ids = tokens[0] && !tokens[0].includes(",") ? [tokens.shift()] : [];
+  const entities = selectedEntities(ids, context);
   requireCount(tokens, 1, `${label} [id] dx,dy`);
   const offset = point(tokens[0]);
-  if (copy) {
+  return transaction(label, entities.map((entity) => {
+    if (!copy) return { op: "update", id: entity.id, patch: movedPatch(entity, offset.x, offset.y) };
     const next = movedEntity(entity, offset.x, offset.y);
     next.id = `e_copy_${randomId()}`;
     next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
-    return transaction("COPY", [{ op: "add", entity: next }]);
-  }
-  return transaction("MOVE", [{ op: "update", id, patch: movedPatch(entity, offset.x, offset.y) }]);
+    return { op: "add", entity: next };
+  }));
 }
 
 function rotateOrScaleCommand(label, tokens, context) {
-  let id = context.selectedId;
-  if (tokens[0] && !looksNumeric(tokens[0])) id = tokens.shift();
-  const entity = context.drawing.entities.find((item) => item.id === id);
-  if (!entity) throw new Error(`${label}する図形を選択するかIDを指定してください。`);
+  const ids = tokens[0] && !looksNumeric(tokens[0]) ? [tokens.shift()] : [];
+  const entities = selectedEntities(ids, context);
   if (tokens.length < 1 || tokens.length > 2) throw new Error(`形式: ${label} [id] value [baseX,baseY]`);
   const value = number(tokens[0], label === "ROTATE" ? "angle" : "scale");
   if (label === "SCALE" && value <= 0) throw new Error("尺度は0より大きい値を指定してください。");
-  const base = tokens[1] ? point(tokens[1]) : entityReferencePoint(entity);
-  const next = transformEntity(entity, label === "ROTATE" ? { angle: value, base } : { scale: value, base });
-  return transaction(label, [{ op: "update", id: entity.id, patch: withoutIdentity(next) }]);
+  const base = tokens[1] ? point(tokens[1]) : entityReferencePoint(entities[0]);
+  return transaction(label, entities.map((entity) => {
+    const next = transformEntity(entity, label === "ROTATE" ? { angle: value, base } : { scale: value, base });
+    return { op: "update", id: entity.id, patch: withoutIdentity(next) };
+  }));
 }
 
 function offsetCommand(tokens, context) {
