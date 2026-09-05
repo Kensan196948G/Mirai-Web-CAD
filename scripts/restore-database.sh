@@ -12,14 +12,44 @@ if [[ "${ALLOW_DATABASE_RESTORE:-}" != "yes" ]]; then
 fi
 
 pg_bin="${PG_BIN:-$(pg_config --bindir)}"
+manifest_file="${BACKUP_MANIFEST_FILE:-${BACKUP_FILE}.manifest}"
+max_backup_age_hours="${MAX_BACKUP_AGE_HOURS:-24}"
 
-if [[ -n "${SOURCE_DATABASE_URL:-}" ]]; then
-  source_database="$("$pg_bin/psql" "$SOURCE_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'select current_database()')"
-  restore_database="$("$pg_bin/psql" "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'select current_database()')"
-  if [[ "$source_database" == "$restore_database" ]]; then
-    echo "Recovery database must differ from source database: ${source_database}" >&2
-    exit 4
-  fi
+if [[ ! -s "$manifest_file" ]]; then
+  echo "Backup manifest is required: $manifest_file" >&2
+  exit 4
+fi
+
+manifest_value() {
+  awk -F= -v key="$1" '
+    $1 == key { sub(/^[^=]*=/, ""); value=$0; found++ }
+    END { if (found != 1) exit 1; print value }
+  ' "$manifest_file"
+}
+
+manifest_format="$(manifest_value format)"
+manifest_created_at="$(manifest_value created_at)"
+manifest_sha256="$(manifest_value sha256)"
+manifest_signature="$(manifest_value signature)"
+if [[ "$manifest_format" != "mirai-web-cad-backup-manifest-v1" ]] ||
+   [[ ! "$manifest_created_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
+   [[ ! "$manifest_sha256" =~ ^[0-9a-f]{64}$ ]] ||
+   [[ ! "$manifest_signature" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9a-f]{32}$ ]]; then
+  echo "Backup manifest is malformed: $manifest_file" >&2
+  exit 4
+fi
+
+actual_sha256="$(sha256sum "$BACKUP_FILE" | awk '{print $1}')"
+if [[ "$actual_sha256" != "$manifest_sha256" ]]; then
+  echo "Backup archive checksum does not match its manifest" >&2
+  exit 4
+fi
+
+created_epoch="$(date -u -d "$manifest_created_at" +%s)"
+age_seconds=$(( $(date -u +%s) - created_epoch ))
+if (( age_seconds < 0 || age_seconds > max_backup_age_hours * 3600 )); then
+  echo "Backup exceeds the ${max_backup_age_hours}h RPO limit: created_at=${manifest_created_at}" >&2
+  exit 4
 fi
 
 user_object_count="$("$pg_bin/psql" "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
@@ -58,10 +88,10 @@ fi
 
 invalid_json="$("${pg_bin}/psql" "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 -At -F ':' -c "
   select
-    (select count(*) from drawing_versions where jsonb_typeof(content) <> 'object'),
-    (select count(*) from command_events where jsonb_typeof(command_payload) not in ('object', 'array')),
+    (select count(*) from drawing_versions where content is null or jsonb_typeof(content) <> 'object'),
+    (select count(*) from command_events where command_payload is null or jsonb_typeof(command_payload) not in ('object', 'array')),
     (select count(*) from agent_runs where proposal is not null and jsonb_typeof(proposal) not in ('object', 'array')),
-    (select count(*) from audit_logs where jsonb_typeof(detail) <> 'object')
+    (select count(*) from audit_logs where detail is null or jsonb_typeof(detail) <> 'object')
 ")"
 IFS=: read -r invalid_content invalid_commands invalid_proposals invalid_audits <<<"$invalid_json"
 if (( invalid_content + invalid_commands + invalid_proposals + invalid_audits != 0 )); then
@@ -81,37 +111,11 @@ if [[ "$version_mismatches" != "0" ]]; then
   exit 1
 fi
 
-database_signature() {
-  "$pg_bin/psql" "$1" -v ON_ERROR_STOP=1 -At -F '|' -c "
-    select
-      (select count(*) from projects),
-      (select count(*) from drawings),
-      (select count(*) from drawing_versions),
-      (select count(*) from audit_logs),
-      coalesce((
-        select md5(string_agg(
-          concat_ws(':', d.id, d.current_version, v.version_no, v.content_hash),
-          E'\\n' order by d.id
-        ))
-        from drawings d
-        join drawing_versions v
-          on v.drawing_id = d.id and v.version_no = d.current_version
-      ), md5(''))
-  "
-}
-
-if [[ -n "${SOURCE_DATABASE_URL:-}" ]]; then
-  source_signature="$(database_signature "$SOURCE_DATABASE_URL")"
-  restored_signature="$(database_signature "$RESTORE_DATABASE_URL")"
-  if [[ "$source_signature" != "$restored_signature" ]]; then
-    echo "recovery verification failed: source/restored four-table counts or latest drawing versions differ" >&2
-    echo "source=${source_signature} restored=${restored_signature}" >&2
-    exit 1
-  fi
+restored_signature="$(DATABASE_SIGNATURE_URL="$RESTORE_DATABASE_URL" PG_BIN="$pg_bin" bash "$(dirname "$0")/database-signature.sh")"
+if [[ "$manifest_signature" != "$restored_signature" ]]; then
+  echo "recovery verification failed: restored four-table counts or latest drawing versions differ from backup manifest" >&2
+  echo "manifest=${manifest_signature} restored=${restored_signature}" >&2
+  exit 1
 fi
 
-source_match="no (source comparison skipped)"
-if [[ -n "${SOURCE_DATABASE_URL:-}" ]]; then
-  source_match="yes"
-fi
-echo "database recovery verified: projects=$projects drawings=$drawings versions=$versions audits=$audits invalid_json=0 latest_version_mismatches=0 source_match=$source_match"
+echo "database recovery verified: projects=$projects drawings=$drawings versions=$versions audits=$audits invalid_json=0 latest_version_mismatches=0 manifest_match=yes backup_age_seconds=$age_seconds"

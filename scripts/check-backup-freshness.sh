@@ -8,9 +8,14 @@ set -euo pipefail
 backup_dir="${BACKUP_DIR:-artifacts/backups}"
 max_age_hours="${MAX_AGE_HOURS:-36}"
 latest="${backup_dir}/latest.dump"
+manifest="${latest}.manifest"
 
 if [[ ! -e "$latest" ]]; then
   echo "backup freshness check FAILED: no backup found at $latest" >&2
+  exit 1
+fi
+if [[ ! -s "$manifest" ]]; then
+  echo "backup freshness check FAILED: manifest missing or empty: $manifest" >&2
   exit 1
 fi
 

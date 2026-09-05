@@ -23,6 +23,7 @@ const required = [
   "migrations/0005_audit_log_immutability.sql",
   "migrations/0006_normalize_jsonb_columns.sql",
   "scripts/check-mvp-health.sh",
+  "scripts/database-signature.sh",
   "scripts/restore-drill-local.sh",
   "deploy/systemd/mirai-web-cad-mvp-backup.service",
   "deploy/systemd/mirai-web-cad-mvp-backup.timer",

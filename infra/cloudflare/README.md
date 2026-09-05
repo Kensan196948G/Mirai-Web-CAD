@@ -9,6 +9,8 @@ Mirai Web CADの既存Cloudflare Tunnel、2つのCNAME、MVP Access Application�
 - MVPホスト全体のAccess Application
 - MVPを`kensan1969@gmail.com`だけに限定するallow policy
 
+初回importでは既存policyを意図せず更新しないよう、Application側は棚卸ししたpolicy UUIDとprecedenceだけを参照します。policy本文がメール完全一致のallow 1件であることは棚卸し記録と初回planで照合し、差分がある状態ではapplyしません。
+
 Tunnel ingress自体はローカルの`~/.cloudflared/mirai-web-cad-config.yml`で稼働するため、正本テンプレートは`deploy/cloudflared/mirai-web-cad-config.example.yml`です。Tunnel secretやcredentials JSONはTerraformへ渡さず、stateにも保存しません。
 
 ## 必要な権限

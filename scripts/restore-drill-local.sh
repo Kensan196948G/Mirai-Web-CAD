@@ -35,7 +35,7 @@ trap cleanup EXIT
 "${pg_bin}/pg_restore" --list "$backup_file" >/dev/null
 reset_recovery_database
 
-BACKUP_FILE="$backup_file" SOURCE_DATABASE_URL="$DATABASE_URL" ALLOW_DATABASE_RESTORE=yes \
+BACKUP_FILE="$backup_file" ALLOW_DATABASE_RESTORE=yes \
   bash "$(dirname "$0")/restore-database.sh"
 
-echo "restore drill ok: source=${source_database}, recovery=${restore_database}, counts/latest versions match, JSONB shapes valid; recovery data will be cleared"
+echo "restore drill ok: source=${source_database}, recovery=${restore_database}, manifest counts/latest versions match, JSONB shapes valid; recovery data will be cleared"

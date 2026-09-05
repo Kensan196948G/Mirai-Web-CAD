@@ -147,7 +147,7 @@ DATABASE_URL="postgresql://..." npm run db:verify
 
 ```bash
 DATABASE_URL="postgresql://..." BACKUP_FILE="artifacts/cad.dump" npm run db:backup
-SOURCE_DATABASE_URL="postgresql://...source-db" RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump" ALLOW_DATABASE_RESTORE=yes npm run db:restore
+RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump" ALLOW_DATABASE_RESTORE=yes npm run db:restore
 ```
 
 ## 🔎 主要な受入観点

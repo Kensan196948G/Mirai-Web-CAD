@@ -18,7 +18,20 @@ DATABASE_URL="$DATABASE_URL" \
 bash scripts/check-mvp-health.sh
 ```
 
-この検査はローカルhealthを15秒、公開URLを20秒で打ち切り、JSONの`status=ok`、`db.mode=connected`、`db.migrated=true`、実DB名、公開HTTP 302、Cloudflare Accessの`Location` headerをすべて検証します。本番はサイト全体をAccess保護していないため、同じ公開302検査を流用せず、`production.env`を読み込んでローカルhealthとDB名を個別確認します。
+この検査はローカルhealthを15秒、公開URLを20秒で打ち切り、JSONの`status=ok`、`db.mode=connected`、`db.migrated=true`、実DB名、公開HTTP 302、Cloudflare Accessの`Location` headerをすべて検証します。本番はサイト全体をAccess保護していないため、公開302を要求せず次を実行します。
+
+```bash
+set -a
+source /home/kensan/.config/mirai-web-cad/production.env
+set +a
+LOCAL_URL=http://127.0.0.1:18812 \
+EXPECTED_DATABASE=mirai_web_cad \
+REQUIRE_ACCESS_REDIRECT=no \
+DATABASE_URL="$DATABASE_URL" \
+bash scripts/check-mvp-health.sh
+```
+
+本番用検査も15秒で打ち切り、health JSONと実DB名を同じ基準で検査します。`REQUIRE_ACCESS_REDIRECT=no`は公開URLを合格扱いにする設定ではなく、公開probe自体を行いません。
 
 - ローカルhealthのみ失敗: アプリまたはDBを調査する。
 - ローカルhealth成功、公開のみ失敗: Tunnel、DNS、Accessを調査する。
