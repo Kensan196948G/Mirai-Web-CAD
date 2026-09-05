@@ -6,6 +6,8 @@
 
 ## 今すぐ
 
+継続追加: [高度な選択・追加編集](advanced-selection-editing.md)の範囲でFence/Lasso、Previous/Last、類似/条件選択、保存セット、LENGTHEN/REVERSE/PURGE/OVERKILLを実装。全形式対応、許容差重複統合、100k性能・実案件受入は後続。
+
 2026-09-05追加依頼: [追加実装ロードマップ](additional-implementation-roadmap.md)へ34領域の依存・実装順・受入条件を整理。複数選択/Window/Crossing/グリップ、STRETCH/EXPLODE/MATCHPROPの限定実装を開始。全領域や実案件互換認定の完了とは区別する。
 
 同日継続実装: [連想寸法](associative-dimensions.md)を追加。線分のAligned/水平/垂直、円/円弧の半径/直径、参照再計算・参照切れ検査・寸法書式・オフセットグリップ・JSON参照ID再割当を実装。角度/累進/公差/名前付き寸法スタイル/DXF寸法往復/PDFは未完了。P0-48等の残タスク記載は各項目の実装時点の履歴であり、現行範囲は追加ロードマップを参照。

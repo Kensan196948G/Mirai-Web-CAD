@@ -33,6 +33,7 @@ export function createDrawing(overrides = {}) {
     currentRole: overrides.currentRole ?? "drafter",
     layers: structuredClone(DEFAULT_LAYERS),
     entities: [],
+    selectionSets: [],
     comments: [],
     dimensionStyles: [{ id: "dim-standard", name: "標準", textSize: 180, arrowSize: 120, precision: 0, suffix: "" }],
     layout: { paper: "A3", orientation: "landscape", scale: 100, margin: 10, title: "" },
@@ -191,6 +192,17 @@ export function applyTransaction(drawing, transaction) {
   const beforeHash = stableHash(next.entities);
 
   for (const command of transaction.commands) {
+    if (command.op === "save_selection" || command.op === "delete_selection") {
+      if (typeof command.name !== "string" || !command.name.trim() || command.name.length > 80) return fail("選択セット名が不正です。", drawing);
+      next.selectionSets ??= [];
+      if (command.op === "save_selection") {
+        const ids = new Set(next.entities.map((entity) => entity.id));
+        if (!Array.isArray(command.entityIds) || !command.entityIds.length || command.entityIds.some((id) => !ids.has(id))) return fail("選択セットの図形IDが不正です。", drawing);
+        if (!next.selectionSets.some((set) => set.name === command.name) && next.selectionSets.length >= 100) return fail("選択セットは100件までです。", drawing);
+        next.selectionSets = next.selectionSets.filter((set) => set.name !== command.name);
+        next.selectionSets.push({ name: command.name, entityIds: [...new Set(command.entityIds)] });
+      } else next.selectionSets = next.selectionSets.filter((set) => set.name !== command.name);
+    }
     if (command.op === "add_layer") {
       const layer = command.layer;
       if (!layer || typeof layer.id !== "string" || typeof layer.name !== "string") {

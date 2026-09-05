@@ -28,6 +28,7 @@ import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-hel
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 import { entityGrips, moveGrip, selectableEntities, selectInBox } from "./cad-selection.js";
 import { dimensionGeometry } from "./cad-dimension.js";
+import { selectByPath } from "./cad-selection-tools.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
@@ -90,6 +91,9 @@ const STATUS_TOGGLES = [
 ];
 
 const OPERATION_LABELS = {
+  lengthen: "全長変更",
+  reverse: "方向反転",
+  overkill: "完全重複削除",
   dimassoc: "連想寸法",
   dimhorizontal: "水平寸法",
   dimvertical: "垂直寸法",
@@ -175,7 +179,7 @@ const ICONS = {
 
 const RIBBON = {
   home: [
-    { label: "選択", buttons: [{ icon: "select", title: "選択", tool: "select", big: true }] },
+    { label: "選択", buttons: [{ icon: "select", title: "選択", tool: "select", big: true }, { icon: "polyline", title: "フェンス選択", tool: "fence" }, { icon: "select", title: "投げ縄選択", tool: "lasso" }] },
     {
       label: "作図",
       buttons: [
@@ -295,10 +299,18 @@ const state = {
   drawing: loadDrawing() ?? seedDrawing(),
   tool: "select",
   currentLayerId: "layer-structure",
-  selectedIds: [],
+  _selectedIds: [],
+  previousSelection: [],
+  get selectedIds() { return this._selectedIds; },
+  set selectedIds(ids) {
+    const next = [...new Set(ids)];
+    if (next.length !== this._selectedIds.length || next.some((id, index) => id !== this._selectedIds[index])) this.previousSelection = [...this._selectedIds];
+    this._selectedIds = next;
+  },
   get selectedId() { return this.selectedIds.at(-1) ?? null; },
   set selectedId(id) { this.selectedIds = id ? [id] : []; },
   selectionBox: null,
+  pathDrawing: false,
   draftPoints: [],
   previewProposal: null,
   previewRunId: null,
@@ -1439,7 +1451,8 @@ async function executeCommandLine(event) {
       drawing: state.drawing,
       currentLayerId: state.currentLayerId,
       selectedId: state.selectedId,
-      selectedIds: state.selectedIds
+      selectedIds: state.selectedIds,
+      previousSelection: state.previousSelection
     });
     if (parsed.kind === "transaction") {
       await commitCommands(`CLI ${parsed.label}`, parsed.commands);
@@ -1477,7 +1490,11 @@ async function executeUiCommand(command) {
     state.selectedId = command.entityId;
     log(`選択: ${command.entityId}`);
   }
-  if (command.action === "selectMany") state.selectedIds = command.entityIds;
+  if (command.action === "selectMany") {
+    const ids = new Set(selectableEntities(activeDrawing()).map((entity) => entity.id));
+    state.selectedIds = command.entityIds.filter((id) => ids.has(id));
+    state.tool = "select";
+  }
   if (command.action === "cancel") {
     state.draftPoints = [];
     state.selectedId = null;
@@ -1537,6 +1554,8 @@ function resetAuthoringState() {
     ? "layer-structure"
     : state.drawing.layers[0]?.id;
   state.selectedId = null;
+  state.previousSelection = [];
+  state.pathDrawing = false;
   state.draftPoints = [];
   state.previewProposal = null;
   state.previewRunId = null;
@@ -1564,9 +1583,10 @@ async function applyOperationForm(event) {
       if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
       return;
     }
-    if (["stretch", "explode", "matchprop"].includes(operation)) {
+    if (["stretch", "explode", "matchprop", "lengthen", "reverse", "overkill"].includes(operation)) {
       const parsed = parseCadCommand(`${operation} ${value}`, { drawing: state.drawing, currentLayerId: state.currentLayerId, selectedIds: state.selectedIds });
       if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
+      else if (parsed.kind === "message") { log(parsed.message); render(); }
       return;
     }
     if (state.selectedIds.length > 1 && ["move", "copy", "rotate", "scale"].includes(operation)) {
@@ -1900,6 +1920,17 @@ function onPointerDown(event) {
     return;
   }
 
+  if (["fence", "lasso"].includes(state.tool)) {
+    if (event.button !== 0) return;
+    if (state.tool === "lasso") {
+      state.draftPoints = [rawWorld];
+      state.pathDrawing = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } else if (state.draftPoints.length < 2000) state.draftPoints.push(rawWorld);
+    drawCanvas(rawWorld);
+    return;
+  }
+
   if (!policy.canEdit) {
     log(`${policy.label}は作図できません。`);
     render();
@@ -1953,6 +1984,12 @@ function onPointerMove(event) {
     return;
   }
   const rawWorld = screenToWorld(event.offsetX, event.offsetY);
+  if (state.pathDrawing) {
+    const last = state.draftPoints.at(-1);
+    if (state.draftPoints.length < 2000 && Math.hypot(last.x - rawWorld.x, last.y - rawWorld.y) * state.camera.scale >= 3) state.draftPoints.push(rawWorld);
+    drawCanvas(rawWorld);
+    return;
+  }
   if (state.selectionBox) {
     state.selectionBox.end = rawWorld;
     drawCanvas();
@@ -1980,6 +2017,11 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+  if (state.pathDrawing) {
+    state.pathDrawing = false;
+    finishPathSelection();
+    return;
+  }
   if (state.panStart) {
     state.panStart = null;
     log("パン表示を更新");
@@ -2004,6 +2046,12 @@ function onPointerUp() {
 }
 
 function cancelDrag() {
+  if (state.pathDrawing) {
+    state.pathDrawing = false;
+    state.draftPoints = [];
+    render();
+    return;
+  }
   if (state.panStart) {
     state.camera = state.panStart.camera;
     state.panStart = null;
@@ -2029,6 +2077,11 @@ function onWheel(event) {
 }
 
 function onCanvasKeyDown(event) {
+  if (event.key === "Enter" && state.tool === "fence") {
+    event.preventDefault();
+    finishPathSelection();
+    return;
+  }
   if (event.key === "Escape") {
     cancelDrag();
     state.draftPoints = [];
@@ -2062,6 +2115,14 @@ function onCanvasKeyDown(event) {
     event.preventDefault();
     deleteSelected();
   }
+}
+
+function finishPathSelection() {
+  try { state.selectedIds = selectByPath(activeDrawing(), state.draftPoints, state.tool); }
+  catch (error) { log(errorMessage(error)); }
+  state.draftPoints = [];
+  state.tool = "select";
+  render();
 }
 
 function commitTwoPointTool() {
@@ -2161,6 +2222,9 @@ async function redoLastTransaction() {
 
 function snapshotCommands(current, target) {
   const commands = [];
+  for (const set of current.selectionSets ?? []) {
+    if (!(target.selectionSets ?? []).some((item) => item.name === set.name)) commands.push({ op: "delete_selection", name: set.name });
+  }
   const currentById = new Map(current.entities.map((entity) => [entity.id, entity]));
   const targetById = new Map(target.entities.map((entity) => [entity.id, entity]));
   for (const entity of current.entities) {
@@ -2190,6 +2254,13 @@ function snapshotCommands(current, target) {
     }
   }
   if (JSON.stringify(current.layout) !== JSON.stringify(target.layout)) commands.push({ op: "update_layout", patch: target.layout });
+  for (const set of target.selectionSets ?? []) {
+    if (JSON.stringify((current.selectionSets ?? []).find((item) => item.name === set.name)) !== JSON.stringify(set)) {
+      const existing = new Set(target.entities.map((entity) => entity.id));
+      const entityIds = set.entityIds.filter((id) => existing.has(id));
+      if (entityIds.length) commands.push({ op: "save_selection", name: set.name, entityIds });
+    }
+  }
   return commands;
 }
 

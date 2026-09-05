@@ -49,6 +49,19 @@ function parseJsonImport(content, drawing, currentLayerId) {
       return { ...ref, entityId: id ?? `missing_${crypto.randomUUID()}` };
     });
   }
+  const names = new Set((drawing.selectionSets ?? []).map((set) => set.name));
+  for (const set of Array.isArray(parsed?.selectionSets) ? parsed.selectionSets : []) {
+    if (names.size >= 100 || typeof set?.name !== "string" || !set.name.trim() || set.name.length > 80 || !Array.isArray(set.entityIds)) {
+      warnings.push("選択セットを取り込めませんでした。");
+      continue;
+    }
+    const entityIds = [...new Set(set.entityIds.map((id) => importedIds.get(id)).filter(Boolean))];
+    if (!entityIds.length) { warnings.push(`空の選択セット: ${set.name}`); continue; }
+    let name = set.name, suffix = 1;
+    while (names.has(name)) name = `${set.name.slice(0, 70)} (${suffix++})`;
+    names.add(name);
+    commands.push({ op: "save_selection", name, entityIds });
+  }
   return importResult(commands, warnings, sourceEntities.length);
 }
 
