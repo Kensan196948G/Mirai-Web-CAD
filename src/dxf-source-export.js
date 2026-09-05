@@ -4,6 +4,8 @@ import { dxfGroup, inspectDxfBlocks, inspectDxfSourceDocument, rewriteDxfSourceD
 import { blockAttributeText } from "./cad-block.js";
 import { affineText, blockAffine } from "./cad-affine.js";
 
+const viewportFlags = (entity) => entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384;
+
 // Reparse the archive instead of trusting a persisted/user-supplied baseline.
 // IDs and derived caches are not DXF semantics; every other model field counts.
 function semantic(value, drawing, omit = new Set()) {
@@ -138,7 +140,8 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
     for (const [code, key] of [[10, "center"], [12, "viewCenter"], [13, "snapBase"], [14, "snapSpacing"], [15, "gridSpacing"], [17, "viewTarget"]]) patchPoint(recordId, code, entity[key], before[key]);
     for (const [code, value, previous] of [[16, entity.viewDirection?.x, before.viewDirection?.x], [26, entity.viewDirection?.y, before.viewDirection?.y], [36, entity.viewDirection?.z, before.viewDirection?.z],
       [40, entity.width, before.width], [41, entity.height, before.height], [42, entity.lensLength, before.lensLength], [43, entity.frontClip, before.frontClip], [44, entity.rearClip, before.rearClip],
-      [45, entity.viewHeight, before.viewHeight], [50, entity.snapAngle, before.snapAngle], [51, entity.twistAngle, before.twistAngle], [68, entity.status, before.status], [69, entity.viewportId, before.viewportId], [90, entity.flags, before.flags]]) if (value !== previous) add(recordId, code, value);
+      [45, entity.viewHeight, before.viewHeight], [50, entity.snapAngle, before.snapAngle], [51, entity.twistAngle, before.twistAngle], [68, entity.status, before.status], [69, entity.viewportId, before.viewportId],
+      [90, viewportFlags(entity), viewportFlags(before)]]) if (value !== previous) add(recordId, code, value);
     return true;
   };
   const patchCollection = (current, baseline, section, beforeRecordId = null) => {

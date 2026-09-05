@@ -48,7 +48,8 @@ test("DIMENSION/HATCH/VIEWPORTとDIMSTYLE/Layoutを原本レコードからネ�
 
 test("ネイティブEntity編集は原本TABLES/OBJECTSを保ったままgroup-codeを局所更新する", () => {
   const { drawing } = importDxf(nativeFixture);
-  const commands = drawing.entities.map((entity) => ({ op: "update", id: entity.id, patch: transformEntity(entity, { dx: 7, dy: 9 }) }));
+  const commands = drawing.entities.map((entity) => ({ op: "update", id: entity.id,
+    patch: { ...transformEntity(entity, { dx: 7, dy: 9 }), ...(entity.type === "viewport" ? { locked: false } : {}) } }));
   const changed = applyTransaction(drawing, { source: "system", label: "native-move", commands });
   assert.equal(changed.ok, true, changed.error);
   const exported = exportDxf(changed.drawing);
@@ -59,6 +60,7 @@ test("ネイティブEntity編集は原本TABLES/OBJECTSを保ったままgroup-
   assert.equal(exported.skipped.length, 0);
   const reimported = importDxf(exported.content).drawing;
   assert.deepEqual(reimported.entities.find((entity) => entity.type === "viewport").center, { x: 217, y: 157.5 });
+  assert.equal(reimported.entities.find((entity) => entity.type === "viewport").locked, false);
   assert.deepEqual(reimported.entities.find((entity) => entity.type === "hatch").boundaries[0].edges[0].center, { x: 27, y: 29 });
 });
 
