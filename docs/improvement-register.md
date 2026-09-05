@@ -1,6 +1,6 @@
 # 改善台帳
 
-更新日: 2026-08-30(前回 2026-08-29)。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
+更新日: 2026-09-05(前回 2026-08-30)。工数は1人日=実働8時間の概算であり、調達・契約・UAT待ちは含めない。
 
 **優先順位の最上位参照文書**: [80～90％代替・AI統合開発方針](Mirai-Web-CAD_80-90％代替・AI統合開発方針.md)(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任)。現状代替率30-35%、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップを定義。DXF往復・精密CAD Core・尺度保証PDFを最優先とし、AI機能拡張より先にCAD基盤の完成を優先する方針。本台帳のP1-03(DXF書出し)・P2-01(性能)・P1-06(レイアウト/PDF)等は、この方針のPhase 1(80%到達の必須範囲)に対応する。DWG対応は[ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)により恒久的に対象外へ変更された(2026-08-30)。
 
@@ -57,6 +57,7 @@
 | P0-49 | 開発サーバーの自動割当LAN IP対応 | 開発者/同一LAN上の端末確認 | `0.0.0.0`待受済みでも起動表示が`127.0.0.1`固定で、DHCP割当IPの確認が別途必要だった | 低 0.3日 | P1 | OSファイアウォール・LAN分離設定 | 起動時に有効な物理インターフェースのIPv4を検出し、アクセスURLを表示する | 完了(2026-09-05): `scripts/lib/network-addresses.mjs`を追加し、内部・Docker bridge・veth・リンクローカルを除外してLAN IPv4を自動検出。`scripts/serve-local.mjs`は`Local`と`Network (interface)` URLを表示し、`HOST`で待受制限も可能。`eno1=192.168.0.185`とloopbackの両方でhealth応答を確認。単体テスト2件、`npm run verify`成功 |
 | P0-50 | Cloudflare MVP専用URLとローカルDB分離 | CAD利用者/評価担当 | LAN URLでは社外から利用できず、既存本番と評価データが混在する | 中 1日 | P0 | Cloudflare Tunnel/Access、ローカルPostgreSQL | 指定URLがHTTPSで利用でき、許可メール1件だけがアクセス可能。MVP専用DBへ保存し、公開URL E2Eが成功する | 完了(2026-09-05): `mirai-web-cad-mvp.mirai-dx-platform.com`を既存Tunnelへ追加。Accessはホスト全体を`kensan1969@gmail.com`だけallow。`mirai-web-cad-mvp.service`(127.0.0.1:18813)とDB`mirai_web_cad_mvp`を新設。desktop/mobile公開URL E2E成功、テスト用Service Token/policyは削除済み |
 | P0-51 | PostgreSQL JSONB二重保存の修正 | 全利用者/図面再読込み | postgres.jsへJSON.stringify済み文字列を渡し、図面・監査・AIデータがJSONB string scalarとして保存されていた | 高 0.5日 | P0 | 既存JSONB行の安全な正規化 | 新規データがobject/arrayで保存され、旧二重保存行も再読込み・migrationで正規化される | 完了(2026-09-05): `sql.json()`へ統一し、旧行を正規化する`0006_normalize_jsonb_columns.sql`と型検証を追加。MVP DB実測`content=object`/entities=1、PostgreSQL統合7/7、全verify成功 |
+| P0-52 | 本番Migration 0006適用とMVPバックアップ・監視 | MVP/本番利用者、運用担当 | 本番DBの旧JSONB形式を解消し、MVP専用DBにも日次保全・復元確認・公開境界監視を設ける | 中 1日 | P0 | ローカルPostgreSQL/systemd/Cloudflare Tunnel | 適用前backup、全JSONB string 0件、本番health成功。MVP日次backup、鮮度検査、隔離DB復元、15分healthが実機成功 | **完了(2026-09-05)**: 本番を事前backup後にmigrationし、図面版10件を含む全対象JSONB列のstring scalar 0件とhealthを確認。MVPへ日次backup(14日保持)、日次鮮度検査、週次隔離DB復元、15分ごとのローカルAPI/DB名/Access 302監視を追加し、全サービスを実機で成功確認 |
 ## 3か月以内
 
 | ID | 内容 | 対象/効果 | 難易度・工数 | 優先度 | 依存/リスク | 完了基準 |

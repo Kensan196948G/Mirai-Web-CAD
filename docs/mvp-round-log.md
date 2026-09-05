@@ -382,3 +382,12 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | DB不具合修正 | 公開E2E後のDB検査で、postgres.jsへ`JSON.stringify`済み値を渡したためJSONBがstring scalarになる既存不具合を発見。書込みを`sql.json()`へ統一し、読込み互換処理とmigration `0006_normalize_jsonb_columns.sql`を追加。図面・command・AI proposal・監査detailを正規化し、監査追記専用triggerを再作成する |
 | Verify | ローカルPostgreSQL統合7/7成功。公開MVP専用E2E成功後、テストデータを消去してDB再初期化。`npm run verify`成功(unit 211件=210 pass+1 DB skip、desktop/mobile E2E 54/54)。最終origin health 200、外部未認証302、MVP systemd active/enabled |
 | CI補正 | Pages Previewは静的SPAの確認用途であり、API正規経路ではないため、旧Neon依存の`/api/health=200`検証を削除。Preview SPA 200、通常CIのPostgreSQL統合、MVP公開E2Eで責務を分離した(P0-21完了) |
+
+## Round 12 / 2026-09-05 本番Migration・MVPバックアップ・監視
+
+| 項目 | 内容 |
+| --- | --- |
+| Production migration | 適用直前にcustom archiveを作成し`pg_restore --list`成功を確認。本番DBへ`0006_normalize_jsonb_columns.sql`をトランザクション適用し、drawing_versions 10件を含む4つのJSONB列でstring scalarがすべて0件になったことを実測。本番サービスを最新`main`で再起動しhealth成功 |
+| MVP backup | `mirai-web-cad-mvp-backup.timer`を毎日03:40 JSTで追加。読取り専用`mirai_web_cad_backup`ロールへMVP DBのSELECT権限を付与し、本番とは別の`/var/backups/mirai-web-cad/mvp-postgres/`へ14日保持で保存 |
+| Restore drill | 専用DB`mirai_web_cad_mvp_recovery`へ毎週日曜に最新dumpを復元。スクリプトは対象DB名の完全一致と元DBとの差異を破壊操作前に検証。実測でdrawings=1、versions=1、audits=2、JSONB strings=0 |
+| Monitoring | `mirai-web-cad-mvp-monitor.timer`を15分間隔で追加。ローカルAPIのPostgreSQL接続/migration、実DB名`mirai_web_cad_mvp`、公開URLがCloudflare Accessへ302転送されることを同時検査 |

@@ -11,7 +11,7 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-09-05(機能カタログRound 6とMVP公開完了)。CHAMFER/FILLET/BOUNDARY/PEDIT(P0-48)、自動割当LAN IP表示(P0-49)に加え、指定Cloudflare URL・メール1件限定Access・専用ローカルPostgreSQL・公開URL E2E(P0-50)を完了。E2Eで発見したJSONB二重保存をsql.json()とmigration 0006で修正(P0-51)。unit 211件=210 pass+1 DB skip、PostgreSQL統合7/7、e2e 54/54、公開MVP desktop/mobile smoke成功。残る未着手: STRETCH/EXPLODE/MATCHPROP、ネイティブARC/ELLIPSE/SPLINE、Canvasグリップ、寸法各種/スタイル、レイヤー標準テンプレート、尺度保証PDF、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
+  "goal": "2026-09-05(安定化Round 12完了)。本番DBへmigration 0006を事前backup後に適用し、全対象JSONB列のstring scalarを0件化。MVPへ専用の日次backup/鮮度検査、週次隔離DB復元、15分health/Access境界監視を追加。次はPhase 0互換コーパス準備とPhase 1の尺度保証PDF・寸法・DXF互換拡張を順次進める。残る未着手: STRETCH/EXPLODE/MATCHPROP、ネイティブARC/ELLIPSE/SPLINE、Canvasグリップ、寸法各種/スタイル、レイヤー標準テンプレート、尺度保証PDF、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
@@ -75,7 +75,8 @@
     "P0-48 CHAMFER/FILLET/BOUNDARY/PEDIT追加(2026-09-05、カタログA-2「面取り/フィレット/境界作成/ポリライン編集」): cad-advanced.jsへchamferLines/filletLines/createBoundaryEntity/editPolylineを追加。CLIとリボン/操作フォームへ接続しHELP更新。単体テスト+5件、command統合+1件、e2e +2件",
     "P0-49 開発サーバーの自動割当LAN IP対応(2026-09-05): networkInterfacesから物理IPv4を自動検出し、起動時にLocal/Network URLを表示。Docker bridge/veth/link-localを除外しHOST環境変数による待受制限へ対応。単体テスト+2件、LAN IP health疎通確認済み",
     "P0-50 Cloudflare MVP専用URL(2026-09-05): mirai-web-cad-mvp.mirai-dx-platform.comをTunnelへ追加し、Accessはホスト全体をkensan1969@gmail.comだけallow。systemd 127.0.0.1:18813とローカルDB mirai_web_cad_mvpを本番から分離。公開desktop/mobile E2E成功、テスト資格情報削除済み",
-    "P0-51 PostgreSQL JSONB二重保存修正(2026-09-05): postgres.js書込みをsql.json()へ統一し、旧string scalarを正規化するmigration 0006、読込み互換、実DB回帰を追加。PostgreSQL統合7/7、MVP実測content=object/entities=1"
+    "P0-51 PostgreSQL JSONB二重保存修正(2026-09-05): postgres.js書込みをsql.json()へ統一し、旧string scalarを正規化するmigration 0006、読込み互換、実DB回帰を追加。PostgreSQL統合7/7、MVP実測content=object/entities=1",
+    "P0-52 本番Migration/MVP保全(2026-09-05): 本番DBを事前backup後に0006適用しJSONB strings=0。MVP専用の日次backup、鮮度検査、週次隔離DB復元、15分API/DB/Access境界監視をsystemdで有効化し実機成功"
   ],
   "blocked_issues": [
     {
@@ -118,5 +119,5 @@
       "Edit/Writeツールへ渡すJSON文字列パラメータ内で`\\u0000`等のUnicodeエスケープをテキストとして書こうとすると、JSON側の文字列デコードにより実際の制御バイトへ変換されてファイルに書き込まれてしまう(意図した`\\u0000`という6文字ではなく、実際のNULバイト1個になる)。正規表現の制御文字クラス(`/[\\u0000-\\u001f]/`等)をソースコードに書く際は、Edit/Writeツールを直接使わず、Pythonでのバイト列置換等でエスケープシーケンスのテキストそのもの(バックスラッシュ+u+16進数4桁)をファイルへ書き込む必要がある。NULバイトが混入するとgrep等がファイルをバイナリ扱いしテキスト検索が効かなくなる副作用もある"
     ]
   },
-  "last_updated": "2026-09-05T12:21:33+09:00"
+  "last_updated": "2026-09-05T13:00:00+09:00"
 }
