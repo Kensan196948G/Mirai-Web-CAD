@@ -1,8 +1,20 @@
 # Mirai Web CAD
 
+![MVP](https://img.shields.io/badge/Status-MVP-F59E0B?style=for-the-badge)
+![Cloudflare Access](https://img.shields.io/badge/Cloudflare-Access-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/Database-Local_PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![E2E](https://img.shields.io/badge/E2E-54%2F54_Passed-16A34A?style=for-the-badge&logo=playwright&logoColor=white)
+
 建設・土木の図面を、Webブラウザで作成・修正・確認するための**試作版2D CAD**です。専用ソフトのインストールは不要です。
 
-## まず使う方へ
+| 現在の状態 | 内容 |
+| --- | --- |
+| 🟢 稼働 | MVPサイトとローカルPostgreSQLは稼働中 |
+| 🔒 利用者 | `kensan1969@gmail.com`のみ |
+| 💾 保存先 | この開発PC内の専用DB `mirai_web_cad_mvp` |
+| 🧪 用途 | 操作確認・機能評価用。正式成果品には未使用 |
+
+## 🚀 まず使う方へ
 
 1. [MVP版を開く](https://mirai-web-cad-mvp.mirai-dx-platform.com/)
 2. 「Cloudflare」を選び、`kensan1969@gmail.com`のCloudflareアカウントでログインする
@@ -11,19 +23,48 @@
 
 このMVP版は**上記メールアドレスだけ**が利用できます。図面データはCloudflare上ではなく、この開発PC内の専用PostgreSQLデータベース`mirai_web_cad_mvp`に保存されます。PCの電源停止やネットワーク障害中は利用できません。
 
-## できること
+## 🗺️ データの流れ
 
-- 線、円、矩形、ポリライン、文字、寸法、ハッチなどの基本作図
-- 移動、複写、回転、鏡像、配列、切断、結合、トリム、延長、オフセット
-- 面取り、フィレット、閉じた境界の作成、ポリライン頂点の編集
-- レイヤーの作成、表示、ロック、色・線幅の変更
-- DXFとMirai JSONの読込み、限定的なDXF書出し
-- 図面の保存、レビュー、承認、操作履歴の記録
-- AIが提案した変更を、人が内容を確認してから図面へ反映
+```mermaid
+flowchart LR
+    U["👤 CAD利用者<br/>kensan1969@gmail.com"]
+    A["🛡️ Cloudflare Access<br/>本人確認・アクセス制限"]
+    T["☁️ Cloudflare Tunnel<br/>安全なHTTPS経路"]
+    C["📐 Mirai Web CAD MVP<br/>この開発PCで動作"]
+    D[("🗄️ ローカルPostgreSQL<br/>mirai_web_cad_mvp")]
 
-## まだ業務の正式成果品には使わないでください
+    U -->|ログイン| A
+    A -->|許可された利用者のみ| T
+    T -->|127.0.0.1:18813| C
+    C -->|図面を保存・読込み| D
 
-これはMVP（実用性を確かめる試作版）です。DWG、SXF、電子納品、尺度保証付きPDF、道路縦横断、測量座標、BIM/CIMなどは未完成です。重要な図面は、必ず既存CADと原本ファイルにも残してください。
+    classDef user fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E,stroke-width:2px;
+    classDef security fill:#FFEDD5,stroke:#F97316,color:#7C2D12,stroke-width:2px;
+    classDef app fill:#DCFCE7,stroke:#16A34A,color:#14532D,stroke-width:2px;
+    classDef data fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95,stroke-width:2px;
+    class U user;
+    class A,T security;
+    class C app;
+    class D data;
+```
+
+> [!NOTE]
+> Cloudflareはログイン確認と通信経路を担当します。図面そのものはCloudflareへ保存せず、この開発PC内のPostgreSQLへ保存します。
+
+## 🧰 できること
+
+- ✏️ **基本作図**: 線、円、矩形、ポリライン、文字、寸法、ハッチ
+- 📏 **正確な編集**: 移動、複写、回転、鏡像、配列、切断、結合、トリム、延長、オフセット
+- 🧩 **形状編集**: 面取り、フィレット、閉じた境界の作成、ポリライン頂点の編集
+- 🎨 **レイヤー**: 作成、表示、ロック、色・線幅の変更
+- 📥 **データ交換**: DXFとMirai JSONの読込み、限定的なDXF書出し
+- 🗂️ **図面管理**: 保存、レビュー、承認、操作履歴の記録
+- 🤖 **AI提案**: AIの変更案を、人が確認してから図面へ反映
+
+## ⚠️ まだ業務の正式成果品には使わないでください
+
+> [!WARNING]
+> これはMVP（実用性を確かめる試作版）です。DWG、SXF、電子納品、尺度保証付きPDF、道路縦横断、測量座標、BIM/CIMなどは未完成です。重要な図面は、必ず既存CADと原本ファイルにも残してください。
 
 以下は、開発者・評価担当者向けの詳しい実装状況です。**試作**は動作確認用、**限定対応**は主なケースのみ対応、**実案件認定済み**は実案件による受入試験済み、という意味です。現在、実案件認定済みの機能はありません。
 
@@ -50,7 +91,7 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | システム設定 | 限定対応 | 上部設定からグリッド表示、スナップ、間隔、コマンドログ行数をブラウザ単位で保存 |
 | DB | 限定対応 | ローカルPostgreSQL 16(このホスト常駐)へ接続し、図面、AI Run、監査、Idempotencyを永続化。2026-08-30にNeon PostgreSQLから移行完了(Issue #22) |
 
-## 利用URL
+## 🌐 利用URL
 
 | 用途 | URL | 状態 |
 | --- | --- | --- |
@@ -58,7 +99,7 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | Custom Domain(本番) | `https://mirai-web-cad.mirai-dx-platform.com/` | Cloudflare Tunnel経由でローカル常駐サーバーへ配信。SPAと公開デモは匿名閲覧可。任意図面と全更新APIはCloudflare Accessで保護。未認証アクセスはエッジ層で302(Accessログインへのリダイレクト)、アプリ層に到達した場合は401 |
 | Cloudflare Pages(参考、ロールバック用) | `https://mirai-web-cad.pages.dev/` | mainマージでは更新されない。SPAのみ200、`/api`は移行前のコードのままで機能しない |
 
-## 開発者向けの起動方法
+## 🛠️ 開発者向けの起動方法
 
 ```bash
 npm run dev
@@ -75,7 +116,7 @@ Network (eno1): http://192.168.x.x:4174/
 
 本番相当のサーバー(`scripts/serve-production.mjs`)の詳細は[ローカルデプロイ運用メモ](docs/deployment-local.md)を参照してください。
 
-## 検証
+## ✅ 検証
 
 ```bash
 npm run verify
@@ -90,7 +131,7 @@ npm run verify
 - `npm run build`: `dist/`へ静的配信物を生成
 - `npm run test:e2e`: desktop/mobile Chromiumで新規作成、コマンドライン、Undo/Redo、Import、API同期、AI承認、Keyboard、axeを検査
 
-## DB初期化
+## 🗄️ DB初期化
 
 空のPostgreSQL(ローカルまたは検証用)へ適用する場合:
 
@@ -107,7 +148,7 @@ DATABASE_URL="postgresql://..." BACKUP_FILE="artifacts/cad.dump" npm run db:back
 RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump" ALLOW_DATABASE_RESTORE=yes npm run db:restore
 ```
 
-## 主要な受入観点
+## 🔎 主要な受入観点
 
 - CAD CoreがAIから独立し、AIは図面を直接変更しない
 - AI変更は追加/削除の影響をプレビューし、人が承認して初めてTransaction化する
@@ -121,11 +162,11 @@ RESTORE_DATABASE_URL="postgresql://...empty-db" BACKUP_FILE="artifacts/cad.dump"
 - 図面、版、最新command event、監査、Idempotency、AI承認状態を単一DB文で確定する
 - `main`へのmerge後、`.github/workflows/production.yml`が全検証を実行する(実配信は`scripts/deploy-local.sh`の手動実行、[運用・復旧メモ](docs/operations.md)参照)
 
-## CAD互換範囲
+## 📐 CAD互換範囲
 
 現段階はAutoCAD/Ares Standardの完全互換ではありません。土木施工図向け2D作図、主要幾何編集、寸法、ハッチ、ブロック、レイヤー、レイアウト/PDF印刷(`window.print()`ベース、ベクタ・尺度保証PDFは未実装)を実装しています。**DXF書出しは限定対応です**(2026-09-04〜、line/circle/polyline/rect/text+Layers。ASCII DXF R2000系。真色420・線種・レイヤ表示/ロックフラグ・dimension/hatch/blockは後続Phase)。**DWGは恒久的に対象外です**([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md))。外部参照(XREF)は現Phaseでは未実装です(80-90%代替方針§2.2の90%追加要件、Phase 2で再評価予定)。3D、業界固有アドオンは恒久的に対象外です。対象/限定対応/対象外の詳細な線引きと再校正手順は[代替範囲・採点基準](docs/compat-scope-and-scoring.md)を参照してください。
 
-## 関連文書
+## 📚 関連文書
 
 - [Roundログ](docs/mvp-round-log.md)
 - [機能カタログ×実装状況マトリクス](docs/feature-catalog-coverage.md)
