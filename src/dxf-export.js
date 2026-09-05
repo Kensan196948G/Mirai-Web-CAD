@@ -419,7 +419,7 @@ function encodeViewport(entity, base, skipped) {
   const groups = ["0", "VIEWPORT", ...base, "67", "1", "410", dxfText(entity.layoutName ?? "Layout1"), ...point(center, 10), "40", num(entity.width), "41", num(entity.height),
     "68", String(entity.status ?? 1), "69", String(entity.viewportId ?? 1), ...point(entity.viewCenter ?? { x: 0, y: 0 }, 12), ...point(entity.viewTarget ?? { x: 0, y: 0 }, 17),
     "16", num(entity.viewDirection?.x ?? 0), "26", num(entity.viewDirection?.y ?? 0), "36", num(entity.viewDirection?.z ?? 1), "42", num(entity.lensLength ?? 50), "43", num(entity.frontClip ?? 0), "44", num(entity.rearClip ?? 0),
-    "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.flags ?? (entity.locked ? 16384 : 0))];
+    "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384)];
   for (const handle of entity.frozenLayerHandles ?? []) groups.push("331", String(handle));
   return groups;
 }
