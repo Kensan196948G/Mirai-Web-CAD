@@ -19,6 +19,7 @@ Access変更は`infra/cloudflare/`のTerraformだけで行い、緊急時を除�
 ## 適用と確認
 
 ```bash
+terraform -chdir=infra/cloudflare init -input=false
 terraform -chdir=infra/cloudflare plan -out=change.tfplan
 terraform -chdir=infra/cloudflare show change.tfplan
 terraform -chdir=infra/cloudflare apply change.tfplan

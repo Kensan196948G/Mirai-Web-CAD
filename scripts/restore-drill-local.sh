@@ -35,19 +35,7 @@ trap cleanup EXIT
 "${pg_bin}/pg_restore" --list "$backup_file" >/dev/null
 reset_recovery_database
 
-BACKUP_FILE="$backup_file" ALLOW_DATABASE_RESTORE=yes \
+BACKUP_FILE="$backup_file" SOURCE_DATABASE_URL="$DATABASE_URL" ALLOW_DATABASE_RESTORE=yes \
   bash "$(dirname "$0")/restore-database.sh"
 
-json_string_count="$("${pg_bin}/psql" "$RESTORE_DATABASE_URL" -Atqc "
-  select
-    (select count(*) from drawing_versions where jsonb_typeof(content) = 'string') +
-    (select count(*) from command_events where jsonb_typeof(command_payload) = 'string') +
-    (select count(*) from agent_runs where jsonb_typeof(proposal) = 'string') +
-    (select count(*) from audit_logs where jsonb_typeof(detail) = 'string')
-")"
-if [[ "$json_string_count" != "0" ]]; then
-  echo "restore drill failed: JSONB string scalars remain (found=${json_string_count})" >&2
-  exit 1
-fi
-
-echo "restore drill ok: source=${source_database}, recovery=${restore_database}, JSONB strings=0; recovery data will be cleared"
+echo "restore drill ok: source=${source_database}, recovery=${restore_database}, counts/latest versions match, JSONB shapes valid; recovery data will be cleared"

@@ -10,5 +10,6 @@ mvp_allowed_email = "kensan1969@gmail.com"
 
 # Obtain these IDs during the read-only inventory step. Never guess them.
 mvp_access_application_id = "00000000-0000-0000-0000-000000000000"
+mvp_access_policy_id      = "00000000-0000-0000-0000-000000000000"
 mvp_dns_record_id          = "00000000000000000000000000000000"
 production_dns_record_id   = "00000000000000000000000000000000"

@@ -166,7 +166,7 @@ cloudflared tunnel info mirai-web-cad               # コネクタ登録を確�
 
 ### Cloudflare設定のコード管理
 
-Tunnel登録、本番/MVPのDNS、MVP Access Applicationは`infra/cloudflare/`でTerraform化した。稼働中資源の重複作成を防ぐため、既存IDの棚卸し、import、差分レビューが完了するまで`enable_management=false`を維持する。詳細は[Cloudflare Terraform](../infra/cloudflare/README.md)と[Access変更Runbook](runbooks/cloudflare-access-change.md)を参照。
+Tunnel登録、本番/MVPのDNS、MVP Access Applicationは`infra/cloudflare/`でTerraform化した。稼働中資源の重複作成を防ぐため、既存IDの棚卸しと入力が完了するまで`enable_management=false`を維持する。その後に`true`へ変更してimport planを作成し、差分レビューが完了するまでapplyしない。詳細は[Cloudflare Terraform](../infra/cloudflare/README.md)と[Access変更Runbook](runbooks/cloudflare-access-change.md)を参照。
 
 ### デプロイ(手動)
 

@@ -54,6 +54,12 @@ variable "mvp_access_application_id" {
   default     = ""
 }
 
+variable "mvp_access_policy_id" {
+  description = "Existing allow policy UUID embedded in the imported MVP Access application."
+  type        = string
+  default     = ""
+}
+
 variable "mvp_dns_record_id" {
   description = "Existing MVP CNAME record ID, used by imports.tf after inventory."
   type        = string

@@ -2,9 +2,11 @@ locals {
   tunnel_hostname = "${var.tunnel_id}.cfargotunnel.com"
   inventory_ready = (
     can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.mvp_access_application_id)) &&
+    can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.mvp_access_policy_id)) &&
     can(regex("^[0-9a-f]{32}$", var.mvp_dns_record_id)) &&
     can(regex("^[0-9a-f]{32}$", var.production_dns_record_id)) &&
     !startswith(var.mvp_access_application_id, "00000000-") &&
+    !startswith(var.mvp_access_policy_id, "00000000-") &&
     var.mvp_dns_record_id != "00000000000000000000000000000000" &&
     var.production_dns_record_id != "00000000000000000000000000000000"
   )
@@ -74,6 +76,7 @@ resource "cloudflare_zero_trust_access_application" "mvp" {
   options_preflight_bypass   = false
 
   policies = [{
+    id         = var.mvp_access_policy_id
     name       = "Allow only kensan1969@gmail.com"
     decision   = "allow"
     precedence = 1
