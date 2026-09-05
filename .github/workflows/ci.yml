@@ -22,12 +22,19 @@ jobs:
       - run: python3 -m venv /tmp/corpus-venv
       - run: /tmp/corpus-venv/bin/pip install -r DXF-Test-Corpus/requirements.txt
       - run: /tmp/corpus-venv/bin/python DXF-Test-Corpus/build_corpus.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Verify original DXF archive byte equality (not editable compatibility)
+        run: node scripts/dxf-source-archive.mjs pack DXF-Test-Corpus artifacts/dxf-source-archive
       - name: Upload generation audit (not CAD compatibility certification)
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: synthetic-corpus-audit
-          path: DXF-Test-Corpus/00_manifest/verification.json
+          path: |
+            DXF-Test-Corpus/00_manifest/verification.json
+            artifacts/dxf-source-archive/report.json
           retention-days: 14
 
   application:
