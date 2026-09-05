@@ -16,6 +16,7 @@ test("native BLOCK import, attributes, moves, undo and reload work in the editor
   const command = async (value) => { await page.locator("#commandInput").fill(value); await page.locator("#commandInput").press("Enter"); };
   const fixture = nativeBlockDrawing();
   fixture.unit = "m";
+  fixture.entities[0].axisScale = { x: -1, y: 1.5 };
   const source = exportDxf(fixture).content;
   await page.locator("#importFile").setInputFiles({ name: "native.dxf", mimeType: "application/dxf", buffer: Buffer.from(source) });
   await expect.poll(async () => (await stored()).entities.length).toBe(2);
@@ -23,12 +24,15 @@ test("native BLOCK import, attributes, moves, undo and reload work in the editor
   expect(original.blockDefinitions.length).toBe(2);
   expect(original.unit).toBe("m");
   expect(original.dxfSources[0].source).toBe(source);
+  expect(original.entities[0].axisScale).toEqual({ x: -2, y: 3 });
   await command("UNDO");
   expect((await stored()).blockDefinitions).toEqual([]);
   expect((await stored()).unit).toBe("mm");
   await command("REDO");
   expect((await stored()).unit).toBe("m");
   await command(`SELECT ${(await stored()).entities[0].id}`);
+  await command("MIRROR 0,0 1,0");
+  expect((await stored()).entities[0].axisScale).toEqual({ x: -2, y: -3 });
   await page.locator('#propertyForm [name="layerId"]').selectOption("layer-frame");
   await page.locator("#propertyForm").getByRole("button", { name: "プロパティ更新" }).click();
   expect((await stored()).entities[0].layerId).toBe("layer-frame");
@@ -69,5 +73,6 @@ test("native BLOCK import, attributes, moves, undo and reload work in the editor
   const references = imported.commands.filter((c) => c.op === "add").map((c) => c.entity);
   expect(references[1].insertion).toEqual({ x: 1100, y: 550 });
   expect(references[1].attributeReferences[0].value).toBe("変更済;=1");
+  expect(references[0].axisScale).toEqual({ x: -2, y: -3 });
   expect(errors).toEqual([]);
 });

@@ -7,6 +7,7 @@ export function blockReference(layerId, definitionId, insertion, options = {}) {
   return {
     id: options.id ?? `e_block_${crypto.randomUUID()}`, type: "block", layerId, definitionId,
     ...(options.dxfRecordId ? { dxfRecordId: options.dxfRecordId } : {}),
+    axisScale: structuredClone(options.axisScale ?? { x: 1, y: 1 }),
     insertion: { x: insertion.x, y: insertion.y }, rotation: options.rotation ?? 0, scale: options.scale ?? 1, scaleZ: options.scaleZ ?? options.scale ?? 1,
     attributeReferences: structuredClone(options.attributeReferences ?? []), children: [],
     style: { strokeWidth: 2, lineDash: [], fill: "transparent" }
@@ -16,6 +17,7 @@ export function blockReference(layerId, definitionId, insertion, options = {}) {
 export function blockAttributeText(attribute) {
   return { id: attribute.id, type: "text", layerId: attribute.layerId, at: attribute.at,
     value: attribute.value, size: attribute.size, rotation: attribute.rotation ?? 0,
+    widthFactor: attribute.widthFactor ?? 1, oblique: attribute.oblique ?? 0, generationFlags: attribute.generationFlags ?? 0,
     style: { strokeWidth: 1, lineDash: [], fill: "transparent" } };
 }
 
@@ -33,10 +35,15 @@ export function resolveBlocks(drawing) {
   };
   const checkAttribute = (attribute) => {
     checkPoint(attribute.at);
+    checkTextTransform(attribute);
     if (!layers.has(attribute.layerId) || typeof attribute.tag !== "string" || typeof attribute.value !== "string" ||
         !attribute.tag || /[\r\n]/.test(attribute.tag + attribute.value + (attribute.prompt ?? "")) ||
         !Number.isFinite(attribute.size) || attribute.size <= 0 || !Number.isFinite(attribute.rotation ?? 0) ||
         !Number.isInteger(attribute.flags) || attribute.flags < 0 || attribute.flags > 15) throw new Error("BLOCK属性が不正です。");
+  };
+  const checkTextTransform = (entity) => {
+    if (!Number.isFinite(entity.widthFactor ?? 1) || (entity.widthFactor ?? 1) <= 0 || !Number.isFinite(entity.oblique ?? 0) || Math.abs(entity.oblique ?? 0) >= 90 ||
+        ![0, 2, 4, 6].includes(entity.generationFlags ?? 0)) throw new Error("BLOCK文字変換が不正です。");
   };
   for (const definition of definitions) {
     if (!definition || typeof definition.id !== "string" || !definition.id || byId.has(definition.id) ||
@@ -57,7 +64,8 @@ export function resolveBlocks(drawing) {
     if (!definition) throw new Error(`BLOCK定義が見つかりません: ${reference.definitionId}`);
     if (path.includes(definition.id) || path.length >= 32) throw new Error("BLOCK循環参照または入れ子上限超過です。");
     checkPoint(reference.insertion);
-    if (!layers.has(reference.layerId) || !Number.isFinite(reference.rotation) || !Number.isFinite(reference.scale) || reference.scale <= 0 || !Number.isFinite(reference.scaleZ) || reference.scaleZ <= 0 ||
+    if (![reference.axisScale?.x ?? 1, reference.axisScale?.y ?? 1].every((value) => Number.isFinite(value) && value !== 0)) throw new Error("BLOCK軸尺度が不正です。");
+    if (!layers.has(reference.layerId) || !Number.isFinite(reference.rotation) || !Number.isFinite(reference.scale) || reference.scale <= 0 || !Number.isFinite(reference.scaleZ) || reference.scaleZ === 0 ||
         !Array.isArray(reference.attributeReferences)) throw new Error("BLOCK参照の尺度・属性が不正です。");
     reference.attributeReferences.forEach(checkAttribute);
     reference.name = definition.name;
@@ -79,6 +87,7 @@ export function resolveBlocks(drawing) {
         if (child.type === "arc" && (![child.startAngle, child.endAngle].every(Number.isFinite) || (child.endAngle - child.startAngle) % 360 === 0)) throw new Error("BLOCK円弧角度が不正です。");
       }
       if (child.type === "text") {
+        checkTextTransform(child);
         checkPoint(child.at);
         if (typeof child.value !== "string" || !Number.isFinite(child.size) || child.size <= 0 || !Number.isFinite(child.rotation ?? 0)) throw new Error("BLOCK文字が不正です。");
       }

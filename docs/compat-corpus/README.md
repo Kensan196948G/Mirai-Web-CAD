@@ -8,7 +8,7 @@
 
 [単位保持](dxf-units.md)はmm/mを対象に空図面での採用、既存図面への換算取込、Undo/Redoに対応する。
 
-[原本保全基盤](dxf-source-document.md)に加え、[通常BLOCKのDrawing接続](native-blocks.md)を実装した。18/20件の限定取込・書出しと編集後比較を検証しているが、完全互換とは区別する。
+[原本保全基盤](dxf-source-document.md)に加え、[通常BLOCKのDrawing接続](native-blocks.md)を実装した。鏡像・非一様尺度を含む20/20件の限定取込・書出しと編集後比較を検証しているが、完全互換とは区別する。
 
 80-90%代替方針(`docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md`)Phase 0の完了基準
 「100図面の台帳と利用許諾が存在する」に対応する台帳。

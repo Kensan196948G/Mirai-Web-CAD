@@ -1,6 +1,7 @@
 const EPSILON = 1e-9;
 
 import { transformEntity } from "./cad-advanced.js";
+import { blockWorldEntities, textAffine, affinePoint } from "./cad-affine.js";
 
 import { dimensionGeometry, dimensionReferencePoints, resolveDimensions } from "./cad-dimension.js";
 import { resolveBlocks, BLOCK_RESOURCE_MAX_BYTES } from "./cad-block.js";
@@ -647,6 +648,10 @@ export function entityBounds(entity) {
     return boundsFromPoints(sampleSpline(entity));
   }
   if (entity.type === "text") {
+    if (entity.widthFactor !== undefined || entity.oblique !== undefined || entity.generationFlags !== undefined) {
+      const matrix = textAffine(entity), width = entity.value.length*0.55;
+      return boundsFromPoints([{ x: 0, y: -1 }, { x: width, y: -1 }, { x: width, y: 0 }, { x: 0, y: 0 }].map((p) => affinePoint(matrix, p)));
+    }
     const width = entity.value.length * entity.size * 0.55;
     return boundsFromPoints(transformEntity({ points: [{ x: 0, y: -entity.size }, { x: width, y: -entity.size }, { x: width, y: 0 }, { x: 0, y: 0 }] }, {
       dx: entity.at.x, dy: entity.at.y, angle: entity.rotation ?? 0
@@ -657,6 +662,10 @@ export function entityBounds(entity) {
   }
   if (entity.type === "hatch") return boundsFromPoints(entity.points);
   if (entity.type === "block") {
+    if (entity.definitionId) {
+      const bounds = blockWorldEntities(entity).map(entityBounds).filter(Boolean);
+      return bounds.length ? { minX: Math.min(...bounds.map((b) => b.minX)), minY: Math.min(...bounds.map((b) => b.minY)), maxX: Math.max(...bounds.map((b) => b.maxX)), maxY: Math.max(...bounds.map((b) => b.maxY)) } : boundsFromPoints([entity.insertion]);
+    }
     const bounds = (entity.children ?? []).map(entityBounds).filter(Boolean);
     if (!bounds.length) return entity.definitionId && isFinitePoint(entity.insertion) ? boundsFromPoints([entity.insertion]) : null;
     const combined = {
@@ -693,7 +702,7 @@ export function entityLength(entity) {
   if (entity.type === "spline") return sampledLength(sampleSpline(entity), Boolean(entity.closed));
   if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
   if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
-  if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
+  if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityLength(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
   return 0;
 }
 
@@ -703,7 +712,7 @@ export function entityArea(entity) {
   if (entity.type === "ellipse" && ellipseSweepRadians(entity) >= Math.PI * 2 - EPSILON) return Math.PI * entity.radiusX * entity.radiusY;
   if (entity.type === "polyline" && entity.closed) return polygonArea(entity.points);
   if (entity.type === "hatch") return polygonArea(entity.points);
-  if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
+  if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityArea(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
   return 0;
 }
 

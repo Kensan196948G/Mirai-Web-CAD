@@ -18,7 +18,7 @@
 //   HEADER($ACADVER/$INSUNITS) + TABLES(LAYER) + ENTITIES + EOF
 
 import { resolveBlocks, blockAttributeText } from "./cad-block.js";
-import { transformEntity } from "./cad-advanced.js";
+import { affineText, blockAffine } from "./cad-affine.js";
 import { exportDxfFromSource } from "./dxf-source-export.js";
 
 /** 色相の近傍ACI探索に使う代表色(RGB)。AutoCAD標準色(1〜9)とグレー(250〜255)の近似値。 */
@@ -53,7 +53,7 @@ export function exportDxf(drawing) {
   let preservationFailure = "";
   if (drawing.dxfSources?.length) {
     try {
-      const preserved = exportDxfFromSource(drawing);
+      const preserved = exportDxfFromSource(drawing, encodeDxfEntityRecord, encodeDxfBlockDefinition);
       if (preserved) return preserved;
       preservationFailure = "原本保持の対象外の編集があるため限定再生成します。";
     } catch (error) {
@@ -148,8 +148,12 @@ function dxfText(value) {
 
 function encodeAttribute(attribute, type, layers) {
   return ["0", type, "100", "AcDbEntity", "8", sanitizeName(layers.get(attribute.layerId) ?? "0"), "100", "AcDbText",
-    ...point(attribute.at, 10), "40", num(attribute.size), "1", dxfText(attribute.value), "50", num(attribute.rotation ?? 0), "7", dxfText(attribute.styleName ?? "STANDARD"),
+    ...point(attribute.at, 10), "40", num(attribute.size), "1", dxfText(attribute.value), "50", num(attribute.rotation ?? 0), "7", dxfText(attribute.styleName ?? "STANDARD"), ...textTransformGroups(attribute),
     "100", type === "ATTDEF" ? "AcDbAttributeDefinition" : "AcDbAttribute", ...(type === "ATTDEF" ? ["3", dxfText(attribute.prompt ?? "")] : []), "2", dxfText(attribute.tag), "70", String(attribute.flags ?? 0)];
+}
+
+function textTransformGroups(entity) {
+  return ["41", num(entity.widthFactor ?? 1), "51", num(entity.oblique ?? 0), "71", String(entity.generationFlags ?? 0)];
 }
 
 /**
@@ -174,6 +178,31 @@ function encodeEntity(entity, layerNameById, warnings, skipped, definitions = ne
   return result;
 }
 
+export function encodeDxfEntityRecord(entity, drawing) {
+  const layers = new Map((drawing.layers ?? []).map((layer) => [layer.id, layer.name]));
+  const definitions = new Map((drawing.blockDefinitions ?? []).map((definition) => [definition.id, definition.name]));
+  const warnings = [], skipped = [];
+  const groups = encodeEntity(entity, layers, warnings, skipped, definitions);
+  if (!groups || skipped.length) throw new Error(skipped[0]?.reason ?? "DXF entity encoding failed");
+  return groups.map(dxfText).join("\n") + "\n";
+}
+
+export function encodeDxfBlockDefinition(definition, drawing, owner) {
+  const layers = new Map((drawing.layers ?? []).map((layer) => [layer.id, layer.name]));
+  const definitions = new Map((drawing.blockDefinitions ?? []).map((item) => [item.id, item.name]));
+  const lines = ["0", "BLOCK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockBegin", "2", sanitizeName(definition.name),
+    "70", definition.attributeDefinitions.length ? "2" : "0", ...point(definition.basePoint, 10), "3", sanitizeName(definition.name), "1", ""];
+  const warnings = [], skipped = [];
+  for (const entity of definition.entities) {
+    const encoded = encodeEntity(entity, layers, warnings, skipped, definitions);
+    if (encoded) lines.push(...encoded);
+  }
+  for (const attribute of definition.attributeDefinitions) lines.push(...encodeAttribute(attribute, "ATTDEF", layers));
+  if (skipped.length) throw new Error(skipped[0].reason);
+  lines.push("0", "ENDBLK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockEnd");
+  return lines.map(dxfText).join("\n") + "\n";
+}
+
 function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions) {
   if (!entity || typeof entity !== "object" || typeof entity.id !== "string" || typeof entity.type !== "string") {
     return null;
@@ -189,12 +218,12 @@ function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions)
       if (!entity.definitionId) return skipEntity(entity, skipped, "旧children型BLOCKのDXF書出しは未対応です。");
       const name = definitions.get(entity.definitionId);
       if (!name) return skipEntity(entity, skipped, "BLOCK定義がありません。");
-      const groups = ["0", "INSERT", "100", "AcDbEntity", ...base, "100", "AcDbBlockReference", "2", sanitizeName(name), ...point(entity.insertion, 10), "41", num(entity.scale), "42", num(entity.scale), "43", num(entity.scaleZ ?? entity.scale), "50", num(entity.rotation)];
+      const groups = ["0", "INSERT", "100", "AcDbEntity", ...base, "100", "AcDbBlockReference", "2", sanitizeName(name), ...point(entity.insertion, 10), "41", num(entity.scale*(entity.axisScale?.x ?? 1)), "42", num(entity.scale*(entity.axisScale?.y ?? 1)), "43", num(entity.scaleZ ?? entity.scale), "50", num(entity.rotation)];
       if (entity.attributeReferences.length) {
         groups.push("66", "1");
         for (const attribute of entity.attributeReferences) {
-          const world = transformEntity(blockAttributeText(attribute), { dx: entity.insertion.x, dy: entity.insertion.y, angle: entity.rotation, scale: entity.scale });
-          groups.push(...encodeAttribute({ ...attribute, at: world.at, size: world.size, rotation: world.rotation }, "ATTRIB", layerNameById));
+          const world = affineText(blockAttributeText(attribute), blockAffine(entity));
+          groups.push(...encodeAttribute({ ...attribute, at: world.at, size: world.size, rotation: world.rotation, widthFactor: world.widthFactor, oblique: world.oblique, generationFlags: world.generationFlags }, "ATTRIB", layerNameById));
         }
         groups.push("0", "SEQEND", ...base);
       }
@@ -296,7 +325,7 @@ function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions)
       if (!Number.isFinite(size) || size <= 0) {
         return skipEntity(entity, skipped, "文字高さが不正です(正の値が必要)");
       }
-      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD")];
+      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD"), ...textTransformGroups(entity)];
     }
     default:
       return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です(現Phase: dimension/hatch/block)");

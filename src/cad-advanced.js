@@ -253,7 +253,6 @@ export function measurePoints(start, end) {
  * @returns entity 変換後のentity(rect→polylineへ型が変わり得る)
  */
 export function mirrorEntity(entity, axisStart, axisEnd) {
-  if (entity.definitionId) throw new Error("定義参照BLOCKのMIRRORは未対応です。");
   const a = normalizePoint(axisStart);
   const b = normalizePoint(axisEnd);
   const length = Math.hypot(b.x - a.x, b.y - a.y);
@@ -266,6 +265,13 @@ export function mirrorEntity(entity, axisStart, axisEnd) {
     return { x: 2 * footX - point.x, y: 2 * footY - point.y };
   };
 
+  if (entity.definitionId) {
+    const next = structuredClone(entity);
+    next.insertion = reflect(entity.insertion);
+    next.rotation = 2*Math.atan2(b.y-a.y, b.x-a.x)*180/Math.PI-(entity.rotation ?? 0);
+    next.axisScale = { x: entity.axisScale?.x ?? 1, y: -(entity.axisScale?.y ?? 1) };
+    return next;
+  }
   if (entity.type === "rect") {
     const origin = normalizePoint(entity.origin);
     const corners = [
@@ -360,6 +366,7 @@ export function arrayEntity(entity, cols, rows, colDistance, rowDistance) {
       if (row === 0 && col === 0) continue; // 元位置はコピーしない
       const next = transformEntity(entity, { dx: col * Number(colDistance), dy: row * Number(rowDistance) });
       next.id = `e_array_${randomId()}`;
+      delete next.dxfRecordId;
       next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
       copies.push(next);
     }

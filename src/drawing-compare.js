@@ -404,7 +404,7 @@ function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, expec
 function blockShape(value, layers) {
   if (Array.isArray(value)) return value.map((item) => blockShape(item, layers));
   if (!value || typeof value !== "object") return value;
-  const keys = ["type", "name", "layerId", "x", "y", "points", "origin", "width", "height", "center", "at", "radius", "radiusX", "radiusY", "controlPoints", "degree", "knots", "startParameter", "endParameter", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "scaleZ", "tag", "flags", "styleName", "attributeReferences", "children"];
+  const keys = ["type", "name", "layerId", "x", "y", "points", "origin", "width", "height", "center", "at", "radius", "radiusX", "radiusY", "controlPoints", "degree", "knots", "startParameter", "endParameter", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "axisScale", "scaleZ", "widthFactor", "oblique", "generationFlags", "tag", "flags", "styleName", "attributeReferences", "children"];
   return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, key === "layerId" ? layers.get(value[key]) ?? value[key] : blockShape(value[key], layers)]));
 }
 
