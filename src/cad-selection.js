@@ -1,5 +1,6 @@
 import { angleOnArc, boundsIntersect, entityBounds, sampleEllipse, sampleSpline } from "./cad-core.js";
 import { transformEntity } from "./cad-advanced.js";
+import { dimensionGeometry } from "./cad-dimension.js";
 
 export function selectionBounds(a, b) {
   return { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
@@ -57,11 +58,7 @@ function crosses(entity, box) {
   if (entity.type === "ellipse") points = sampleEllipse(entity);
   if (entity.type === "spline") points = sampleSpline(entity);
   if (entity.type === "dimension") {
-    const [a, b] = entity.points;
-    const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-    const dx = -(b.y - a.y) / length * entity.offset;
-    const dy = (b.x - a.x) / length * entity.offset;
-    points = [a, { x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy }, b];
+    return dimensionGeometry(entity).segments.some(([a, b]) => segmentCrosses(a, b, box));
   }
   if (!points?.length) return false;
   const path = closed ? [...points, points[0]] : points;
@@ -95,7 +92,11 @@ export function selectInBox(drawing, a, b, crossing = b.x < a.x) {
 export function entityGrips(entity) {
   const grips = [];
   const add = (key, point, index = -1) => grips.push({ key, point, index });
-  if (entity.points && ["line", "polyline", "hatch", "dimension"].includes(entity.type)) entity.points.forEach((p, i) => add("points", p, i));
+  if (entity.points && ["line", "polyline", "hatch", "dimension"].includes(entity.type) && !entity.references) entity.points.forEach((p, i) => add("points", p, i));
+  if (entity.type === "dimension" && !["radius", "diameter"].includes(entity.dimensionType)) {
+    const geometry = dimensionGeometry(entity);
+    add("offset", { x: (geometry.start.x + geometry.end.x) / 2, y: (geometry.start.y + geometry.end.y) / 2 });
+  }
   if (entity.type === "spline") entity.controlPoints.forEach((p, i) => add("controlPoints", p, i));
   if (entity.center) add("move", entity.center);
   if (entity.type === "circle") add("radius", { x: entity.center.x + entity.radius, y: entity.center.y });
@@ -117,6 +118,12 @@ export function moveGrip(entity, grip, target) {
   const next = structuredClone(entity);
   if (![target.x, target.y].every(Number.isFinite)) throw new Error("Invalid grip coordinate");
   if (grip.key === "move") return transformEntity(entity, { dx: target.x - grip.point.x, dy: target.y - grip.point.y });
+  if (grip.key === "offset") {
+    const [a, b] = entity.points;
+    const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    next.offset = entity.dimensionType === "horizontal" ? target.y - a.y : entity.dimensionType === "vertical" ? target.x - a.x : (-(b.y - a.y) * (target.x - a.x) + (b.x - a.x) * (target.y - a.y)) / length;
+    return next;
+  }
   if (grip.key === "points" || grip.key === "controlPoints") next[grip.key][grip.index] = { ...target };
   else if (["radius", "radiusX", "radiusY"].includes(grip.key)) {
     const dx = target.x - entity.center.x, dy = target.y - entity.center.y;

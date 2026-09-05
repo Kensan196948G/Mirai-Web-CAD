@@ -1,3 +1,5 @@
+import { dimensionOptions } from "./cad-dimension.js";
+
 const EPSILON = 1e-9;
 
 export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, base = { x: 0, y: 0 } } = {}) {
@@ -187,9 +189,7 @@ export function dimensionEntity(layerId, start, end, options = {}) {
     type: "dimension",
     layerId,
     points: [normalizePoint(start), normalizePoint(end)],
-    offset: Number(options.offset ?? 350),
-    precision: Math.max(0, Math.min(6, Number(options.precision ?? 0))),
-    suffix: String(options.suffix ?? ""),
+    ...dimensionOptions(options),
     style: { strokeWidth: 1.5, lineDash: [], fill: "transparent", ...(options.style ?? {}) },
     meta: metadata(options)
   };

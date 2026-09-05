@@ -154,9 +154,26 @@ export function parseCadCommand(input, context) {
   if (["F", "FILLET"].includes(command)) return filletCommand(tokens, context);
   if (["BO", "BOUNDARY"].includes(command)) return boundaryCommand(tokens, context);
   if (["PE", "PEDIT"].includes(command)) return polylineEditCommand(tokens, context);
-  if (["D", "DIM", "DIMLINEAR"].includes(command)) {
+  if (["D", "DIM", "DIMLINEAR", "DIMALIGNED"].includes(command)) {
     if (tokens.length < 2 || tokens.length > 3) throw new Error("形式: DIM x1,y1 x2,y2 [offset]");
-    return transaction("DIM", [{ op: "add", entity: dimensionEntity(context.currentLayerId, point(tokens[0]), point(tokens[1]), { offset: tokens[2] === undefined ? 350 : number(tokens[2], "offset") }) }]);
+    return transaction("DIM", [{ op: "add", entity: dimensionEntity(context.currentLayerId, point(tokens[0]), point(tokens[1]), { dimensionType: command === "DIMLINEAR" ? "horizontal" : "aligned", offset: tokens[2] === undefined ? 350 : number(tokens[2], "offset") }) }]);
+  }
+  if (["DIMASSOC", "DIMHORIZONTAL", "DIMVERTICAL", "DIMRADIUS", "DIMDIAMETER"].includes(command)) {
+    const entity = context.drawing.entities.find((item) => item.id === (tokens[0] ?? context.selectedId));
+    if (!entity || tokens.length > 2) throw new Error(`${command} [entityId] [offset]`);
+    const radial = command === "DIMRADIUS" || command === "DIMDIAMETER";
+    if (radial && !["circle", "arc"].includes(entity.type)) throw new Error("半径・直径寸法は円/円弧を選択してください。");
+    if (!radial && entity.type !== "line") throw new Error("連想2点寸法は線分を選択してください。");
+    const dimensionType = { DIMASSOC: "aligned", DIMHORIZONTAL: "horizontal", DIMVERTICAL: "vertical", DIMRADIUS: "radius", DIMDIAMETER: "diameter" }[command];
+    const points = radial ? [entity.center, { x: entity.center.x + entity.radius, y: entity.center.y }] : entity.points;
+    const references = radial ? [{ entityId: entity.id, kind: "center" }, { entityId: entity.id, kind: "radius", angle: 0 }] : [0, 1].map((index) => ({ entityId: entity.id, kind: "point", index }));
+    return transaction(command, [{ op: "add", entity: dimensionEntity(context.currentLayerId, points[0], points[1], { dimensionType, references, offset: tokens[1] === undefined ? 350 : number(tokens[1], "offset") }) }]);
+  }
+  if (command === "DIMSTYLE") {
+    if (tokens.length < 3 || tokens.length > 5) throw new Error("DIMSTYLE precision textSize arrowSize [prefix] [suffix]");
+    const targets = selectedEntities([], context);
+    if (targets.some((entity) => entity.type !== "dimension")) throw new Error("寸法を選択してください。");
+    return transaction(command, targets.map((entity) => ({ op: "update", id: entity.id, patch: { precision: number(tokens[0], "precision"), textSize: number(tokens[1], "textSize"), arrowSize: number(tokens[2], "arrowSize"), prefix: tokens[3] ?? "", suffix: tokens[4] ?? "" } })));
   }
   if (["DI", "DIST"].includes(command)) {
     requireCount(tokens, 2, "DIST x1,y1 x2,y2");
@@ -251,13 +268,20 @@ function transformCommand(label, tokens, context, copy) {
   const entities = selectedEntities(ids, context);
   requireCount(tokens, 1, `${label} [id] dx,dy`);
   const offset = point(tokens[0]);
-  return transaction(label, entities.map((entity) => {
+  const commands = entities.map((entity) => {
     if (!copy) return { op: "update", id: entity.id, patch: movedPatch(entity, offset.x, offset.y) };
     const next = movedEntity(entity, offset.x, offset.y);
     next.id = `e_copy_${randomId()}`;
     next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
     return { op: "add", entity: next };
-  }));
+  });
+  if (copy) {
+    const mapping = new Map(entities.map((entity, index) => [entity.id, commands[index].entity.id]));
+    for (const command of commands) {
+      if (command.entity.references) command.entity.references = command.entity.references.map((reference) => ({ ...reference, entityId: mapping.get(reference.entityId) ?? reference.entityId }));
+    }
+  }
+  return transaction(label, commands);
 }
 
 function rotateOrScaleCommand(label, tokens, context) {

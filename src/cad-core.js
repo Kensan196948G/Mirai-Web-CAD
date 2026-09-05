@@ -2,6 +2,8 @@ const EPSILON = 1e-9;
 
 import { transformEntity } from "./cad-advanced.js";
 
+import { dimensionGeometry, dimensionReferencePoints, resolveDimensions } from "./cad-dimension.js";
+
 export const DEFAULT_LAYERS = [
   { id: "layer-frame", name: "図枠", color: "#5b6b7a", visible: true, locked: false, printable: true },
   { id: "layer-center", name: "中心線", color: "#d14f4f", visible: true, locked: false, printable: true },
@@ -317,6 +319,12 @@ export function applyTransaction(drawing, transaction) {
     }
   }
 
+  try {
+    resolveDimensions(next);
+    for (const entity of next.entities) if (entity.type === "dimension") dimensionGeometry(entity);
+  } catch (error) {
+    return fail(`寸法更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`, drawing);
+  }
   next.updatedAt = new Date().toISOString();
   next.revision = (drawing.revision ?? 1) + 1;
   next.commandEvents.push({
@@ -398,10 +406,23 @@ export function approveDrawing(drawing, actor = "approver") {
 
 export function validateDrawing(drawing) {
   const issues = [];
+  const entitiesById = new Map(drawing.entities.map((entity) => [entity.id, entity]));
   const layerIds = new Set(drawing.layers.map((layer) => layer.id));
   const ids = new Set();
 
   for (const entity of drawing.entities) {
+    if (entity.type === "dimension") {
+      try { dimensionGeometry(entity); } catch {
+        issues.push(issue("critical", "invalid-dimension", `寸法が不正です: ${entity.id}`, entity.id));
+        continue;
+      }
+      try {
+        const points = dimensionReferencePoints(entity, entitiesById);
+        if (points && !points.every(isFinitePoint)) issues.push(issue("critical", "broken-dimension", `寸法の参照先がありません: ${entity.id}`, entity.id));
+      } catch {
+        issues.push(issue("critical", "invalid-dimension-reference", `寸法参照が不正です: ${entity.id}`, entity.id));
+      }
+    }
     if (ids.has(entity.id)) {
       issues.push(issue("critical", "duplicate-entity-id", `図形IDが重複しています: ${entity.id}`, entity.id));
     }
@@ -603,17 +624,7 @@ export function entityBounds(entity) {
     };
   }
   if (entity.type === "dimension") {
-    const [start, end] = entity.points;
-    const length = distance(start, end);
-    const normal = length
-      ? { x: (-(end.y - start.y) / length) * entity.offset, y: ((end.x - start.x) / length) * entity.offset }
-      : { x: 0, y: 0 };
-    return boundsFromPoints([
-      start,
-      end,
-      { x: start.x + normal.x, y: start.y + normal.y },
-      { x: end.x + normal.x, y: end.y + normal.y }
-    ]);
+    try { return boundsFromPoints(dimensionGeometry(entity).segments.flat()); } catch { return null; }
   }
   if (entity.type === "hatch") return boundsFromPoints(entity.points);
   if (entity.type === "block") {
@@ -710,7 +721,9 @@ function distanceToEntity(entity, p) {
     const bounds = entityBounds(entity);
     return p.x >= bounds.minX && p.x <= bounds.maxX && p.y >= bounds.minY && p.y <= bounds.maxY ? 0 : Infinity;
   }
-  if (entity.type === "dimension") return pointToSegmentDistance(p, entity.points[0], entity.points[1]);
+  if (entity.type === "dimension") {
+    try { return Math.min(...dimensionGeometry(entity).segments.map(([a, b]) => pointToSegmentDistance(p, a, b))); } catch { return Infinity; }
+  }
   if (entity.type === "hatch") {
     const points = [...entity.points, entity.points[0]];
     return Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current)));

@@ -27,6 +27,7 @@ import { arrayEntity, blockEntity, breakEntity, chamferLines, createBoundaryEnti
 import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
 import { entityGrips, moveGrip, selectableEntities, selectInBox } from "./cad-selection.js";
+import { dimensionGeometry } from "./cad-dimension.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
@@ -89,6 +90,12 @@ const STATUS_TOGGLES = [
 ];
 
 const OPERATION_LABELS = {
+  dimassoc: "連想寸法",
+  dimhorizontal: "水平寸法",
+  dimvertical: "垂直寸法",
+  dimradius: "半径寸法",
+  dimdiameter: "直径寸法",
+  dimstyle: "寸法書式",
   stretch: "ストレッチ",
   explode: "分解",
   matchprop: "プロパティコピー",
@@ -666,6 +673,7 @@ function propsDockHtml(drawing, selected) {
           ? `
         <form id="propertyForm" class="compact-form">
           <dl><dt>ID</dt><dd>${escapeHtml(selected.id)}</dd><dt>種類</dt><dd>${escapeHtml(selected.type)}</dd></dl>
+          ${selected.type === "dimension" ? `<dl><dt>寸法値</dt><dd>${escapeHtml(dimensionGeometry(selected).label)}</dd><dt>参照</dt><dd>${selected.associationStatus === "broken" ? "参照切れ" : selected.references ? "連想" : "独立"}</dd></dl>` : ""}
           <label>レイヤー<select name="layerId">${drawing.layers
             .map(
               (layer) =>
@@ -1550,6 +1558,12 @@ async function applyOperationForm(event) {
   const operation = String(data.get("operation"));
   const value = String(data.get("value") ?? "").trim();
   try {
+    if (["dimassoc", "dimhorizontal", "dimvertical", "dimradius", "dimdiameter", "dimstyle"].includes(operation)) {
+      const input = operation === "dimstyle" ? `${operation} ${value}` : `${operation} ${selected.id} ${value}`;
+      const parsed = parseCadCommand(input, { drawing: state.drawing, currentLayerId: state.currentLayerId, selectedIds: state.selectedIds });
+      if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
+      return;
+    }
     if (["stretch", "explode", "matchprop"].includes(operation)) {
       const parsed = parseCadCommand(`${operation} ${value}`, { drawing: state.drawing, currentLayerId: state.currentLayerId, selectedIds: state.selectedIds });
       if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
@@ -2497,25 +2511,25 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     ctx.fillText(entity.value, at.x, at.y);
   }
   if (entity.type === "dimension") {
-    const [start, end] = entity.points;
-    const length = Math.hypot(end.x - start.x, end.y - start.y);
-    const normal = length ? { x: (-(end.y - start.y) / length) * entity.offset, y: ((end.x - start.x) / length) * entity.offset } : { x: 0, y: 0 };
-    const a = worldToScreen(start);
-    const b = worldToScreen(end);
-    const da = worldToScreen({ x: start.x + normal.x, y: start.y + normal.y });
-    const db = worldToScreen({ x: end.x + normal.x, y: end.y + normal.y });
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(da.x, da.y); ctx.moveTo(b.x, b.y); ctx.lineTo(db.x, db.y); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
-    const arrow = 7;
+    const geometry = dimensionGeometry(entity);
+    const da = worldToScreen(geometry.start), db = worldToScreen(geometry.end);
+    ctx.beginPath();
+    for (const [start, end] of geometry.segments) {
+      const a = worldToScreen(start), b = worldToScreen(end);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    const arrow = geometry.arrowSize * state.camera.scale;
     ctx.fillStyle = overrideColor ?? layer.color;
     for (const arrowhead of [{ tip: da, direction: 1 }, { tip: db, direction: -1 }]) {
       const { tip, direction } = arrowhead;
       const angle = Math.atan2(db.y - da.y, db.x - da.x);
       ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(tip.x + Math.cos(angle + 0.45) * arrow * direction, tip.y + Math.sin(angle + 0.45) * arrow * direction); ctx.lineTo(tip.x + Math.cos(angle - 0.45) * arrow * direction, tip.y + Math.sin(angle - 0.45) * arrow * direction); ctx.closePath(); ctx.fill();
     }
-    const label = `${length.toFixed(entity.precision ?? 0)}${entity.suffix ?? ""}`;
-    ctx.font = `${Math.max(11, 180 * state.camera.scale)}px sans-serif`;
+    ctx.font = `${geometry.textSize * state.camera.scale}px sans-serif`;
     ctx.textAlign = "center";
-    ctx.fillText(label, (da.x + db.x) / 2, (da.y + db.y) / 2 - 5);
+    const labelPoint = worldToScreen(geometry.textPoint);
+    ctx.fillText(geometry.label, labelPoint.x, labelPoint.y);
   }
   if (entity.type === "hatch") {
     const points = entity.points.map(worldToScreen);
