@@ -38,8 +38,9 @@ test("sample runner checks every file and fails on malformed or absent input", a
     report = JSON.parse(await readFile(path.join(output, "report.json"), "utf8"));
     assert.equal(report.total, 5);
     assert.equal(report.passed, 2);
-    assert.equal(report.results.filter((r) => r.error).length, 2);
+    assert.equal(report.results.filter((r) => r.error).length, 3);
     assert.equal(report.results.find((r) => r.file === "unknown.dxf").passed, false);
+    assert.match(report.results.find((r) => r.file === "unknown.dxf").error, /CUSTOM_ENTITY 1件/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

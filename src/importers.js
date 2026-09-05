@@ -1,6 +1,7 @@
 import DxfParserPackage from "dxf-parser";
 import { arc, circle, ellipse, line, polyline, rect, spline, text } from "./cad-core.js";
 import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
+import { sourceEntityInventory } from "./dxf-source-inventory.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -66,6 +67,14 @@ function parseJsonImport(content, drawing, currentLayerId) {
 }
 
 function parseDxfImport(content, drawing, currentLayerId) {
+  const inventory = sourceEntityInventory(content);
+  assertEntityLimit(inventory.total);
+  const supported = new Set(["LINE", "CIRCLE", "ARC", "LWPOLYLINE", "POLYLINE", "ELLIPSE", "SPLINE", "TEXT", "MTEXT"]);
+  const unsupported = Object.entries(inventory.types).filter(([type]) => !supported.has(type));
+  if (inventory.children.ATTRIB) unsupported.push(["ATTRIB", inventory.children.ATTRIB]);
+  if (unsupported.length) {
+    throw new Error(`DXF取込を中止しました。未対応Entity: ${unsupported.map(([type, count]) => `${type} ${count}件`).join(", ")}。図面は変更していません。`);
+  }
   let parsed;
   try {
     parsed = new DxfParser().parseSync(content);
@@ -73,6 +82,11 @@ function parseDxfImport(content, drawing, currentLayerId) {
     throw new Error("DXFを解析できませんでした。ASCII DXFか確認してください。");
   }
   const sourceEntities = parsed?.entities ?? [];
+  const parsedTypes = new Map();
+  for (const entity of sourceEntities) parsedTypes.set(entity.type, (parsedTypes.get(entity.type) ?? 0) + 1);
+  if (sourceEntities.length !== inventory.total || Object.entries(inventory.types).some(([type, count]) => parsedTypes.get(type) !== count)) {
+    throw new Error("DXF取込を中止しました。原本とパーサーのEntity集計が一致しません。図面は変更していません。");
+  }
   assertEntityLimit(sourceEntities.length);
   const layerNames = [...new Set(sourceEntities.map((entity) => entity.layer).filter(Boolean))];
   const layers = createLayerMapping(
@@ -91,7 +105,8 @@ function parseDxfImport(content, drawing, currentLayerId) {
       warnings.push(`${entity.type ?? "UNKNOWN"} ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  return importResult(commands, warnings, sourceEntities.length);
+  if (warnings.length) throw new Error(`DXF取込を中止しました。変換不能Entity ${warnings.length}件: ${warnings.slice(0, 10).join(" / ")}。図面は変更していません。`);
+  return importResult(commands, warnings, inventory.total);
 }
 
 function createLayerMapping(sourceLayers, drawing, fallbackId) {
