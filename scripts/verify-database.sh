@@ -13,6 +13,7 @@ for pass in 1 2; do
     -f migrations/0003_drawing_revision.sql \
     -f migrations/0004_drawing_visibility.sql \
     -f migrations/0005_audit_log_immutability.sql \
+    -f migrations/0006_normalize_jsonb_columns.sql \
     -f seeds/demo.sql >/dev/null
 done
 
@@ -65,6 +66,18 @@ IFS=: read -r database table_count project_count drawing_count public_count vers
 
 if [[ "$table_count" != "8" || "$project_count" != "1" || "$drawing_count" != "1" || "$public_count" != "1" || "$version_count" != "1" || "$audit_count" != "1" ]]; then
   echo "database verification failed: tables=$table_count project=$project_count drawing=$drawing_count public=$public_count version=$version_count audit=$audit_count" >&2
+  exit 1
+fi
+
+json_string_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
+  select
+    (select count(*) from drawing_versions where jsonb_typeof(content) = 'string') +
+    (select count(*) from command_events where jsonb_typeof(command_payload) = 'string') +
+    (select count(*) from agent_runs where jsonb_typeof(proposal) = 'string') +
+    (select count(*) from audit_logs where jsonb_typeof(detail) = 'string')
+")"
+if [[ "$json_string_count" != "0" ]]; then
+  echo "database verification failed: JSONB string scalars remain (found=$json_string_count)" >&2
   exit 1
 fi
 

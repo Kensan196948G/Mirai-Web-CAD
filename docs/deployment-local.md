@@ -1,10 +1,15 @@
 # ローカルデプロイ運用メモ
 
-2026-08-30に、本番の永続化先をNeon PostgreSQLからローカルPostgreSQL + Cloudflare Tunnelへ移行済み(Issue #22、ユーザー指示による。移行完了としてclose)。systemd配置・Cloudflare Tunnel作成・DNS切替まで完了し、本番実測でSPA/health/demo 200、write 401(Cloudflare Access保護導入後は302)を確認済み。この文書は移行後の日常運用手順、およびセットアップ手順の記録(再構築・障害復旧時の参考)を兼ねる。移行の背景・設計判断は`docs/operations.md`の該当節を参照。
+2026-08-30に、本番の永続化先をNeon PostgreSQLからローカルPostgreSQL + Cloudflare Tunnelへ移行済み(Issue #22、ユーザー指示による。移行完了としてclose)。2026-09-05には、本番とデータを分離したMVP URLを同じTunnelへ追加した。この文書は日常運用手順、およびセットアップ手順の記録(再構築・障害復旧時の参考)を兼ねる。移行の背景・設計判断は`docs/operations.md`の該当節を参照。
 
 ## 構成
 
 ```
+Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
+  → mirai-web-cad-mvp.mirai-dx-platform.com
+  → http://127.0.0.1:18813 (mirai-web-cad-mvp.service)
+  → ローカルPostgreSQL 16(127.0.0.1:5432, DB=mirai_web_cad_mvp)
+
 Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
   → mirai-web-cad.mirai-dx-platform.com
   → http://127.0.0.1:18812 (mirai-web-cad.service, scripts/serve-production.mjs)
@@ -12,6 +17,18 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 ```
 
 ## 初回セットアップ
+
+### MVP環境(2026-09-05追加)
+
+- URL: `https://mirai-web-cad-mvp.mirai-dx-platform.com/`
+- Access: ホスト全体をCloudflare IdPで保護し、`kensan1969@gmail.com`だけをallow
+- Origin: `127.0.0.1:18813` (`mirai-web-cad-mvp.service`)
+- DB: ローカルPostgreSQLの`mirai_web_cad_mvp`。本番DB`mirai_web_cad`とは分離
+- 秘密値: `~/.config/mirai-web-cad/mvp.env` (mode 0600、Git管理外)
+
+MVP用envは`production.env`と同じ必須項目を持つ。ただし`DATABASE_URL`のDB名、`CF_ACCESS_AUD`、`CORS_ORIGIN`をMVP専用値にし、`ACCESS_ROLE_MAP`は許可メール1件だけにする。Access Applicationはbypass policyを作らず、サイト全体へ適用する。
+
+公開URLの自動確認には`npm run test:e2e:mvp`を使う。PC/スマホ表示、Canvas描画、health、接続DB名、新規図面、LINE作図、サーバー同期を確認する。自動テスト用Access Service Tokenはテスト時だけ作成し、テスト直後にpolicyとtokenの両方を削除する。通常利用のAccess policyへService Tokenを残してはいけない。
 
 ### 1. DB/ロール作成(実施済み)
 
@@ -48,7 +65,7 @@ AI_RATE_LIMIT_PER_MINUTE=10   # 任意、既定10。actor単位でLLM呼び出�
 
 APIキーはサーバーの環境変数のみで管理され、ブラウザには一切保存・送信されない(`GET /api/ai/status`は有効状態・プロバイダ名・モデル名のみを返し、鍵自体は返さない)。設定後は各プロバイダの管理コンソールで「学習利用オフ」等のデータガバナンス設定を人手で確認すること(コード外の運用手順)。
 
-**Entra IDグループ同期(任意、Issue #5)**: 利用者ログイン自体はCloudflare Access One-Time PINのままとし、案件単位RBACのためのグループ所属取得のみをMicrosoft Graph APIへ非対話式(client credentials flow)でアクセスして行う。`ACCESS_ROLE_MAP`(メール直接指定)による解決が優先され、そこに一致しない利用者だけがEntra IDグループ経由で解決される。以下を追加すると有効化される。未設定の場合は`ACCESS_ROLE_MAP`とその後の`ACCESS_DEFAULT_ROLE`(既定`viewer`)のみで動作し続ける(fail-soft)。
+**Entra IDグループ同期(任意、Issue #5)**: 利用者ログインはCloudflare AccessのCloudflare IdPを使い、案件単位RBACのためのグループ所属取得のみをMicrosoft Graph APIへ非対話式(client credentials flow)でアクセスして行う。`ACCESS_ROLE_MAP`(メール直接指定)による解決が優先され、そこに一致しない利用者だけがEntra IDグループ経由で解決される。以下を追加すると有効化される。未設定の場合は`ACCESS_ROLE_MAP`とその後の`ACCESS_DEFAULT_ROLE`(既定`viewer`)のみで動作し続ける(fail-soft)。
 
 ```
 ENTRA_TENANT_ID=<Entra IDテナントID>
@@ -79,6 +96,7 @@ DATABASE_URL="$DATABASE_URL" npm run db:verify
 ```bash
 sudo install -o root -g root -m 0644 \
   deploy/systemd/mirai-web-cad.service \
+  deploy/systemd/mirai-web-cad-mvp.service \
   deploy/systemd/mirai-web-cad-cloudflared.service \
   deploy/systemd/mirai-web-cad-backup.service \
   deploy/systemd/mirai-web-cad-backup.timer \
@@ -87,6 +105,7 @@ sudo install -o root -g root -m 0644 \
   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mirai-web-cad.service
+sudo systemctl enable --now mirai-web-cad-mvp.service
 sudo systemctl enable --now mirai-web-cad-backup.timer mirai-web-cad-backup-check.timer
 ```
 

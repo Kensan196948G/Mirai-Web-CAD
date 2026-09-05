@@ -21,6 +21,7 @@ const required = [
   "migrations/0003_drawing_revision.sql",
   "migrations/0004_drawing_visibility.sql",
   "migrations/0005_audit_log_immutability.sql",
+  "migrations/0006_normalize_jsonb_columns.sql",
   "_headers",
   "seeds/demo.sql",
   "playwright.config.js",

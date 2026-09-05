@@ -45,6 +45,10 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
     const created = await store.createDrawingAtomically(drawing, auditEntry, idempotencyKey, "it@test", "/api/drawings");
     assert.equal(created, true);
 
+    const reloaded = await store.getDrawing(drawing.id, false);
+    assert.deepEqual(reloaded.entities, drawing.entities, "JSONBから図面配列をそのまま復元する");
+    assert.deepEqual(reloaded.layers, drawing.layers, "JSONBからレイヤー配列をそのまま復元する");
+
     const duplicate = await store.createDrawingAtomically(drawing, auditEntry, idempotencyKey, "it@test", "/api/drawings");
     assert.equal(duplicate, false, "同一Idempotency-Keyの再送はfalseを返す(トランザクション書き換え後も冪等性を維持)");
   });
@@ -162,6 +166,8 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
     const logs = await store.listAuditLogs(5, 0);
     assert.ok(Array.isArray(logs));
     assert.ok(logs.length > 0);
+    assert.equal(logs[0].role, "viewer");
+    assert.equal(logs[0].detail.count, 1);
   });
 
   t.after(async () => {

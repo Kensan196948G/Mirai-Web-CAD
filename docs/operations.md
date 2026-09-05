@@ -6,7 +6,7 @@
 npm run dev
 ```
 
-`http://127.0.0.1:4174/`でSPAと`/api`を同一オリジン確認できます。ブラウザ保存はLocalStorageです。破損時は画面左ツールの「デモ初期化」またはブラウザDevToolsで`mirai-web-cad-mvp`キーを削除します。既定ではメモリストア(`env.DATABASE_URL`は無視)です。ローカルPostgreSQLへ接続して確認したい場合は`LOCAL_DB=1`を明示してください。
+`npm run dev`は`0.0.0.0:4174`で待ち受け、起動時に`Local` URLと端末へ自動割当された`Network (インターフェース名)` URLを表示します。同一LAN上の端末は後者を使用します。Docker bridge、veth、リンクローカルIPv4は表示対象から除外されます。LAN公開が不要な場合は`HOST=127.0.0.1 npm run dev`で制限してください。SPAと`/api`は同一オリジンです。ブラウザ保存はLocalStorageです。破損時は画面左ツールの「デモ初期化」またはブラウザDevToolsで`mirai-web-cad-mvp`キーを削除します。既定ではメモリストア(`env.DATABASE_URL`は無視)です。ローカルPostgreSQLへ接続して確認したい場合は`LOCAL_DB=1`を明示してください。
 
 ```bash
 LOCAL_DB=1 DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" npm run dev
@@ -34,12 +34,19 @@ curl http://127.0.0.1:4176/api/health
 
 ```
 Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
+  → mirai-web-cad-mvp.mirai-dx-platform.com
+  → http://127.0.0.1:18813 (mirai-web-cad-mvp.service)
+  → ローカルPostgreSQL 16(127.0.0.1:5432, DB=mirai_web_cad_mvp)
+
+Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
   → mirai-web-cad.mirai-dx-platform.com
   → http://127.0.0.1:18812 (mirai-web-cad.service, scripts/serve-production.mjs)
   → ローカルPostgreSQL 16(127.0.0.1:5432, DB=mirai_web_cad)
 ```
 
 セットアップ手順、systemdユニット一覧、日常運用(デプロイ・バックアップ・ログ確認・ロールバック)は[ローカルデプロイ運用メモ](deployment-local.md)を参照してください。
+
+MVP URLはサイト全体をCloudflare Accessで保護し、`kensan1969@gmail.com`だけを許可する。本番の公開デモ用bypass policyはMVPへ引き継がない。MVPと本番は同じソースとTunnelを使うが、待受ポート、環境ファイル、PostgreSQLデータベースを分離する。
 
 Cloudflare Pages(`functions/api/`、`wrangler.toml`)はロールバック手段として当面残置していますが、`main`へのマージでは自動デプロイされません(`.github/workflows/production.yml`のdeployジョブは削除済み、`CLOUDFLARE_DEPLOY_ENABLED`変数もPR Preview用途にのみ影響します)。
 
@@ -208,7 +215,7 @@ IT/DX 7名での運用を想定した枠組み。**当番の実名・連絡先�
 - AIはルールベース提案を優先し、拾えない場合のみサーバー側プロキシ経由でOpenAI/Anthropicへフォールバックする(2026-08-30〜、PR#47/#49)。本番の実際の有効化状態は`GET /api/ai/status`で確認可能(鍵は返さない)
 - 本番Custom Domainは`https://mirai-web-cad.mirai-dx-platform.com/`。SPA、health、公開デモは匿名200。任意図面と全更新は未認証401
 - `mirai-web-cad.pages.dev`はロールバック手段として残置しているが、mainマージでは更新されない(SPAのみ200、`/api`は移行前のNeon接続コードのまま機能しない)
-- Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログイン方式はOne-Time PIN(Entra IDへの差し替えなし、2026-08-30にユーザーが確定)。案件単位RBACのための Entra ID グループ⇔ロール動的マッピングは実装済み(`src/entra-graph.js`、Microsoft Graph APIを非対話式client credentials flowで呼び出し、`ACCESS_ROLE_MAP`不一致時のみ`ENTRA_GROUP_ROLE_MAP`で解決、インメモリキャッシュ既定15分、解決失敗はfail-softで`ACCESS_DEFAULT_ROLE`へ縮退。設定手順は[ローカルデプロイ運用メモ](deployment-local.md)参照)。未設定のまま(`ENTRA_TENANT_ID`等3変数)では従来通り`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`のみで動作する。複数利用者への実運用展開(グループ⇔ロール対応表の確定・投入)は引き続きIssue #5の残課題
+- Production環境は`AUTH_MODE=access`。Cloudflare Access(`mirai-web-cad-api`、`/api/*`保護、`kensan1969@gmail.com`のみallow)を2026-08-30に設定。未ログイン・未認証の書き込みはAccessログインへの302で拒否(SPA/health/demoはbypass設定で引き続き匿名可)。ログインはCloudflare IdPを使用する。案件単位RBACのための Entra ID グループ⇔ロール動的マッピングは実装済み(`src/entra-graph.js`、Microsoft Graph APIを非対話式client credentials flowで呼び出し、`ACCESS_ROLE_MAP`不一致時のみ`ENTRA_GROUP_ROLE_MAP`で解決、インメモリキャッシュ既定15分、解決失敗はfail-softで`ACCESS_DEFAULT_ROLE`へ縮退。設定手順は[ローカルデプロイ運用メモ](deployment-local.md)参照)。未設定のまま(`ENTRA_TENANT_ID`等3変数)では従来通り`ACCESS_ROLE_MAP`/`ACCESS_DEFAULT_ROLE`のみで動作する。複数利用者への実運用展開(グループ⇔ロール対応表の確定・投入)は引き続きIssue #5の残課題
 - Production DBはこのホスト(kensan1969)上のローカルPostgreSQL 16、DB名`mirai_web_cad`
 - 本番サービスがこのホストの稼働・ネットワークに依存する。ホスト停止・ネットワーク断で本番が停止する
 - `mirai-web-cad.service`のsystemdユニットは`IPAddressDeny=any`を採用していない(Cloudflare Access JWKS取得の外向きHTTPSに必要なため)。インバウンド制限は`127.0.0.1`バインドと`RestrictAddressFamilies`で担保している

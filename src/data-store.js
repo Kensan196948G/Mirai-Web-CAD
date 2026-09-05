@@ -59,7 +59,7 @@ class MemoryDataStore {
   }
 
   async probe() {
-    return { provider: "memory", mode: "memory-preview", migration: "0004_drawing_visibility.sql" };
+    return { provider: "memory", mode: "memory-preview", migration: "0006_normalize_jsonb_columns.sql" };
   }
 
   async getDrawing(id) {
@@ -164,6 +164,14 @@ class PostgresDataStore {
              ) and exists (
                select 1 from information_schema.triggers
                where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_delete'
+             ) and not exists (
+               select 1 from drawing_versions where jsonb_typeof(content) = 'string'
+             ) and not exists (
+               select 1 from command_events where jsonb_typeof(command_payload) = 'string'
+             ) and not exists (
+               select 1 from agent_runs where jsonb_typeof(proposal) = 'string'
+             ) and not exists (
+               select 1 from audit_logs where jsonb_typeof(detail) = 'string'
              ) as migrated
     `;
     return {
@@ -171,7 +179,7 @@ class PostgresDataStore {
       mode: "connected",
       database: rows[0].database,
       migrated: rows[0].migrated,
-      migration: "0005_audit_log_immutability.sql"
+      migration: "0006_normalize_jsonb_columns.sql"
     };
   }
 
@@ -188,7 +196,7 @@ class PostgresDataStore {
     if (rows.length === 0) return null;
 
     const row = rows[0];
-    let drawing = row.content;
+    let drawing = parseStoredJson(row.content);
     if (!isCadDrawing(drawing)) {
       drawing = seedDrawing();
     }
@@ -210,7 +218,7 @@ class PostgresDataStore {
   }
 
   async saveDrawing(drawing) {
-    const content = JSON.stringify(drawing);
+    const content = this.sql.json(drawing);
     const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
     const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
@@ -234,7 +242,7 @@ class PostgresDataStore {
       ), version_write as (
         insert into drawing_versions (id, drawing_id, version_no, state, content, content_hash, created_by)
         select ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
-               ${content}::jsonb, ${contentHash}, ${actor}
+               ${content}, ${contentHash}, ${actor}
         from drawing_write
         on conflict (drawing_id, version_no) do update set
           state = excluded.state,
@@ -249,7 +257,6 @@ class PostgresDataStore {
   }
 
   async createDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route) {
-    const content = JSON.stringify(drawing);
     const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
     const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
@@ -272,7 +279,7 @@ class PostgresDataStore {
           )
           values (
             ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
-            ${content}::jsonb, ${contentHash}, ${actor}
+            ${tx.json(drawing)}, ${contentHash}, ${actor}
           )
         `;
         await tx`
@@ -280,7 +287,7 @@ class PostgresDataStore {
           values (
             ${auditEntry.id}, ${auditEntry.actorId}, ${auditEntry.action},
             ${auditEntry.targetType}, ${auditEntry.targetId},
-            ${JSON.stringify({ role: auditEntry.role, ...auditEntry.detail })}::jsonb,
+            ${tx.json({ role: auditEntry.role, ...auditEntry.detail })},
             ${auditEntry.createdAt}
           )
         `;
@@ -293,14 +300,14 @@ class PostgresDataStore {
   }
 
   async saveDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route, agentRun = null) {
-    const content = JSON.stringify(drawing);
+    const content = this.sql.json(drawing);
     const commandEvent = drawing.commandEvents?.at(-1) ?? null;
     const contentHash = commandEvent?.afterHash ?? `version-${drawing.version}`;
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
     const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
     const expectedRevision = drawing.revision - 1;
-    const eventPayload = commandEvent ? JSON.stringify(commandEvent.commands ?? []) : null;
-    const agentProposal = agentRun ? JSON.stringify(agentRun.proposal) : null;
+    const eventPayload = commandEvent ? this.sql.json(commandEvent.commands ?? []) : null;
+    const agentProposal = agentRun ? this.sql.json(agentRun.proposal) : null;
     try {
       const rows = await this.sql`
         with drawing_write as (
@@ -316,7 +323,7 @@ class PostgresDataStore {
         ), version_write as (
           insert into drawing_versions (id, drawing_id, version_no, state, content, content_hash, created_by)
           select ${versionId}, ${drawing.id}, ${drawing.version}, ${drawing.state},
-                 ${content}::jsonb, ${contentHash}, ${actor}
+                 ${content}, ${contentHash}, ${actor}
           from drawing_write
           on conflict (drawing_id, version_no) do update set
             state = excluded.state,
@@ -329,7 +336,7 @@ class PostgresDataStore {
             before_hash, after_hash, created_at
           )
           select ${commandEvent?.id ?? null}, version_write.id, ${commandEvent?.source ?? "system"},
-                 ${actorId}, ${commandEvent?.label ?? "state transition"}, ${eventPayload}::jsonb,
+                 ${actorId}, ${commandEvent?.label ?? "state transition"}, ${eventPayload},
                  ${commandEvent?.beforeHash ?? contentHash}, ${commandEvent?.afterHash ?? contentHash},
                  ${commandEvent?.at ?? new Date().toISOString()}
           from version_write
@@ -340,14 +347,14 @@ class PostgresDataStore {
           insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
           select ${auditEntry.id}, ${auditEntry.actorId}, ${auditEntry.action},
                  ${auditEntry.targetType}, ${auditEntry.targetId},
-                 ${JSON.stringify({ role: auditEntry.role, ...auditEntry.detail })}::jsonb,
+                 ${this.sql.json({ role: auditEntry.role, ...auditEntry.detail })},
                  ${auditEntry.createdAt}
           from drawing_write
           returning id
         ), agent_write as (
           update agent_runs set
             status = ${agentRun?.status ?? null},
-            proposal = coalesce(${agentProposal}::jsonb, proposal)
+            proposal = coalesce(${agentProposal}, proposal)
           where id = ${agentRun?.id ?? null}
             and exists (select 1 from drawing_write)
           returning id
@@ -375,7 +382,7 @@ class PostgresDataStore {
       )
       select ${run.id}, v.id, ${run.status}, ${run.prompt},
              ${run.proposal.skill?.id ?? null}, ${run.proposal.skill?.version ?? null},
-             ${JSON.stringify(run.proposal)}::jsonb, ${run.proposal.risk ?? "preview"},
+             ${this.sql.json(run.proposal)}, ${run.proposal.risk ?? "preview"},
              ${run.createdBy}, ${run.createdAt}
       from drawing_versions v
       where v.drawing_id = ${run.drawingId}
@@ -404,7 +411,7 @@ class PostgresDataStore {
       drawingId: row.drawing_id,
       status: row.status,
       prompt: row.prompt,
-      proposal: row.proposal,
+      proposal: parseStoredJson(row.proposal),
       createdBy: row.created_by,
       createdAt: new Date(row.created_at).toISOString()
     };
@@ -414,7 +421,7 @@ class PostgresDataStore {
     await this.sql`
       insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
       values (${entry.id}, ${entry.actorId}, ${entry.action}, ${entry.targetType},
-              ${entry.targetId}, ${JSON.stringify({ role: entry.role, ...entry.detail })}::jsonb,
+              ${entry.targetId}, ${this.sql.json({ role: entry.role, ...entry.detail })},
               ${entry.createdAt})
       on conflict (id) do nothing
     `;
@@ -430,16 +437,19 @@ class PostgresDataStore {
       limit ${safeLimit}
       offset ${safeOffset}
     `;
-    return rows.map((row) => ({
-      id: row.id,
-      actorId: row.actor_id,
-      role: row.detail?.role,
-      action: row.action,
-      targetType: row.target_type,
-      targetId: row.target_id,
-      detail: row.detail,
-      createdAt: new Date(row.created_at).toISOString()
-    }));
+    return rows.map((row) => {
+      const detail = parseStoredJson(row.detail);
+      return {
+        id: row.id,
+        actorId: row.actor_id,
+        role: detail?.role,
+        action: row.action,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        detail,
+        createdAt: new Date(row.created_at).toISOString()
+      };
+    });
   }
 
   async countAuditLogs() {
@@ -478,6 +488,15 @@ function isCadDrawing(value) {
       Array.isArray(value.commandEvents) &&
       Array.isArray(value.auditLog)
   );
+}
+
+function parseStoredJson(value) {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
 }
 
 function clone(value) {
