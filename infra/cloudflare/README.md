@@ -50,4 +50,4 @@ terraform -chdir=infra/cloudflare apply change.tfplan
 
 ## 現在の移行状態
 
-コード、guardrail、CI検証は準備済みです。現行tokenにはDNSとAccess管理権限がなく、APIが`403/auth.forbidden`を返すため、実資源のID棚卸し・import・初回plan/applyは未実施です。権限付与後も最初にread-only inventoryを行い、既存設定との差分をレビューしてから管理を有効化します。
+コード、guardrail、CI検証は準備済みです。2026-09-05の再棚卸しではtoken verifyは成功しましたが、DNS APIは`403/code 10000`、Access Application APIはHTTP 200でも0件でした。対象account/zoneへ必要権限を付けたtokenと正しいZero Trust accountを確認できないため、実資源のID棚卸し・import・初回plan/applyは未実施です。権限付与後も最初にread-only inventoryを行い、既存設定との差分をレビューしてから管理を有効化します。詳細は[外部入力・確定待ち台帳](../../docs/external-input-status.md)を参照してください。

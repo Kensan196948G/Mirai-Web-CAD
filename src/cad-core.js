@@ -112,6 +112,31 @@ export function arc(layerId, center, radius, startAngle, endAngle, options = {})
   });
 }
 
+export function ellipse(layerId, center, radiusX, radiusY, rotation = 0, options = {}) {
+  return entityBase("ellipse", layerId, {
+    ...options,
+    center: point(center),
+    radiusX: Number(radiusX),
+    radiusY: Number(radiusY),
+    rotation: Number(rotation),
+    startParameter: Number(options.startParameter ?? 0),
+    endParameter: Number(options.endParameter ?? Math.PI * 2)
+  });
+}
+
+export function spline(layerId, controlPoints, options = {}) {
+  const points = controlPoints.map(point);
+  const degree = Math.max(1, Math.min(Number(options.degree ?? 3), points.length - 1));
+  const knots = Array.isArray(options.knots) ? options.knots.map(Number) : clampedUniformKnots(points.length, degree);
+  return entityBase("spline", layerId, {
+    ...options,
+    controlPoints: points,
+    degree,
+    knots,
+    closed: Boolean(options.closed)
+  });
+}
+
 export function polyline(layerId, points, options = {}) {
   return entityBase("polyline", layerId, {
     points: points.map(point),
@@ -389,6 +414,16 @@ export function validateDrawing(drawing) {
     if ((entity.type === "circle" || entity.type === "arc") && (!Number.isFinite(entity.radius) || entity.radius <= 0)) {
       issues.push(issue("critical", "invalid-radius", `円半径が不正です: ${entity.id}`, entity.id));
     }
+    if (entity.type === "ellipse" && (
+      !Number.isFinite(entity.radiusX) || entity.radiusX <= 0 ||
+      !Number.isFinite(entity.radiusY) || entity.radiusY <= 0 || entity.radiusY > entity.radiusX ||
+      !Number.isFinite(entity.rotation) || ellipseSweepRadians(entity) <= EPSILON
+    )) {
+      issues.push(issue("critical", "invalid-ellipse", `楕円の中心・半径・角度が不正です: ${entity.id}`, entity.id));
+    }
+    if (entity.type === "spline" && !validSpline(entity)) {
+      issues.push(issue("critical", "invalid-spline", `スプラインの制御点・次数・ノット列が不正です: ${entity.id}`, entity.id));
+    }
 
     const bounds = entityBounds(entity);
     if (!bounds) {
@@ -548,6 +583,14 @@ export function entityBounds(entity) {
     }
     return boundsFromPoints(points);
   }
+  if (entity.type === "ellipse") {
+    if (!isFinitePoint(entity.center) || !Number.isFinite(entity.radiusX) || entity.radiusX <= 0 || !Number.isFinite(entity.radiusY) || entity.radiusY <= 0) return null;
+    return boundsFromPoints(sampleEllipse(entity));
+  }
+  if (entity.type === "spline") {
+    if (!validSpline(entity)) return null;
+    return boundsFromPoints(sampleSpline(entity));
+  }
   if (entity.type === "text") {
     return {
       minX: entity.at.x,
@@ -603,6 +646,8 @@ export function entityLength(entity) {
   if (entity.type === "rect") return Math.abs(entity.width * 2) + Math.abs(entity.height * 2);
   if (entity.type === "circle") return 2 * Math.PI * entity.radius;
   if (entity.type === "arc") return (Math.PI * entity.radius * arcSweepDegrees(entity)) / 180;
+  if (entity.type === "ellipse") return sampledLength(sampleEllipse(entity), false);
+  if (entity.type === "spline") return sampledLength(sampleSpline(entity), Boolean(entity.closed));
   if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
   if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
   if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
@@ -612,6 +657,7 @@ export function entityLength(entity) {
 export function entityArea(entity) {
   if (entity.type === "rect") return Math.abs(entity.width * entity.height);
   if (entity.type === "circle") return Math.PI * entity.radius * entity.radius;
+  if (entity.type === "ellipse" && ellipseSweepRadians(entity) >= Math.PI * 2 - EPSILON) return Math.PI * entity.radiusX * entity.radiusY;
   if (entity.type === "polyline" && entity.closed) return polygonArea(entity.points);
   if (entity.type === "hatch") return polygonArea(entity.points);
   if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
@@ -651,6 +697,8 @@ function distanceToEntity(entity, p) {
     if (angleOnArc(angle, entity.startAngle, entity.endAngle)) return Math.abs(distance(p, entity.center) - entity.radius);
     return Math.min(distance(p, arcPointAt(entity, entity.startAngle)), distance(p, arcPointAt(entity, entity.endAngle)));
   }
+  if (entity.type === "ellipse") return distanceToSampledPath(p, sampleEllipse(entity), false);
+  if (entity.type === "spline") return distanceToSampledPath(p, sampleSpline(entity), Boolean(entity.closed));
   if (entity.type === "polyline") {
     const points = entity.closed ? [...entity.points, entity.points[0]] : entity.points;
     return Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current)));
@@ -699,6 +747,116 @@ export function arcPointAt(entity, angle) {
     x: entity.center.x + entity.radius * Math.cos(radians),
     y: entity.center.y + entity.radius * Math.sin(radians)
   };
+}
+
+export function ellipsePointAt(entity, parameter) {
+  const rotation = (Number(entity.rotation ?? 0) * Math.PI) / 180;
+  const localX = entity.radiusX * Math.cos(parameter);
+  const localY = entity.radiusY * Math.sin(parameter);
+  return {
+    x: entity.center.x + localX * Math.cos(rotation) - localY * Math.sin(rotation),
+    y: entity.center.y + localX * Math.sin(rotation) + localY * Math.cos(rotation)
+  };
+}
+
+export function sampleEllipse(entity, segmentCount = 96) {
+  const sweep = ellipseSweepRadians(entity);
+  if (sweep <= EPSILON) return [];
+  const count = Math.max(12, Math.min(256, Math.ceil(segmentCount * sweep / (Math.PI * 2))));
+  return Array.from({ length: count + 1 }, (_, index) =>
+    ellipsePointAt(entity, Number(entity.startParameter ?? 0) + sweep * index / count)
+  );
+}
+
+export function sampleSpline(entity, segmentCount = Math.max(32, (entity.controlPoints?.length ?? 0) * 12)) {
+  if (!validSpline(entity)) return [];
+  const points = entity.controlPoints;
+  const degree = entity.degree;
+  const knots = entity.knots;
+  const start = knots[degree];
+  const end = knots[points.length];
+  const count = Math.max(8, Math.min(512, segmentCount));
+  return Array.from({ length: count + 1 }, (_, index) => {
+    const t = index === count ? end : start + (end - start) * index / count;
+    return deBoor(points, degree, knots, t);
+  });
+}
+
+export function ellipseSweepRadians(entity) {
+  const start = Number(entity.startParameter ?? 0);
+  const end = Number(entity.endParameter ?? Math.PI * 2);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  const raw = end - start;
+  if (Math.abs(raw) >= Math.PI * 2 - EPSILON) return Math.PI * 2;
+  return ((raw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+}
+
+export function parameterOnEllipse(parameter, entity) {
+  const sweep = ellipseSweepRadians(entity);
+  if (sweep >= Math.PI * 2 - EPSILON) return true;
+  const start = Number(entity.startParameter ?? 0);
+  const relative = ((Number(parameter) - start) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+  return relative <= sweep + EPSILON;
+}
+
+function clampedUniformKnots(pointCount, degree) {
+  const knotCount = pointCount + degree + 1;
+  const end = pointCount - degree;
+  return Array.from({ length: knotCount }, (_, index) => {
+    if (index <= degree) return 0;
+    if (index >= pointCount) return 1;
+    return (index - degree) / end;
+  });
+}
+
+function validSpline(entity) {
+  const points = entity.controlPoints;
+  const degree = Number(entity.degree);
+  const knots = entity.knots;
+  return Array.isArray(points) && points.length >= 2 && points.every(isFinitePoint) &&
+    Number.isInteger(degree) && degree >= 1 && degree < points.length &&
+    Array.isArray(knots) && knots.length === points.length + degree + 1 &&
+    knots.every(Number.isFinite) && knots.every((value, index) => index === 0 || value >= knots[index - 1]) &&
+    knots[degree] < knots[points.length];
+}
+
+function deBoor(points, degree, knots, parameter) {
+  const lastControl = points.length - 1;
+  let span = degree;
+  if (parameter >= knots[points.length]) span = lastControl;
+  else {
+    for (let index = degree; index <= lastControl; index += 1) {
+      if (parameter >= knots[index] && parameter < knots[index + 1]) {
+        span = index;
+        break;
+      }
+    }
+  }
+  const work = Array.from({ length: degree + 1 }, (_, index) => ({ ...points[span - degree + index] }));
+  for (let level = 1; level <= degree; level += 1) {
+    for (let index = degree; index >= level; index -= 1) {
+      const knotIndex = span - degree + index;
+      const denominator = knots[knotIndex + degree - level + 1] - knots[knotIndex];
+      const alpha = Math.abs(denominator) <= EPSILON ? 0 : (parameter - knots[knotIndex]) / denominator;
+      work[index] = {
+        x: (1 - alpha) * work[index - 1].x + alpha * work[index].x,
+        y: (1 - alpha) * work[index - 1].y + alpha * work[index].y
+      };
+    }
+  }
+  return work[degree];
+}
+
+function sampledLength(points, closed) {
+  if (points.length < 2) return 0;
+  const path = closed ? [...points, points[0]] : points;
+  return path.slice(1).reduce((sum, current, index) => sum + distance(path[index], current), 0);
+}
+
+function distanceToSampledPath(pointValue, points, closed) {
+  if (points.length < 2) return Infinity;
+  const path = closed ? [...points, points[0]] : points;
+  return Math.min(...path.slice(1).map((current, index) => pointToSegmentDistance(pointValue, path[index], current)));
 }
 
 function point(value) {

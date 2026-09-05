@@ -8,12 +8,14 @@ function context(overrides = {}) {
   return { drawing, currentLayerId: "layer-structure", selectedId: null, ...overrides };
 }
 
-test("command line creates line, rectangle, circle, arc, polyline, and text transactions", () => {
+test("command line creates line, rectangle, circle, arc, ellipse, spline, polyline, and text transactions", () => {
   const cases = [
     ["LINE 0,0 100,200", "line"],
     ["RECT 10,20 110,220", "rect"],
     ["CIRCLE 50,60 25", "circle"],
     ["ARC 50,60 25 350 20", "arc"],
+    ["ELLIPSE 50,60 40 20 30", "ellipse"],
+    ["SPLINE 0,0 50,100 100,0", "spline"],
     ["PLINE 0,0 100,0 100,100 CLOSE", "polyline"],
     ['TEXT 30,40 "施工 注記"', "text"]
   ];
@@ -47,6 +49,8 @@ test("command line supports UI commands and rejects malformed input", () => {
   assert.throws(() => parseCadCommand("LINE 0,0 100,", context()), /yが空/);
   assert.throws(() => parseCadCommand("CIRCLE 0,0 -1", context()), /半径/);
   assert.throws(() => parseCadCommand("ARC 0,0 10 90 90", context()), /開始角度/);
+  assert.throws(() => parseCadCommand("ELLIPSE 0,0 10 20", context()), /長半径/);
+  assert.throws(() => parseCadCommand("SPLINE 0,0", context()), /2点以上/);
   assert.throws(() => parseCadCommand("UNKNOWN", context()), /未対応/);
 });
 

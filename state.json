@@ -11,17 +11,17 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-09-05(機能カタログRound 14)。Cloudflare Tunnel/DNS/MVP AccessのTerraform v5.24構成、import-firstガード、CI validate、サービス/Access/DB障害Runbookを実装。実資源のimport/plan/applyは対象限定のCloudflare DNS/Access管理token発行待ち。次はEntraグループとCADロール、Client Secretローテーション、当番体制を確定し、Phase 1のELLIPSE/SPLINE以降を順次進める。Phase 0の実案件DXF 100図面収集/UATは利用許諾済みデータとCAD利用者の提供待ち。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
-  "phase": "Monitor",
+  "goal": "2026-09-05(機能カタログRound 15)。指定順序1〜3を実環境で再棚卸しし、Cloudflare権限/資源ID、Entra対象UPN/グループGUID/運用責任者、DXF 100図面/UAT 20名が外部入力待ちであることと再開条件を記録。並行可能なPhase 1としてネイティブELLIPSE/SPLINEをCAD Core、UI、OSnap、変形、JSON/DXF往復、比較器まで実装。次は外部入力到着時に各保留を再開し、未着の場合はSTRETCH/EXPLODE/MATCHPROPへ進む",
+  "phase": "Development",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 215,
-    "e2e_test_count": 54,
+    "unit_test_count": 221,
+    "e2e_test_count": 56,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
-    "blocker_count": 0
+    "blocker_count": 4
   },
   "execution": {
     "max_duration_minutes": 300,
@@ -78,14 +78,16 @@
     "P0-50 Cloudflare MVP専用URL(2026-09-05): mirai-web-cad-mvp.mirai-dx-platform.comをTunnelへ追加し、Accessはホスト全体をkensan1969@gmail.comだけallow。systemd 127.0.0.1:18813とローカルDB mirai_web_cad_mvpを本番から分離。公開desktop/mobile E2E成功、テスト資格情報削除済み",
     "P0-51 PostgreSQL JSONB二重保存修正(2026-09-05): postgres.js書込みをsql.json()へ統一し、旧string scalarを正規化するmigration 0006、読込み互換、実DB回帰を追加。PostgreSQL統合7/7、MVP実測content=object/entities=1",
     "P0-52 本番Migration/MVP保全(2026-09-05): 本番DBを事前backup後に0006適用しJSONB strings=0。MVP専用の日次backup、鮮度検査、週次隔離DB復元、15分API/DB/Access境界監視をsystemdで有効化し実機成功",
-    "P0-53 ネイティブARC/DXF円弧往復(2026-09-05): arc entity、Canvas/CLI作図、境界/長さ/選択/OSnap、変換/OFFSET/鏡像、FILLET、JSON/DXF入出力、比較器を一貫対応。単体テスト+4件、既存E2EをARC前提へ更新"
+    "P0-53 ネイティブARC/DXF円弧往復(2026-09-05): arc entity、Canvas/CLI作図、境界/長さ/選択/OSnap、変換/OFFSET/鏡像、FILLET、JSON/DXF入出力、比較器を一貫対応。単体テスト+4件、既存E2EをARC前提へ更新",
+    "P0-55 外部入力再棚卸し(2026-09-05): Cloudflare/Entra/DXF/UATの実環境状態を確認し、推測値を投入せずdocs/external-input-status.mdへ不足入力と再開条件を記録",
+    "P0-56 ネイティブELLIPSE/SPLINE・DXF曲線往復(2026-09-05): UI/CLI、Canvas、境界/長さ/楕円面積/選択/OSnap、変形/鏡像、JSON/DXF入出力、比較器を一貫対応"
   ],
   "blocked_issues": [
     {
       "id": "#5",
       "title": "Entra ID/Cloudflare Accessと案件単位RBACを本番構成する",
       "severity": "medium",
-      "blocker_reason": "Cloudflare Accessは管理者本人のみallowで、2026-09-05現在のMVPログインはCloudflareアカウント認証。利用者ログイン自体はCloudflare Accessを維持し、案件単位RBACのためのグループ所属取得のみMicrosoft Graph APIへ非対話式(client credentials/app-only)でアクセスする。ユーザーがEntra ID App Registrationを作成しTenant ID/Client ID/Client Secretを本番へ投入済み(P0-42で実装完了)。残るは(1)`ENTRA_GROUP_ROLE_MAP`への実際のグループGUID投入、(2)Client Secret 1年ローテーション運用の当番体制側の整備、(3)本番でのEntra ID実疎通確認(人間側タスク)"
+      "blocker_reason": "2026-09-05再実測でOAuth client credentials token取得は200だが、Graphのkensan1969@gmail.com/memberOfは404 Request_ResourceNotFound。ENTRA_GROUP_ROLE_MAPは未設定。tenant内の対象UPN、実グループGUID対応、Client Secret主副担当/期限通知、当番/SLA/連絡先の安全な台帳参照IDが必要"
     },
     {
       "id": "#7",
@@ -97,7 +99,13 @@
       "id": "#8",
       "title": "本番バックアップ・監視・障害対応を自動化する",
       "severity": "medium",
-      "blocker_reason": "バックアップ・合成監視は導入済み。重大度定義・SLA目標・エスカレーション経路・当番表テンプレートをdocs/operations.mdに追加(2026-08-30)。残るは当番の実名・連絡先割当(人手入力)"
+      "blocker_reason": "バックアップ・合成監視・Cloudflare Terraformコード/Runbookは導入済み。2026-09-05再実測でCloudflare token verify=200、Access apps=200/0件、DNS API=403のため実資源import/applyは停止。対象account/zone限定のTunnel/DNS/Access管理tokenと資源ID、当番の実名・連絡先・SLA参照IDが必要"
+    },
+    {
+      "id": "#6",
+      "title": "DXF往復と2D CAD中核機能を実案件で認定する",
+      "severity": "high",
+      "blocker_reason": "2026-09-05現在、利用許諾済みDXF台帳0/100、ローカル実体0/100、UAT参加者0/20。図面本体と個人情報はGitへ置かず、許諾記録・保管先・参加者台帳の安全な参照IDが外部から必要"
     }
   ],
   "learning": {
@@ -121,5 +129,5 @@
       "Edit/Writeツールへ渡すJSON文字列パラメータ内で`\\u0000`等のUnicodeエスケープをテキストとして書こうとすると、JSON側の文字列デコードにより実際の制御バイトへ変換されてファイルに書き込まれてしまう(意図した`\\u0000`という6文字ではなく、実際のNULバイト1個になる)。正規表現の制御文字クラス(`/[\\u0000-\\u001f]/`等)をソースコードに書く際は、Edit/Writeツールを直接使わず、Pythonでのバイト列置換等でエスケープシーケンスのテキストそのもの(バックスラッシュ+u+16進数4桁)をファイルへ書き込む必要がある。NULバイトが混入するとgrep等がファイルをバイナリ扱いしテキスト検索が効かなくなる副作用もある"
     ]
   },
-  "last_updated": "2026-09-05T14:44:00+09:00"
+  "last_updated": "2026-09-05T15:04:19+09:00"
 }

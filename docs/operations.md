@@ -46,7 +46,7 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 
 セットアップ手順、systemdユニット一覧、日常運用(デプロイ・バックアップ・ログ確認・ロールバック)は[ローカルデプロイ運用メモ](deployment-local.md)を参照してください。
 
-Cloudflare設定は`infra/cloudflare/`にTerraform v5構成を置き、既存資源のimport-firstで管理する。誤削除防止、MVP許可メールの完全一致制約、広範囲なAccessルールの静的検査を持つ。現行API tokenはDNS/Access管理権限不足のため、実資源のimport/applyは保留中。手順は[Cloudflare Terraform](../infra/cloudflare/README.md)を参照。
+Cloudflare設定は`infra/cloudflare/`にTerraform v5構成を置き、既存資源のimport-firstで管理する。誤削除防止、MVP許可メールの完全一致制約、広範囲なAccessルールの静的検査を持つ。現行API tokenはverify成功だがDNS APIが403、Access Application一覧が0件のため、実資源のimport/applyは保留中。外部入力の実測状況は[確定待ち台帳](external-input-status.md)、手順は[Cloudflare Terraform](../infra/cloudflare/README.md)を参照。
 
 障害時は次のRunbookを使用する。
 

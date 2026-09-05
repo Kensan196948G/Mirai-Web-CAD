@@ -1,4 +1,4 @@
-import { arc, circle, entityArea, line, polyline, rect, text } from "./cad-core.js";
+import { arc, circle, ellipse, entityArea, line, polyline, rect, spline, text } from "./cad-core.js";
 import {
   arrayEntity,
   blockEntity,
@@ -27,6 +27,10 @@ const TOOL_COMMANDS = {
   C: "circle",
   CIRCLE: "circle",
   ARC: "arc",
+  EL: "ellipse",
+  ELLIPSE: "ellipse",
+  SPL: "spline",
+  SPLINE: "spline",
   PL: "polyline",
   PLINE: "polyline",
   POLYLINE: "polyline",
@@ -79,6 +83,19 @@ export function parseCadCommand(input, context) {
     return transaction("ARC", [
       { op: "add", entity: arc(context.currentLayerId, point(tokens[0]), radius, startAngle, endAngle) }
     ]);
+  }
+  if (tool === "ellipse") {
+    if (tokens.length < 3 || tokens.length > 4) throw new Error("形式: ELLIPSE x,y radiusX radiusY [rotation]");
+    const radiusX = number(tokens[1], "radiusX");
+    const radiusY = number(tokens[2], "radiusY");
+    if (radiusX <= 0 || radiusY <= 0 || radiusY > radiusX) throw new Error("長半径は短半径以上の正の値を指定してください。");
+    return transaction("ELLIPSE", [
+      { op: "add", entity: ellipse(context.currentLayerId, point(tokens[0]), radiusX, radiusY, tokens[3] === undefined ? 0 : number(tokens[3], "rotation")) }
+    ]);
+  }
+  if (tool === "spline") {
+    if (tokens.length < 2) throw new Error("SPLINEには2点以上の制御点が必要です。");
+    return transaction("SPLINE", [{ op: "add", entity: spline(context.currentLayerId, tokens.map(point)) }]);
   }
   if (tool === "polyline") {
     const closed = tokens.at(-1)?.toUpperCase() === "CLOSE";
@@ -191,7 +208,7 @@ export function parseCadCommand(input, context) {
   if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE ARC PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
+      message: "LINE RECT CIRCLE ARC ELLIPSE SPLINE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);

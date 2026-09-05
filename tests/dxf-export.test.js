@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDrawing } from "../src/cad-core.js";
+import { createDrawing, ellipse, spline } from "../src/cad-core.js";
 import { exportDxf } from "../src/dxf-export.js";
 import { applyTransaction } from "../src/cad-core.js";
 import { parseCadImport } from "../src/importers.js";
@@ -71,6 +71,35 @@ test("line/circle/arc/polyline/textが対応entityとしてDXFへ書出される
   assert.match(content, /\n0\nARC\n8\n構造物\n10\n500\n20\n600\n40\n75\n50\n350\n51\n20\n/);
   assert.match(content, /\n0\nLWPOLYLINE\n8\n中心線\n90\n3\n70\n1\n/);
   assert.match(content, /\n0\nTEXT\n8\n注記\n10\n400\n20\n500\n40\n240\n1\n施工注記\n/);
+});
+
+test("ellipse/spline are exported as native DXF entities and round-trip without flattening", () => {
+  const oval = ellipse("layer-structure", [500, 400], 120, 60, 30, { id: "e_ellipse" });
+  const curve = spline("layer-structure", [[100, 100], [200, 300], [400, 300], [500, 100]], { id: "e_spline" });
+  const drawing = drawingWith([oval, curve]);
+  const exported = exportDxf(drawing);
+  assert.equal(exported.exported, 2);
+  assert.equal(exported.skipped.length, 0);
+  assert.match(exported.content, /\n0\nELLIPSE\n8\n構造物\n/);
+  assert.match(exported.content, /\n0\nSPLINE\n8\n構造物\n/);
+
+  const base = createDrawing();
+  const imported = parseCadImport({ filename: "curves.dxf", content: exported.content, drawing: base, currentLayerId: "layer-structure" });
+  const roundTrip = applyTransaction(base, { source: "system", label: "curve-import", commands: imported.commands }).drawing;
+  const roundTripOval = roundTrip.entities.find((entity) => entity.type === "ellipse");
+  const roundTripCurve = roundTrip.entities.find((entity) => entity.type === "spline");
+  assert.ok(roundTripOval);
+  assert.ok(Math.abs(roundTripOval.radiusX - 120) < 1e-9);
+  assert.ok(Math.abs(roundTripOval.radiusY - 60) < 1e-9);
+  assert.ok(Math.abs(roundTripOval.rotation - 30) < 1e-9);
+  assert.ok(roundTripCurve);
+  assert.equal(roundTripCurve.degree, 3);
+  assert.deepEqual(roundTripCurve.controlPoints, curve.controlPoints);
+  assert.deepEqual(roundTripCurve.knots, curve.knots);
+
+  const report = compareDrawings(drawing, roundTrip, TOLERANCE_V0, { mode: "dxf-roundtrip" });
+  assert.equal(report.totals.missing, 0);
+  assert.equal(report.totals.extra, 0);
 });
 
 test("rectは閉鎖LWPOLYLINE(4頂点)として書出される", () => {

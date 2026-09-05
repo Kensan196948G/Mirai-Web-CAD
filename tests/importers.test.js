@@ -68,6 +68,23 @@ test("JSON imports native arc without flattening it to a polyline", () => {
   assert.equal(entity.endAngle, 225);
 });
 
+test("JSON imports native ellipse and spline geometry", () => {
+  const drawing = seedDrawing();
+  const imported = parseCadImport({
+    filename: "curves.json",
+    content: JSON.stringify({ entities: [
+      { type: "ellipse", center: { x: 300, y: 400 }, radiusX: 80, radiusY: 40, rotation: 15 },
+      { type: "spline", controlPoints: [{ x: 0, y: 0 }, { x: 50, y: 100 }, { x: 100, y: 0 }], degree: 2, knots: [0, 0, 0, 1, 1, 1] }
+    ] }),
+    drawing,
+    currentLayerId: "layer-structure"
+  });
+  const entities = imported.commands.filter((command) => command.op === "add").map((command) => command.entity);
+  assert.deepEqual(entities.map((entity) => entity.type), ["ellipse", "spline"]);
+  assert.equal(entities[0].radiusY, 40);
+  assert.deepEqual(entities[1].knots, [0, 0, 0, 1, 1, 1]);
+});
+
 test("import rejects unsupported files, invalid JSON, and empty geometry", () => {
   const drawing = seedDrawing();
   const base = { drawing, currentLayerId: "layer-structure" };

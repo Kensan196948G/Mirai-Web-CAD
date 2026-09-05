@@ -1,5 +1,5 @@
 import DxfParserPackage from "dxf-parser";
-import { arc, circle, line, polyline, rect, text } from "./cad-core.js";
+import { arc, circle, ellipse, line, polyline, rect, spline, text } from "./cad-core.js";
 import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -123,6 +123,24 @@ function normalizeJsonEntity(entity, layerId, index) {
     if (normalizedSweep(startAngle, endAngle) <= 1e-9) throw new Error("startAngleとendAngleは異なる値が必要です。");
     return arc(layerId, coordinate(entity.center), radius, startAngle, endAngle, options);
   }
+  if (entity.type === "ellipse") {
+    const radiusX = positive(entity.radiusX);
+    const radiusY = positive(entity.radiusY);
+    return ellipse(layerId, coordinate(entity.center), radiusX, radiusY, finite(entity.rotation ?? 0, "rotation"), {
+      ...options,
+      startParameter: finite(entity.startParameter ?? 0, "startParameter"),
+      endParameter: finite(entity.endParameter ?? Math.PI * 2, "endParameter")
+    });
+  }
+  if (entity.type === "spline") {
+    if (!Array.isArray(entity.controlPoints) || entity.controlPoints.length < 2) throw new Error("splineには2点以上の制御点が必要です。");
+    return spline(layerId, entity.controlPoints.map(coordinate), {
+      ...options,
+      degree: Number(entity.degree ?? 3),
+      knots: entity.knots,
+      closed: Boolean(entity.closed)
+    });
+  }
   if (entity.type === "polyline") {
     if (!Array.isArray(entity.points) || entity.points.length < 2) throw new Error("polylineには2点以上必要です。");
     return polyline(layerId, entity.points.map(coordinate), { ...options, closed: Boolean(entity.closed) });
@@ -169,6 +187,27 @@ function normalizeDxfEntity(entity, layerId, index) {
       radiansToDegrees(entity.endAngle),
       options
     );
+  }
+  if (entity.type === "ELLIPSE") {
+    const axis = coordinate(entity.majorAxisEndPoint);
+    const radiusX = Math.hypot(axis.x, axis.y);
+    const ratio = positive(entity.axisRatio);
+    if (ratio > 1) throw new Error("楕円の短半径比は1以下である必要があります。");
+    return ellipse(layerId, coordinate(entity.center), radiusX, radiusX * ratio, radiansToDegrees(Math.atan2(axis.y, axis.x)), {
+      ...options,
+      startParameter: finite(entity.startAngle ?? 0, "startParameter"),
+      endParameter: finite(entity.endAngle ?? Math.PI * 2, "endParameter")
+    });
+  }
+  if (entity.type === "SPLINE") {
+    const controlPoints = entity.controlPoints ?? entity.fitPoints;
+    if (!Array.isArray(controlPoints) || controlPoints.length < 2) throw new Error("制御点が不足しています。");
+    return spline(layerId, controlPoints.map(coordinate), {
+      ...options,
+      degree: Number(entity.degreeOfSplineCurve ?? Math.min(3, controlPoints.length - 1)),
+      knots: entity.knotValues,
+      closed: Boolean(entity.closed)
+    });
   }
   if (entity.type === "TEXT") {
     return text(layerId, coordinate(entity.startPoint), String(entity.text ?? ""), {
