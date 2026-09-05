@@ -416,5 +416,5 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | Terraform | `infra/cloudflare/`へCloudflare provider v5.24構成を追加。共有のローカル管理Tunnel、2つのCNAME、MVP Access Applicationと`kensan1969@gmail.com`完全一致policyを定義 |
 | 安全性 | 既存資源はimport-first、既定`enable_management=false`、全3種に`prevent_destroy`。既存Access policy UUIDを必須化し、`infra:check`は全HCLを構文解析して資源/import単位の条件、広範囲許可、秘密値定義を検査 |
 | CI | Terraform 1.16.1でfmt、provider init(バックエンド無し)、validateをPR必須ジョブ化 |
-| Runbook | サービス停止、Cloudflare Access変更、PostgreSQL障害を分離し、初動・切り分け・復旧・完了条件を明記。隔離DB復元は4表件数、元DBとの最新版署名、JSONB形状、全図面の最新版参照を機械照合し、実機成功 |
+| Runbook | サービス停止、Cloudflare Access変更、PostgreSQL障害を分離し、初動・切り分け・復旧・完了条件を明記。backup manifestへSHA-256、取得時刻、4表件数/最新版署名を保存し、隔離DB復元時にJSONB形状・全図面の最新版参照とともに機械照合。実機成功 |
 | 保留 | 現行Cloudflare tokenはTunnel棚卸しはできるがDNS/Access APIは403、Access更新は`auth.forbidden`。対象限定の管理token発行後にID棚卸し、import、初回plan/applyを行う |

@@ -26,7 +26,7 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 - DB: ローカルPostgreSQLの`mirai_web_cad_mvp`。本番DB`mirai_web_cad`とは分離
 - 秘密値: `~/.config/mirai-web-cad/mvp.env` (mode 0600、Git管理外)
 - Backup: `mirai-web-cad-mvp-backup.timer`が専用DBを`/var/backups/mirai-web-cad/mvp-postgres/`へ日次保存し、`mirai-web-cad-mvp-backup-check.timer`が鮮度を検査
-- Restore drill: `mirai-web-cad-mvp-restore-drill.timer`が毎週、隔離DB`mirai_web_cad_mvp_recovery`へ最新dumpを復元して件数とJSONB型を検査し、終了時に復元データを消去
+- Restore drill: `mirai-web-cad-mvp-restore-drill.timer`が毎週、隔離DB`mirai_web_cad_mvp_recovery`へ最新dumpを復元してSHA-256、取得時刻、backup manifestとの内容一致、JSONB型を検査し、終了時に復元データを消去
 - Monitor: `mirai-web-cad-mvp-monitor.timer`が15分ごとにローカルAPI、接続DB名、公開URLのAccess境界を検査
 
 MVP用envは`production.env`と同じ必須項目を持つ。ただし`DATABASE_URL`のDB名、`CF_ACCESS_AUD`、`CORS_ORIGIN`をMVP専用値にし、`ACCESS_ROLE_MAP`は許可メール1件だけにする。Access Applicationはbypass policyを作らず、サイト全体へ適用する。

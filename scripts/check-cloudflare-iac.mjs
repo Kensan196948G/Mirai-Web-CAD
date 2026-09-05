@@ -49,8 +49,8 @@ function variable(name) {
 function requireManagedCondition(value, label) {
   const parsed = expression(value);
   requireCondition(
-    parsed.includes("var.enable_management") && parsed.includes("local.inventory_ready"),
-    `${label}: must require enable_management and inventory_ready`
+    parsed.split("?")[0] === "var.enable_management&&local.inventory_ready",
+    `${label}: condition must be enable_management AND inventory_ready`
   );
 }
 
@@ -87,15 +87,16 @@ const policies = access.policies ?? [];
 requireCondition(policies.length === 1, "Access: exactly one inline policy is required");
 const policy = policies[0] ?? {};
 requireCondition(policy.id === "${var.mvp_access_policy_id}", "Access: existing policy ID must be retained");
-requireCondition(policy.decision === "allow", "Access: policy decision must be allow");
 requireCondition(policy.precedence === 1, "Access: allow policy must have precedence 1");
-requireCondition(policy.include?.length === 1, "Access: policy must have exactly one include rule");
 requireCondition(
-  policy.include?.[0]?.email?.email === "${lower(trimspace(var.mvp_allowed_email))}",
-  "Access: include rule must use the exact allowed email variable"
+  JSON.stringify(Object.keys(policy).sort()) === JSON.stringify(["id", "precedence"]),
+  "Access: existing policy reference must contain only id and precedence"
 );
-requireCondition(policy.exclude?.length === 0, "Access: exclude rules are not permitted");
-requireCondition(policy.require?.length === 0, "Access: require rules are not configured for this MVP");
+requireCondition(
+  expression(access.lifecycle?.[0]?.precondition?.[0]?.condition) ===
+    'lower(trimspace(var.mvp_allowed_email))=="kensan1969@gmail.com"',
+  "Access: lifecycle must prevent broadening the allowed email"
+);
 
 const managementGuard = resource("terraform_data", "management_guard");
 requireCondition(

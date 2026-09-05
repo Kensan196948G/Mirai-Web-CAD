@@ -24,12 +24,13 @@ sudo systemctl show mirai-web-cad-mvp-restore-drill.service -p Result -p ExecMai
 sudo journalctl -u mirai-web-cad-mvp-restore-drill.service -n 50 --no-pager
 ```
 
-本番も空の隔離DBを用意し、`SOURCE_DATABASE_URL`、`RESTORE_DATABASE_URL`、`BACKUP_FILE`、`ALLOW_DATABASE_RESTORE=yes`を明示して`scripts/restore-database.sh`を使います。接続先DB名を作業者と確認者の2名で読み合わせてから実行します。元DBへ接続不能な場合は`SOURCE_DATABASE_URL`を省略できますが、自動比較を省略した事実と理由をincidentへ残します。
+本番も空の隔離DBを用意し、`RESTORE_DATABASE_URL`、`BACKUP_FILE`、`ALLOW_DATABASE_RESTORE=yes`を明示して`scripts/restore-database.sh`を使います。接続先DB名を作業者と確認者の2名で読み合わせてから実行します。dumpと同時生成された`.manifest`がないバックアップは切替に使用しません。
 
 ## 切替判断
 
 - `pg_restore --list`が成功し、`projects`、`drawings`、`drawing_versions`、`audit_logs`が各1件以上であることを確認する。
-- 元DBへ接続可能な場合、4表の件数と、各図面ID・`current_version`・最新版`content_hash`から作る署名が復元先と完全一致することを確認する。スクリプトの`source_match=yes`が合格条件。
+- manifestのSHA-256がdumpと一致し、取得時刻が最大許容RPO 24時間以内であることを確認する。例外的に古い世代を調査するときも本番切替は停止し、取得時刻、manifest、許容RPO、判断者をincidentへ記録する。
+- バックアップ取得時に記録した4表の件数と、各図面ID・`current_version`・最新版`content_hash`から作る署名が復元先と完全一致することを確認する。スクリプトの`manifest_match=yes`が合格条件。
 - 全図面の`current_version`が実在する最大`version_no`と一致し、`latest_version_mismatches=0`であることを確認する。
 - JSONBは`drawing_versions.content`と`audit_logs.detail`がobject、`command_events.command_payload`がobject/array、`agent_runs.proposal`がSQL NULLまたはobject/arrayであることを確認する。JSONのstring・number・boolean・nullは不合格で、`invalid_json=0`だけを切替候補にする。
 - RPOを算出し、失われる可能性がある保存操作を列挙する。

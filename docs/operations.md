@@ -118,7 +118,6 @@ DATABASE_URL="postgresql://source" \
   npm run db:backup
 
 RESTORE_DATABASE_URL="postgresql://empty-recovery-db" \
-SOURCE_DATABASE_URL="postgresql://source" \
   BACKUP_FILE="artifacts/mirai-web-cad.dump" \
   ALLOW_DATABASE_RESTORE=yes \
   npm run db:restore

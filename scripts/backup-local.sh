@@ -21,8 +21,11 @@ umask 077
 BACKUP_FILE="$backup_file" bash "$(dirname "$0")/backup-database.sh"
 
 ln -sf "$(basename "$backup_file")" "${backup_dir}/latest.dump"
+ln -sf "$(basename "$backup_file").manifest" "${backup_dir}/latest.dump.manifest"
 
 echo "pruning backups older than ${retention_days} days in ${backup_dir}"
-find "$backup_dir" -maxdepth 1 -name 'mirai-web-cad-*.dump' -mtime "+${retention_days}" -print -delete
+find "$backup_dir" -maxdepth 1 \
+  \( -name 'mirai-web-cad-*.dump' -o -name 'mirai-web-cad-*.dump.manifest' \) \
+  -mtime "+${retention_days}" -print -delete
 
 echo "backup-local ok: $backup_file"

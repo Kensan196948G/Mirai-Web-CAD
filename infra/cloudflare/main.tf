@@ -77,16 +77,7 @@ resource "cloudflare_zero_trust_access_application" "mvp" {
 
   policies = [{
     id         = var.mvp_access_policy_id
-    name       = "Allow only kensan1969@gmail.com"
-    decision   = "allow"
     precedence = 1
-    include = [{
-      email = {
-        email = lower(trimspace(var.mvp_allowed_email))
-      }
-    }]
-    exclude = []
-    require = []
   }]
 
   lifecycle {
