@@ -11,6 +11,12 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
       y: base.y + x * Math.sin(radians) + y * Math.cos(radians) + dy
     };
   };
+  if (next.type === "block") {
+    next.insertion = transform(next.insertion);
+    next.rotation = (next.rotation ?? 0) + angle;
+    next.scale = (next.scale ?? 1) * scale;
+    return next;
+  }
   for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = transform(next[key]);
   }

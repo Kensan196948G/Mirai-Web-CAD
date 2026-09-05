@@ -232,6 +232,9 @@ export function applyTransaction(drawing, transaction) {
       if (command.patch?.layerId && !next.layers.some((item) => item.id === command.patch.layerId)) {
         return fail(`移動先レイヤーが存在しません: ${command.patch.layerId}`, drawing);
       }
+      if (command.patch?.layerId && next.layers.find((item) => item.id === command.patch.layerId)?.locked) {
+        return fail("ロック中レイヤーへ移動できません。", drawing);
+      }
       Object.assign(target, structuredClone(command.patch));
     }
 

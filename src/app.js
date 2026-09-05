@@ -26,6 +26,7 @@ import { exportDxf } from "./dxf-export.js";
 import { arrayEntity, blockEntity, breakEntity, chamferLines, createBoundaryEntity, dimensionEntity, editPolyline, extendEntityToBoundary, filletLines, hatchEntity, joinLines, measurePoints, mirrorEntity, offsetEntity, transformEntity, trimEntityToBoundaries } from "./cad-advanced.js";
 import { applyOrtho, DEFAULT_OSNAP_MODES, findOsnapPoint } from "./cad-draft-helpers.js";
 import { buildSpatialIndex, queryBounds } from "./spatial-index.js";
+import { entityGrips, moveGrip, selectableEntities, selectInBox } from "./cad-selection.js";
 
 const VIEW_MODES = new Set(["normal", "empty", "loading", "error"]);
 const requestedViewMode = new URLSearchParams(location.search).get("state") ?? "normal";
@@ -88,6 +89,9 @@ const STATUS_TOGGLES = [
 ];
 
 const OPERATION_LABELS = {
+  stretch: "ストレッチ",
+  explode: "分解",
+  matchprop: "プロパティコピー",
   move: "移動",
   copy: "複写",
   rotate: "回転",
@@ -284,7 +288,10 @@ const state = {
   drawing: loadDrawing() ?? seedDrawing(),
   tool: "select",
   currentLayerId: "layer-structure",
-  selectedId: null,
+  selectedIds: [],
+  get selectedId() { return this.selectedIds.at(-1) ?? null; },
+  set selectedId(id) { this.selectedIds = id ? [id] : []; },
+  selectionBox: null,
   draftPoints: [],
   previewProposal: null,
   previewRunId: null,
@@ -321,6 +328,8 @@ const app = document.querySelector("#app");
 
 function render() {
   const drawing = activeDrawing();
+  const entityIds = new Set(drawing.entities.map((entity) => entity.id));
+  state.selectedIds = state.selectedIds.filter((id) => entityIds.has(id));
   const selected = drawing.entities.find((entity) => entity.id === state.selectedId);
   const policy = ROLE_POLICIES[drawing.currentRole] ?? ROLE_POLICIES.viewer;
   const commandLogClass = `command-log-${state.settings.commandLogLines}`;
@@ -501,7 +510,7 @@ function modelSpaceHtml(drawing) {
         </select>
       </label>
       <span>${escapeHtml(state.tool.toUpperCase())}</span>
-      <span>${state.selectedId ? `選択: ${escapeHtml(state.selectedId)}` : "未選択"}</span>
+      <span>${state.selectedId ? `選択: ${state.selectedIds.length}件 / ${escapeHtml(state.selectedId)}` : "未選択"}</span>
       <span>表示状態: ${escapeHtml(viewModeLabel(state.viewMode))}</span>
       <span>SNAP: ${state.settings.snapEnabled ? `${state.settings.gridInterval} ${drawing.unit}` : "OFF"}</span>
     </div>
@@ -675,7 +684,7 @@ function propsDockHtml(drawing, selected) {
                 )}" placeholder="番号=1;種別=桝" /></label>`
               : ""
           }
-          <button type="submit">プロパティ更新</button>
+          <button type="submit" ${state.selectedIds.length > 1 ? 'disabled title="プロパティ編集は1件選択時に利用できます"' : ""}>プロパティ更新</button>
         </form>`
           : `<p class="empty-note">図形を選択してください。</p>`
       }
@@ -1421,7 +1430,8 @@ async function executeCommandLine(event) {
     const parsed = parseCadCommand(raw, {
       drawing: state.drawing,
       currentLayerId: state.currentLayerId,
-      selectedId: state.selectedId
+      selectedId: state.selectedId,
+      selectedIds: state.selectedIds
     });
     if (parsed.kind === "transaction") {
       await commitCommands(`CLI ${parsed.label}`, parsed.commands);
@@ -1459,6 +1469,7 @@ async function executeUiCommand(command) {
     state.selectedId = command.entityId;
     log(`選択: ${command.entityId}`);
   }
+  if (command.action === "selectMany") state.selectedIds = command.entityIds;
   if (command.action === "cancel") {
     state.draftPoints = [];
     state.selectedId = null;
@@ -1539,6 +1550,17 @@ async function applyOperationForm(event) {
   const operation = String(data.get("operation"));
   const value = String(data.get("value") ?? "").trim();
   try {
+    if (["stretch", "explode", "matchprop"].includes(operation)) {
+      const parsed = parseCadCommand(`${operation} ${value}`, { drawing: state.drawing, currentLayerId: state.currentLayerId, selectedIds: state.selectedIds });
+      if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
+      return;
+    }
+    if (state.selectedIds.length > 1 && ["move", "copy", "rotate", "scale"].includes(operation)) {
+      const parsed = parseCadCommand(`${operation} ${value}`, { drawing: state.drawing, currentLayerId: state.currentLayerId, selectedIds: state.selectedIds });
+      if (parsed.kind === "transaction") await commitCommands(parsed.label, parsed.commands);
+      return;
+    }
+    if (state.selectedIds.length > 1) throw new Error("この操作は図形を1件選択して実行してください。");
     let next;
     if (["move", "copy"].includes(operation)) {
       const offset = parsePointValue(value, "dx,dy");
@@ -1674,6 +1696,7 @@ async function applyOperationForm(event) {
 
 async function updateSelectedProperties(event) {
   event.preventDefault();
+  if (state.selectedIds.length !== 1) return;
   const selected = state.drawing.entities.find((entity) => entity.id === state.selectedId);
   if (!selected) return;
   const data = new FormData(event.currentTarget);
@@ -1834,12 +1857,32 @@ function onPointerDown(event) {
   }
 
   if (state.tool === "select") {
-    const hit = hitTest(activeDrawing(), world);
-    state.selectedId = hit?.id ?? null;
-    state.drag = hit && policy.canEdit ? { id: hit.id, start: world, original: structuredClone(hit) } : null;
-    if (state.drag) /** @type {HTMLCanvasElement} */ (event.currentTarget).setPointerCapture(event.pointerId);
-    log(hit ? `選択: ${hit.id}` : "選択解除");
-    render();
+    if (event.button !== 0) return;
+    const entities = selectableEntities(activeDrawing());
+    const selection = new Set(state.selectedIds);
+    const selected = entities.filter((entity) => selection.has(entity.id));
+    const editable = policy.canEdit && state.drawing.state !== "approved";
+    const unlocked = (entity) => !state.drawing.layers.find((layer) => layer.id === entity.layerId)?.locked;
+    const gripEntity = selected.length === 1 && editable && unlocked(selected[0]) ? selected[0] : null;
+    const grip = gripEntity && entityGrips(gripEntity).find((item) => Math.hypot(item.point.x - world.x, item.point.y - world.y) * state.camera.scale <= 7);
+    const hit = hitTest({ ...activeDrawing(), entities }, world, 8 / state.camera.scale);
+    if (grip && !event.shiftKey) {
+      state.drag = { start: world, originals: [gripEntity], grip, preview: [], moved: false };
+    } else if (hit) {
+      if (event.shiftKey) {
+        state.selectedIds = state.selectedIds.includes(hit.id) ? state.selectedIds.filter((id) => id !== hit.id) : [...state.selectedIds, hit.id];
+      } else {
+        if (!state.selectedIds.includes(hit.id)) state.selectedId = hit.id;
+        const originals = selection.has(hit.id) ? selected : [hit];
+        if (editable && originals.every(unlocked)) state.drag = { start: world, originals, preview: [], moved: false };
+      }
+    } else {
+      state.selectionBox = { start: world, end: world, previous: [...state.selectedIds], additive: event.shiftKey };
+    }
+    if (state.drag || state.selectionBox) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drawCanvas();
+    } else render();
     return;
   }
 
@@ -1896,14 +1939,22 @@ function onPointerMove(event) {
     return;
   }
   const rawWorld = screenToWorld(event.offsetX, event.offsetY);
+  if (state.selectionBox) {
+    state.selectionBox.end = rawWorld;
+    drawCanvas();
+    return;
+  }
   if (state.drag) {
     const target = state.settings.orthoEnabled ? applyOrtho(state.drag.start, rawWorld) : rawWorld;
     updateCoordReadout(target);
     const dx = target.x - state.drag.start.x;
     const dy = target.y - state.drag.start.y;
-    const entity = moveEntity(state.drag.original, dx, dy);
-    const index = state.drawing.entities.findIndex((item) => item.id === state.drag.id);
-    state.drawing.entities[index] = entity;
+    state.drag.moved = Math.hypot(dx, dy) * state.camera.scale > 3;
+    try {
+      state.drag.preview = state.drag.moved ? state.drag.originals.map((entity) => state.drag.grip ? moveGrip(entity, state.drag.grip, target) : moveEntity(entity, dx, dy)) : [];
+    } catch {
+      state.drag.preview = [];
+    }
     drawCanvas();
     return;
   }
@@ -1921,12 +1972,21 @@ function onPointerUp() {
     render();
     return;
   }
+  if (state.selectionBox) {
+    const { start, end, previous, additive } = state.selectionBox;
+    const ids = Math.hypot(end.x - start.x, end.y - start.y) * state.camera.scale > 3 ? selectInBox(activeDrawing(), start, end) : [];
+    state.selectedIds = additive ? [...new Set([...previous, ...ids])] : ids;
+    state.selectionBox = null;
+    log(`選択: ${state.selectedIds.length}件`);
+    render();
+    return;
+  }
   if (!state.drag) return;
-  const entity = state.drawing.entities.find((item) => item.id === state.drag.id);
-  state.drawing.entities = state.drawing.entities.map((item) => (item.id === state.drag.id ? state.drag.original : item));
-  const command = { op: "update", id: state.drag.id, patch: withoutIdentity(entity) };
+  const commands = state.drag.preview.map((entity) => ({ op: "update", id: entity.id, patch: withoutIdentity(entity) }));
+  const label = state.drag.grip ? "グリップ編集" : "図形移動";
   state.drag = null;
-  commitCommands("図形移動", [command]);
+  if (commands.length) commitCommands(label, commands);
+  else render();
 }
 
 function cancelDrag() {
@@ -1936,10 +1996,8 @@ function cancelDrag() {
     render();
     return;
   }
-  if (!state.drag) return;
-  state.drawing.entities = state.drawing.entities.map((item) =>
-    item.id === state.drag.id ? state.drag.original : item
-  );
+  if (!state.drag && !state.selectionBox) return;
+  state.selectionBox = null;
   state.drag = null;
   log("図形移動を取消");
   render();
@@ -1958,9 +2016,15 @@ function onWheel(event) {
 
 function onCanvasKeyDown(event) {
   if (event.key === "Escape") {
+    cancelDrag();
     state.draftPoints = [];
     state.selectedId = null;
     log("取消");
+    render();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+    event.preventDefault();
+    state.selectedIds = selectableEntities(activeDrawing()).map((entity) => entity.id);
     render();
   }
   if (event.key === "Enter" && state.tool === "polyline" && state.draftPoints.length >= 3) {
@@ -1981,6 +2045,7 @@ function onCanvasKeyDown(event) {
   if (event.key === "+" || event.key === "=") zoomAtCenter(1.25);
   if (event.key === "-") zoomAtCenter(0.8);
   if ((event.key === "Delete" || event.key === "Backspace") && state.selectedId) {
+    event.preventDefault();
     deleteSelected();
   }
 }
@@ -2036,14 +2101,16 @@ function commitEllipseTool() {
   commitCommands("ellipse作成", [{ op: "add", entity: ellipse(state.currentLayerId, center, radiusX, radiusY, rotation) }]);
 }
 
-function deleteSelected() {
+async function deleteSelected() {
   if (!state.selectedId) {
     log("削除対象が未選択です。");
     render();
     return;
   }
-  commitCommands("図形削除", [{ op: "delete", id: state.selectedId }]);
-  state.selectedId = null;
+  if (await commitCommands("図形削除", state.selectedIds.map((id) => ({ op: "delete", id })))) {
+    state.selectedId = null;
+    render();
+  }
 }
 
 async function undoLastTransaction() {
@@ -2244,8 +2311,33 @@ function drawCanvas(pointerWorld = null) {
   drawPaper(ctx);
 
   const viewport = worldViewportBounds(canvas);
+  const selection = new Set(state.selectedIds);
+  const previews = new Map((state.drag?.preview ?? []).map((entity) => [entity.id, entity]));
   for (const entity of visibleEntities(drawing.entities, viewport)) {
-    drawEntity(ctx, entity, entity.id === state.selectedId ? "#ff8a00" : null);
+    if (!previews.has(entity.id)) drawEntity(ctx, entity, selection.has(entity.id) ? "#ff8a00" : null);
+  }
+  for (const entity of previews.values()) drawEntity(ctx, entity, "#ff8a00");
+  if (state.tool === "select" && state.selectedIds.length === 1 && !state.drag) {
+    const entity = drawing.entities.find((item) => item.id === state.selectedId);
+    if (entity) for (const grip of entityGrips(entity)) {
+      const point = worldToScreen(grip.point);
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#136cc1";
+      ctx.fillRect(point.x - 4, point.y - 4, 8, 8);
+      ctx.strokeRect(point.x - 4, point.y - 4, 8, 8);
+    }
+  }
+  if (state.selectionBox) {
+    const a = worldToScreen(state.selectionBox.start);
+    const b = worldToScreen(state.selectionBox.end);
+    const crossing = b.x < a.x;
+    ctx.save();
+    ctx.strokeStyle = crossing ? "#148349" : "#136cc1";
+    ctx.fillStyle = crossing ? "rgba(20,131,73,0.12)" : "rgba(19,108,193,0.12)";
+    ctx.setLineDash(crossing ? [6, 4] : []);
+    ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.restore();
   }
 
   if (state.previewProposal?.status === "planned") {

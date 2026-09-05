@@ -23,8 +23,8 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 機能カタログ | 状態 | 現状・対応 | 備考 |
 |---|---|---|---|
 | 線分/連続線/ポリライン/矩形/ポリゴン/円 | ◐ | LINE/RECT/CIRCLE/PLINEコマンド・リボン | 連続線・ポリゴン専用コマンドなし |
-| 円弧 | ✅ | **2026-09-05実装**: 中心・半径・開始角・終了角を持つネイティブARC。リボン3点作図、CLI、Canvas描画、選択、境界、長さ、OSnap、移動/回転/尺度/鏡像/配列/OFFSET、FILLET生成、JSON・DXF入出力、往復比較に対応 | 円弧を対象にしたTRIM/EXTEND、曲線グリップ編集は未対応(P1-02) |
-| 楕円/スプライン | ◐ | **2026-09-05実装**: ELLIPSE(中心・長短半径・回転・開始/終了parameter)とSPLINE(制御点・次数・clamped knot)をネイティブentity化。リボン/CLI作図、Canvas表示、境界/長さ/楕円面積、選択、OSnap、移動/回転/尺度/鏡像、JSON・DXF入出力、往復比較に対応 | NURBS weight/fit point編集、曲線グリップ、曲線TRIM/EXTEND/OFFSETは未対応 |
+| 円弧 | ✅ | **2026-09-05実装**: 中心・半径・開始角・終了角を持つネイティブARC。リボン3点作図、CLI、Canvas描画、選択、境界、長さ、OSnap、移動/回転/尺度/鏡像/配列/OFFSET、FILLET生成、JSON・DXF入出力、往復比較に対応。中心・始終角グリップを追加 | 円弧を対象にしたTRIM/EXTEND、Multi-gripは後続(P1-02) |
+| 楕円/スプライン | ◐ | **2026-09-05実装**: ELLIPSE(中心・長短半径・回転・開始/終了parameter)とSPLINE(制御点・次数・clamped knot)をネイティブentity化。リボン/CLI作図、Canvas表示、境界/長さ/楕円面積、選択、OSnap、移動/回転/尺度/鏡像、JSON・DXF入出力、往復比較に対応。軸・制御点グリップを追加 | NURBS weight/fit point編集、Multi-grip、曲線TRIM/EXTEND/OFFSETは後続 |
 | 点/測点/中心点/交点/分割点/任意点 | ◐ | 中心点・交点はOSnap候補で捕捉可能(2026-09-04〜)。点entityの作図は未対応 | — |
 | リビジョンクラウド(雲形) | ⬜ | — | — |
 | ハッチング/ソリッド/グラデーション/パターン | ◐ | HATCH(境界3点以上の塗り)のみ | 島・パターン・連想更新なし(P1-05) |
@@ -40,11 +40,11 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 機能カタログ | 状態 | 現状・対応 | 備考 |
 |---|---|---|---|
 | 移動/複写/回転/尺度変更/削除 | ✅ | MOVE/COPY/ROTATE/SCALE/ERASE | — |
-| 鏡像/配列/分割/結合 | ◐ | **2026-09-04実装**: MIRROR(軸2点で線対称、rectは閉polyline化して置換)/ARRAY(矩形配列・元位置を除くcols×rows-1複写)/BREAK(line・開polylineを分割点で2分割)/JOIN(同一直線・端点一致2線分の結合)をcad-advanced.js+cad-command+リボン「修正」に追加 | ストレッチ/EXPLODE/FILLET/CHAMFERはPhase 1(P1-02) |
+| 鏡像/配列/分割/結合 | ◐ | **2026-09-04実装**: MIRROR(軸2点で線対称、rectは閉polyline化して置換)/ARRAY(矩形配列・元位置を除くcols×rows-1複写)/BREAK(line・開polylineを分割点で2分割)/JOIN(同一直線・端点一致2線分の結合)をcad-advanced.js+cad-command+リボン「修正」に追加 | 2026-09-05にSTRETCH/EXPLODE/MATCHPROPを限定追加。FILLET/CHAMFERの曲線拡張、属性付きBlock分解は後続 |
 | トリム/延長 | ◐ | **2026-09-04改善**: 境界交点演算による正確なTRIM/EXTENDへ更新(`trimEntityToBoundaries`/`extendEntityToBoundary`/`collectBoundarySegments`)。対象lineを図面内の他エンティティ(境界)との交点でクリップ・延長し、クリック点で残す側/伸ばす端点を指定 | polylineのクリップ・延長はP1-02 |
 | オフセット | ◐ | **2026-09-04改善**: LINE/CIRCLE/RECTに加え、polyline/hatchを重心放射から**真の平行オフセット(miter join)へ改善**(`parallelOffsetPoints`)。閉は符号付き面積から外側/内側を判定、開は進行方向の左側(正)へ。直線セグメントのみ対応 | 円弧バルジ・自己交差形状のオフセットはP1-02 |
 | 面取り/フィレット/交差処理/境界作成 | ◐ | **2026-09-05実装**: CHAMFER(直線2本を交点から指定距離で切断+面取り線追加)、FILLET(接線条件を満たすネイティブ円弧を追加)、BOUNDARY(接続線分3本以上から閉polylineを作成)をCLI/リボンから利用可能 | 円/曲線との面取り・フィレット、任意点境界探索は未対応(P1-02) |
-| ポリライン編集/頂点編集/曲線編集/グリップ | ◐ | **2026-09-05実装**: PEDITで頂点のMOVE/ADD/DELETEとCLOSE/OPENをCLI/リボンから利用可能 | Canvasグリップ操作、曲線編集、幅/バルジ編集は未対応(P1-02) |
+| ポリライン編集/頂点編集/曲線編集/グリップ | ◐ | **2026-09-05実装**: PEDITに加えCanvasで点列・Spline制御点・円中心/半径・Arc始終角・Ellipse軸をグリップ編集。確定前プレビューと取消に対応 | Multi-grip、幅/バルジ、連想寸法、厳密な曲線選択は後続。最新範囲は[追加実装ロードマップ](additional-implementation-roadmap.md) |
 | 数値入力・基準点/相対/極座標 | ◐ | コマンドラインで座標数値入力は可能 | ダイナミック入力なし |
 | OSnap(端点/中点/交点/垂線/接線/近接/グリッド) | ◐ | **2026-09-04拡張**: 端点・中点・中心・四分点・交点(既定ON)+垂線・近接点(設定ダイアログ「OSnap対象」で追加ON)を実装。グリッドはgridスナップ | 接線・極トラッキング・追跡線は未対応(P1-02) |
 | 直交モード/極トラッキング/追跡線/動的入力 | ◐ | 直交モード・スナップ・グリッド | 極トラッキング等なし |
