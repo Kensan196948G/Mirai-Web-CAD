@@ -3,7 +3,7 @@
 // 設計方針:
 // - 内部CADモデル(cad-core.jsのDrawing型)から、AutoCAD/ARES等が読める最小限のASCII DXF(R2000系)
 //   を生成する。純関数でありNode(CLI/テスト)とブラウザ(UI書出し)の両方から利用できる。
-// - 対象entity: line→LINE, circle→CIRCLE, polyline→LWPOLYLINE(閉鎖フラグ70=1)、
+// - 対象entity: line→LINE, circle→CIRCLE, arc→ARC, polyline→LWPOLYLINE(閉鎖フラグ70=1)、
 //   text→TEXT(高さ40)。rectは閉鎖LWPOLYLINE(4頂点)として書出す(DXFにrect概念がないため)。
 //   dimension / hatch / block は現PhaseではDXFへ安全に写像できないため「黙って捨てず」、
 //   構造化されたskippedリストとして返す(未対応entity非破棄ポリシーの書出し側適用)。
@@ -121,6 +121,20 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
       }
       return ["0", "CIRCLE", ...base, ...point(center, 10), "40", num(entity.radius)];
     }
+    case "arc": {
+      const center = finitePoint(entity.center);
+      if (
+        !center || !Number.isFinite(entity.radius) || Number(entity.radius) <= 0 ||
+        !Number.isFinite(entity.startAngle) || !Number.isFinite(entity.endAngle) ||
+        normalizedSweep(entity.startAngle, entity.endAngle) <= 1e-9
+      ) {
+        return skipEntity(entity, skipped, "円弧の中心/半径/角度が不正です");
+      }
+      return [
+        "0", "ARC", ...base, ...point(center, 10), "40", num(entity.radius),
+        "50", num(normalizeDegrees(entity.startAngle)), "51", num(normalizeDegrees(entity.endAngle))
+      ];
+    }
     case "polyline": {
       if (!Array.isArray(entity.points) || entity.points.length < 2) return skipEntity(entity, skipped, "ポリラインの頂点が不足しています");
       const groups = ["0", "LWPOLYLINE", ...base, "90", String(entity.points.length), "70", entity.closed ? "1" : "0"];
@@ -184,6 +198,14 @@ function sanitizeName(value) {
 function num(value) {
   const rounded = Math.round(Number(value) * 1e9) / 1e9;
   return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function normalizeDegrees(value) {
+  return ((Number(value) % 360) + 360) % 360;
+}
+
+function normalizedSweep(startAngle, endAngle) {
+  return ((Number(endAngle) - Number(startAngle)) % 360 + 360) % 360;
 }
 
 /** DXF point group: コードcodeとcode+10のペアでx,yを書く(例: LINE始点は10/20、終点は11/21)。 */

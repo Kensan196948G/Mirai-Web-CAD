@@ -391,3 +391,13 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | MVP backup | `mirai-web-cad-mvp-backup.timer`を毎日03:40 JSTで追加。読取り専用`mirai_web_cad_backup`ロールへMVP DBのSELECT権限を付与し、本番とは別の`/var/backups/mirai-web-cad/mvp-postgres/`へ14日保持で保存 |
 | Restore drill | 専用DB`mirai_web_cad_mvp_recovery`へ毎週日曜に最新dumpを復元。スクリプトは対象DB名の完全一致と元DBとの差異を破壊操作前に検証。実測でdrawings=1、versions=1、audits=2、JSONB strings=0。検証後は成功・失敗を問わず隔離DBを空へ戻す |
 | Monitoring | `mirai-web-cad-mvp-monitor.timer`を15分間隔で追加。ローカルAPIのPostgreSQL接続/migration、実DB名`mirai_web_cad_mvp`、公開URLがCloudflare Accessへ302転送されることを同時検査 |
+
+## Round 13 / 2026-09-05 ネイティブARC・DXF円弧往復
+
+| 項目 | 内容 |
+| --- | --- |
+| CAD Core | `arc` entityを中心・半径・開始角・終了角(度、反時計回り)で追加。象限をまたぐ境界、円弧長、選択判定、無効半径/角度検査を実装 |
+| UI/編集 | リボン「円弧」の中心→始点→終点による3点作図と`ARC x,y radius startAngle endAngle`を追加。移動、回転、尺度、鏡像、配列、OFFSETに対応し、FILLET出力を分割polylineからネイティブARCへ変更 |
+| 互換性 | JSONとASCII DXFのARC入出力、OSnap(端点/中点/中心/円弧内四分点/近接/交点)、比較器の半径・開始角・終了角評価を追加。DXF往復で型と幾何を保持 |
+| 検証 | 単体テスト4件を追加し既存FILLET/E2EをネイティブARC前提へ更新。全検証結果は本RoundのGit履歴と`state.json`へ記録 |
+| 残課題 | 円弧を対象にしたTRIM/EXTEND、曲線グリップ編集、ELLIPSE/SPLINE、STRETCH/EXPLODE/MATCHPROPは後続Round |

@@ -1,5 +1,5 @@
 import DxfParserPackage from "dxf-parser";
-import { circle, line, polyline, rect, text } from "./cad-core.js";
+import { arc, circle, line, polyline, rect, text } from "./cad-core.js";
 import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -115,6 +115,14 @@ function normalizeJsonEntity(entity, layerId, index) {
     if (radius <= 0) throw new Error("radiusは0より大きい値が必要です。");
     return circle(layerId, coordinate(entity.center), radius, options);
   }
+  if (entity.type === "arc") {
+    const radius = finite(entity.radius, "radius");
+    if (radius <= 0) throw new Error("radiusは0より大きい値が必要です。");
+    const startAngle = finite(entity.startAngle, "startAngle");
+    const endAngle = finite(entity.endAngle, "endAngle");
+    if (normalizedSweep(startAngle, endAngle) <= 1e-9) throw new Error("startAngleとendAngleは異なる値が必要です。");
+    return arc(layerId, coordinate(entity.center), radius, startAngle, endAngle, options);
+  }
   if (entity.type === "polyline") {
     if (!Array.isArray(entity.points) || entity.points.length < 2) throw new Error("polylineには2点以上必要です。");
     return polyline(layerId, entity.points.map(coordinate), { ...options, closed: Boolean(entity.closed) });
@@ -153,7 +161,14 @@ function normalizeDxfEntity(entity, layerId, index) {
     return polyline(layerId, entity.vertices.map(coordinate), { ...options, closed: Boolean(entity.shape) });
   }
   if (entity.type === "ARC") {
-    return polyline(layerId, arcPoints(entity), options);
+    return arc(
+      layerId,
+      coordinate(entity.center),
+      positive(entity.radius),
+      radiansToDegrees(entity.startAngle),
+      radiansToDegrees(entity.endAngle),
+      options
+    );
   }
   if (entity.type === "TEXT") {
     return text(layerId, coordinate(entity.startPoint), String(entity.text ?? ""), {
@@ -170,21 +185,12 @@ function normalizeDxfEntity(entity, layerId, index) {
   return null;
 }
 
-function arcPoints(entity) {
-  const center = coordinate(entity.center);
-  const radius = positive(entity.radius);
-  let start = finite(entity.startAngle, "startAngle");
-  let end = finite(entity.endAngle, "endAngle");
-  if (Math.abs(start) > Math.PI * 2 || Math.abs(end) > Math.PI * 2) {
-    start = (start * Math.PI) / 180;
-    end = (end * Math.PI) / 180;
-  }
-  while (end <= start) end += Math.PI * 2;
-  const count = Math.max(8, Math.min(64, Math.ceil(((end - start) / (Math.PI * 2)) * 48)));
-  return Array.from({ length: count + 1 }, (_, index) => {
-    const angle = start + ((end - start) * index) / count;
-    return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
-  });
+function radiansToDegrees(value) {
+  return (finite(value, "angle") * 180) / Math.PI;
+}
+
+function normalizedSweep(startAngle, endAngle) {
+  return ((endAngle - startAngle) % 360 + 360) % 360;
 }
 
 function entityOptions(entity, index) {

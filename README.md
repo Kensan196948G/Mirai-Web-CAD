@@ -73,11 +73,11 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | 領域 | 段階 | 内容 |
 | --- | --- | --- |
 | 図面作成 | 限定対応 | 空図面/デモ図面の新規作成、図面名、単位（mm/m）。案件・工区管理なし |
-| 作図 | 限定対応 | 基本図形、パン・ズーム、移動、複写、回転、尺度、Undo/Redoは動作。**精密編集(2026-09-04〜05追加)**: MIRROR/ARRAY/BREAK/JOIN、境界交点TRIM・EXTEND、真の平行OFFSETに加え、**CHAMFER(直線2本の面取り)/FILLET(接線円弧を分割polyline化)/BOUNDARY(接続線分の閉境界化)/PEDIT(頂点移動・追加・削除・開閉)**をコマンド・リボンから利用可能。STRETCH/EXPLODE/ネイティブ円弧は未対応 |
+| 作図 | 限定対応 | 基本図形、パン・ズーム、移動、複写、回転、尺度、Undo/Redoは動作。**精密編集(2026-09-04〜05追加)**: MIRROR/ARRAY/BREAK/JOIN、境界交点TRIM・EXTEND、真の平行OFFSET、CHAMFER、BOUNDARY、PEDITを利用可能。**円弧(ARC)**はリボンの「円弧」(中心→始点→終点)または`ARC 中心 半径 開始角 終了角`で作図でき、FILLETもネイティブ円弧を生成。STRETCH/EXPLODE/MATCHPROP、楕円、スプラインは未対応 |
 | UI | 限定対応 | リボン、モデル/レイアウト空間タブ、タブ式右ドック、ステータスバーは動作。モバイルは固定コマンドラインがCanvasを覆う等、編集用途では未成熟(閲覧・朱書き用途を推奨) |
 | 作図補助 | 限定対応 | グリッド表示・スナップ、直交モードは動作。**OSnap(2026-09-04拡張)**: 端点・中点・中心・四分点・交点を既定とし、垂線・近接点は設定ダイアログの「OSnap対象」から追加ON可能。接線・極トラッキング・追跡線は未対応 |
 | コマンドライン | 限定対応 | 基本作図・精密編集コマンドは動作。`DIM`は2点間の簡易寸法のみ(角度/半径/直径/公差/連続寸法/寸法スタイル/連想更新は未対応)。`HATCH`は島・境界探索・連想更新なし。`BLOCK`は1図形をchildrenへ包む簡易構造(定義/参照分離、属性、再定義、分解、ライブラリは未対応) |
-| Import | 限定対応 | Mirai JSON、ASCII DXFのLINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXTを読込。ARCはネイティブ円弧でなくポリラインへ変換。**DXF書出し(2026-09-04〜)**: line/circle/polyline/rect/text+LayersをASCII DXFへ出力(リボン「DXF書出し」)。dimension/hatch/blockは「黙って捨てず」スキップ理由付きで報告。DWGは対象外です([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
+| Import | 限定対応 | Mirai JSON、ASCII DXFのLINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/MTEXTを読込。**ARCは中心・半径・開始角・終了角を保つネイティブ円弧としてDXF往復対応**。DXF書出しはline/circle/arc/polyline/rect/text+Layersに対応。dimension/hatch/blockは「黙って捨てず」スキップ理由付きで報告。DWGは対象外です([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
 | レイヤー | 限定対応 | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更は動作 |
 | プロパティ | 限定対応 | 選択図形の種類・ID確認、レイヤー・線幅編集は動作。選択は単一図形のみで、窓・交差・複数選択は未対応 |
 | レイアウト | 試作 | A4～A1、縦横、縮尺、余白、表題の設定は可能だが、レイアウト空間は実図形を描画せずビューポートを示す文字表示に留まる。印刷は`window.print()`依存 |

@@ -243,6 +243,11 @@ function geometryFacets(entity) {
       return { points: [entity.origin], scalars: { width: entity.width, height: entity.height } };
     case "circle":
       return { points: [entity.center], scalars: { radius: entity.radius } };
+    case "arc":
+      return {
+        points: [entity.center],
+        scalars: { radius: entity.radius, startAngle: entity.startAngle, endAngle: entity.endAngle }
+      };
     case "text":
       return { points: [entity.at], scalars: { size: entity.size } };
     case "block":
@@ -281,8 +286,9 @@ function evaluateCoordinateAxis(pairs, effectiveTolerance, tolerance, findings) 
       checked += 1;
       const expectedValue = expectedFacets.scalars[key] ?? 0;
       const actualValue = actualFacets.scalars[key] ?? 0;
-      const d = Math.abs(expectedValue - actualValue);
-      const scalarTolerance = key === "rotation" ? tolerance.angle : effectiveTolerance;
+      const angular = ["rotation", "startAngle", "endAngle"].includes(key);
+      const d = angular ? angleDelta(expectedValue, actualValue) : Math.abs(expectedValue - actualValue);
+      const scalarTolerance = angular ? tolerance.angle : effectiveTolerance;
       if (d <= scalarTolerance) {
         passed += 1;
       } else {
@@ -299,6 +305,11 @@ function evaluateCoordinateAxis(pairs, effectiveTolerance, tolerance, findings) 
     }
   }
   return { checked, passed };
+}
+
+function angleDelta(left, right) {
+  const raw = Math.abs(Number(left) - Number(right)) % 360;
+  return Math.min(raw, 360 - raw);
 }
 
 function evaluateLayerAxis(expectedLayers, actualLayers, pairs, layerNameByIdExpected, layerNameByIdActual, findings) {

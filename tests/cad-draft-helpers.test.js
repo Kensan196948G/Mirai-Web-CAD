@@ -11,7 +11,7 @@ import {
   perpendicularFoot,
   segmentIntersection
 } from "../src/cad-draft-helpers.js";
-import { circle, line, polyline, rect } from "../src/cad-core.js";
+import { arc, circle, line, polyline, rect } from "../src/cad-core.js";
 
 test("applyOrtho pins the axis with the smaller delta to the anchor", () => {
   assert.deepEqual(applyOrtho({ x: 0, y: 0 }, { x: 120, y: 40 }), { x: 120, y: 0 });
@@ -77,6 +77,18 @@ test("entitySegments decomposes line/rect/polyline into segments", () => {
   assert.equal(entitySegments(closedP).length, 3, "closed polyline closes back to start");
 
   assert.deepEqual(entitySegments(circle("layer-structure", [0, 0], 5)), [], "circle has no segments");
+});
+
+test("arc exposes only valid key points and segmented geometry for OSnap", () => {
+  const entity = arc("layer-structure", [0, 0], 100, 350, 100);
+  const keys = entityKeyPoints(entity);
+  assert.ok(keys.some((point) => Math.abs(point.x - 100) < 1e-9 && Math.abs(point.y) < 1e-9), "0 degree quadrant");
+  assert.ok(keys.some((point) => Math.abs(point.x) < 1e-9 && Math.abs(point.y - 100) < 1e-9), "90 degree quadrant");
+  assert.equal(keys.some((point) => Math.abs(point.x + 100) < 1e-9 && Math.abs(point.y) < 1e-9), false, "180 degree quadrant is outside arc");
+  assert.ok(entitySegments(entity).length >= 8);
+
+  const drawing = { layers: [{ id: "layer-structure", visible: true }], entities: [entity] };
+  assert.deepEqual(findOsnapPoint(drawing, { x: 1, y: 99 }, 5), { x: 0, y: 100 });
 });
 
 test("closestPointOnSegment clamps the projection to the segment", () => {

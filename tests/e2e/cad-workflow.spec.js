@@ -663,11 +663,16 @@ test("CHAMFER/FILLET/BOUNDARY/PEDITをコマンドラインから実操作でき
   await command.press("Enter");
   await expect(page.getByLabel("コマンドログ")).toContainText("FILLET");
   const arc = await entities().then((list) => list.at(-1));
-  expect(arc.type).toBe("polyline");
-  expect(arc.points.length).toBeGreaterThan(8);
+  expect(arc.type).toBe("arc");
+  expect(arc.radius).toBe(100);
+
+  await command.fill("ARC 6000,1000 500 350 20");
+  await command.press("Enter");
+  const commandedArc = await entities().then((list) => list.at(-1));
+  expect(commandedArc).toMatchObject({ type: "arc", center: { x: 6000, y: 1000 }, radius: 500, startAngle: 350, endAngle: 20 });
 
   await page.getByRole("button", { name: "ホーム", exact: true }).click();
-  for (const label of ["面取り", "フィレット", "境界作成", "ポリライン編集"]) {
+  for (const label of ["円弧", "面取り", "フィレット", "境界作成", "ポリライン編集"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
 });

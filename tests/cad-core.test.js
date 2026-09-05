@@ -2,11 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   applyTransaction,
+  arc,
   approveDrawing,
   boundsIntersect,
   buildAiProposal,
   circle,
   entityBounds,
+  entityLength,
+  hitTest,
   line,
   measurements,
   proposalToTransaction,
@@ -83,6 +86,26 @@ test("measurements aggregate length and area", () => {
   assert.equal(value.entityCount > 0, true);
   assert.equal(value.totalLength > 0, true);
   assert.equal(value.totalArea > 0, true);
+});
+
+test("native arc computes wrapped bounds, length, validation, and hit testing", () => {
+  const entity = arc("layer-structure", [100, 100], 50, 350, 100, { id: "e_arc" });
+  const bounds = entityBounds(entity);
+  assert.ok(Math.abs(bounds.minX - (100 + 50 * Math.cos((100 * Math.PI) / 180))) < 1e-9);
+  assert.equal(bounds.minY, 100 + 50 * Math.sin((350 * Math.PI) / 180));
+  assert.equal(bounds.maxX, 150);
+  assert.equal(bounds.maxY, 150);
+  assert.ok(Math.abs(entityLength(entity) - (Math.PI * 50 * 110) / 180) < 1e-9);
+
+  const drawing = seedDrawing();
+  drawing.entities.push(entity);
+  assert.equal(hitTest(drawing, { x: 150, y: 100 }, 2)?.id, "e_arc");
+  assert.notEqual(hitTest(drawing, { x: 50, y: 100 }, 2)?.id, "e_arc", "円弧の範囲外は円周として選択しない");
+  assert.equal(validateDrawing(drawing).some((issue) => issue.entityId === "e_arc" && issue.severity === "critical"), false);
+
+  const invalid = arc("layer-structure", [100, 100], 50, 30, 30, { id: "e_bad_arc" });
+  drawing.entities.push(invalid);
+  assert.equal(validateDrawing(drawing).some((issue) => issue.code === "invalid-arc-angle"), true);
 });
 
 test("successful edits advance revision and content hash detects coordinate changes", () => {

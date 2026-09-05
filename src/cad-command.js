@@ -1,4 +1,4 @@
-import { circle, entityArea, line, polyline, rect, text } from "./cad-core.js";
+import { arc, circle, entityArea, line, polyline, rect, text } from "./cad-core.js";
 import {
   arrayEntity,
   blockEntity,
@@ -26,6 +26,7 @@ const TOOL_COMMANDS = {
   RECTANGLE: "rect",
   C: "circle",
   CIRCLE: "circle",
+  ARC: "arc",
   PL: "polyline",
   PLINE: "polyline",
   POLYLINE: "polyline",
@@ -66,6 +67,17 @@ export function parseCadCommand(input, context) {
     if (radius <= 0) throw new Error("半径は0より大きい値を指定してください。");
     return transaction("CIRCLE", [
       { op: "add", entity: circle(context.currentLayerId, point(tokens[0]), radius) }
+    ]);
+  }
+  if (tool === "arc") {
+    requireCount(tokens, 4, "ARC x,y radius startAngle endAngle");
+    const radius = number(tokens[1], "radius");
+    if (radius <= 0) throw new Error("半径は0より大きい値を指定してください。");
+    const startAngle = number(tokens[2], "startAngle");
+    const endAngle = number(tokens[3], "endAngle");
+    if ((((endAngle - startAngle) % 360) + 360) % 360 === 0) throw new Error("円弧の開始角度と終了角度は異なる値を指定してください。");
+    return transaction("ARC", [
+      { op: "add", entity: arc(context.currentLayerId, point(tokens[0]), radius, startAngle, endAngle) }
     ]);
   }
   if (tool === "polyline") {
@@ -179,7 +191,7 @@ export function parseCadCommand(input, context) {
   if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
+      message: "LINE RECT CIRCLE ARC PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);

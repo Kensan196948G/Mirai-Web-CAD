@@ -11,13 +11,13 @@
     "pages_default_url": "https://mirai-web-cad.pages.dev (rollback fallback, not updated on merge)",
     "strategy_doc": "docs/Mirai-Web-CAD_80-90％代替・AI統合開発方針.md(2026-08-30、ユーザーがCTOへ対応・開発・実装を全権委任。現状代替率30-35%評価、土木2Dワークフロー限定で80-90%到達を目標とするPhase 0-5ロードマップ。以後の優先順位判断の最上位参照文書とする)"
   },
-  "goal": "2026-09-05(安定化Round 12完了)。本番DBへmigration 0006を事前backup後に適用し、全対象JSONB列のstring scalarを0件化。MVPへ専用の日次backup/鮮度検査、週次隔離DB復元、15分health/Access境界監視を追加。次はPhase 0互換コーパス準備とPhase 1の尺度保証PDF・寸法・DXF互換拡張を順次進める。残る未着手: STRETCH/EXPLODE/MATCHPROP、ネイティブARC/ELLIPSE/SPLINE、Canvasグリップ、寸法各種/スタイル、レイヤー標準テンプレート、尺度保証PDF、図面比較UI、案件ACL(Phase 2)、電子納品/座標(Phase 4)、CDE/AI拡張(Phase 3/5)。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
+  "goal": "2026-09-05(機能カタログRound 13)。ネイティブARCをCAD Core、Canvas/CLI、編集、OSnap、FILLET、JSON/DXF往復、比較へ実装。次はPhase 1を継続し、ELLIPSE/SPLINE、STRETCH/EXPLODE/MATCHPROP、円弧TRIM/EXTEND、Canvasグリップ、寸法各種/スタイル、レイヤー標準テンプレート、尺度保証PDFを順次進める。Phase 0の実案件DXF 100図面収集/UATは利用許諾済みデータとCAD利用者の提供待ち。Phase 2以降は案件ACL、図面比較UI、電子納品/座標、CDE/AI拡張を予定。機能カタログはdocs/feature-catalog-coverage.mdで追跡",
   "phase": "Monitor",
   "kpi": {
     "success_rate_target": 0.9,
     "ci_success_rate": 1.0,
     "test_pass_rate": 1.0,
-    "unit_test_count": 211,
+    "unit_test_count": 215,
     "e2e_test_count": 54,
     "postgres_integration_test_count": 7,
     "security_critical": 0,
@@ -76,7 +76,8 @@
     "P0-49 開発サーバーの自動割当LAN IP対応(2026-09-05): networkInterfacesから物理IPv4を自動検出し、起動時にLocal/Network URLを表示。Docker bridge/veth/link-localを除外しHOST環境変数による待受制限へ対応。単体テスト+2件、LAN IP health疎通確認済み",
     "P0-50 Cloudflare MVP専用URL(2026-09-05): mirai-web-cad-mvp.mirai-dx-platform.comをTunnelへ追加し、Accessはホスト全体をkensan1969@gmail.comだけallow。systemd 127.0.0.1:18813とローカルDB mirai_web_cad_mvpを本番から分離。公開desktop/mobile E2E成功、テスト資格情報削除済み",
     "P0-51 PostgreSQL JSONB二重保存修正(2026-09-05): postgres.js書込みをsql.json()へ統一し、旧string scalarを正規化するmigration 0006、読込み互換、実DB回帰を追加。PostgreSQL統合7/7、MVP実測content=object/entities=1",
-    "P0-52 本番Migration/MVP保全(2026-09-05): 本番DBを事前backup後に0006適用しJSONB strings=0。MVP専用の日次backup、鮮度検査、週次隔離DB復元、15分API/DB/Access境界監視をsystemdで有効化し実機成功"
+    "P0-52 本番Migration/MVP保全(2026-09-05): 本番DBを事前backup後に0006適用しJSONB strings=0。MVP専用の日次backup、鮮度検査、週次隔離DB復元、15分API/DB/Access境界監視をsystemdで有効化し実機成功",
+    "P0-53 ネイティブARC/DXF円弧往復(2026-09-05): arc entity、Canvas/CLI作図、境界/長さ/選択/OSnap、変換/OFFSET/鏡像、FILLET、JSON/DXF入出力、比較器を一貫対応。単体テスト+4件、既存E2EをARC前提へ更新"
   ],
   "blocked_issues": [
     {

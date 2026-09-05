@@ -1,3 +1,5 @@
+import { angleOnArc, arcPointAt, arcSweepDegrees } from "./cad-core.js";
+
 /**
  * Pure geometry helpers for interactive drafting aids (orthogonal constraint,
  * object snap). Kept separate from src/app.js so they stay unit-testable
@@ -59,6 +61,13 @@ export function entityKeyPoints(entity) {
     const r = entity.radius;
     return [copy(c), { x: c.x + r, y: c.y }, { x: c.x - r, y: c.y }, { x: c.x, y: c.y + r }, { x: c.x, y: c.y - r }];
   }
+  if (entity.type === "arc") {
+    const points = [copy(entity.center), arcPointAt(entity, entity.startAngle), arcPointAt(entity, entity.endAngle)];
+    for (const angle of [0, 90, 180, 270]) {
+      if (angleOnArc(angle, entity.startAngle, entity.endAngle)) points.push(arcPointAt(entity, angle));
+    }
+    return points;
+  }
   if (entity.type === "text") return [copy(entity.at)];
   if (entity.type === "block") return entity.insertion ? [copy(entity.insertion)] : [];
   return [];
@@ -78,6 +87,15 @@ export function entitySegments(entity) {
   if (entity.type === "dimension") {
     if (!entity.points?.[0] || !entity.points?.[1]) return [];
     return [{ a: entity.points[0], b: entity.points[1] }];
+  }
+  if (entity.type === "arc") {
+    const sweep = arcSweepDegrees(entity);
+    if (!entity.center || !Number.isFinite(entity.radius) || entity.radius <= 0 || sweep <= 0) return [];
+    const count = Math.max(8, Math.min(128, Math.ceil(sweep / 7.5)));
+    const points = Array.from({ length: count + 1 }, (_, index) =>
+      arcPointAt(entity, entity.startAngle + (sweep * index) / count)
+    );
+    return points.slice(1).map((value, index) => ({ a: points[index], b: value }));
   }
   if (entity.type === "rect") {
     if (!entity.origin) return [];
@@ -211,6 +229,11 @@ function candidatesForEntity(entity, modes) {
   if (modes.endpoint) {
     if (entity.type === "line" || entity.type === "polyline" || entity.type === "hatch" || entity.type === "dimension") {
       for (const point of entity.points ?? []) result.push({ ...copy(point), mode: "endpoint" });
+    } else if (entity.type === "arc") {
+      result.push(
+        { ...arcPointAt(entity, entity.startAngle), mode: "endpoint" },
+        { ...arcPointAt(entity, entity.endAngle), mode: "endpoint" }
+      );
     } else if (entity.type === "rect") {
       const o = entity.origin;
       result.push(
@@ -227,7 +250,9 @@ function candidatesForEntity(entity, modes) {
   }
 
   if (modes.midpoint) {
-    for (const segment of segments) {
+    if (entity.type === "arc") {
+      result.push({ ...arcPointAt(entity, entity.startAngle + arcSweepDegrees(entity) / 2), mode: "midpoint" });
+    } else for (const segment of segments) {
       result.push({
         x: (segment.a.x + segment.b.x) / 2,
         y: (segment.a.y + segment.b.y) / 2,
@@ -236,19 +261,24 @@ function candidatesForEntity(entity, modes) {
     }
   }
 
-  if (modes.center && entity.type === "circle" && entity.center) {
+  if (modes.center && (entity.type === "circle" || entity.type === "arc") && entity.center) {
     result.push({ ...copy(entity.center), mode: "center" });
   }
 
-  if (modes.quadrant && entity.type === "circle" && entity.center) {
+  if (modes.quadrant && (entity.type === "circle" || entity.type === "arc") && entity.center) {
     const c = entity.center;
     const r = Number.isFinite(entity.radius) ? entity.radius : 0;
-    result.push(
-      { x: c.x + r, y: c.y, mode: "quadrant" },
-      { x: c.x - r, y: c.y, mode: "quadrant" },
-      { x: c.x, y: c.y + r, mode: "quadrant" },
-      { x: c.x, y: c.y - r, mode: "quadrant" }
-    );
+    const quadrants = [
+      { angle: 0, x: c.x + r, y: c.y },
+      { angle: 180, x: c.x - r, y: c.y },
+      { angle: 90, x: c.x, y: c.y + r },
+      { angle: 270, x: c.x, y: c.y - r }
+    ];
+    for (const candidate of quadrants) {
+      if (entity.type === "circle" || angleOnArc(candidate.angle, entity.startAngle, entity.endAngle)) {
+        result.push({ x: candidate.x, y: candidate.y, mode: "quadrant" });
+      }
+    }
   }
 
   return result;

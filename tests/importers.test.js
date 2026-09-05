@@ -32,6 +32,7 @@ test("ASCII DXF imports supported 2D entities and reports unsupported entities",
     "0", "SECTION", "2", "ENTITIES",
     "0", "LINE", "8", "DXF-LINE", "10", "10", "20", "20", "11", "110", "21", "120",
     "0", "CIRCLE", "8", "DXF-CIRCLE", "10", "200", "20", "300", "40", "25",
+    "0", "ARC", "8", "DXF-ARC", "10", "500", "20", "600", "40", "75", "50", "350", "51", "20",
     "0", "ENDSEC", "0", "EOF"
   ].join("\n");
   const imported = parseCadImport({
@@ -40,12 +41,31 @@ test("ASCII DXF imports supported 2D entities and reports unsupported entities",
     drawing,
     currentLayerId: "layer-structure"
   });
-  assert.equal(imported.entityCount, 2);
-  assert.equal(imported.commands.filter((command) => command.op === "add_layer").length, 2);
+  assert.equal(imported.entityCount, 3);
+  assert.equal(imported.commands.filter((command) => command.op === "add_layer").length, 3);
   assert.deepEqual(
     imported.commands.filter((command) => command.op === "add").map((command) => command.entity.type),
-    ["line", "circle"]
+    ["line", "circle", "arc"]
   );
+  const importedArc = imported.commands.find((command) => command.entity?.type === "arc").entity;
+  assert.ok(Math.abs(importedArc.startAngle - 350) < 1e-9);
+  assert.ok(Math.abs(importedArc.endAngle - 20) < 1e-9);
+});
+
+test("JSON imports native arc without flattening it to a polyline", () => {
+  const drawing = seedDrawing();
+  const imported = parseCadImport({
+    filename: "arc.json",
+    content: JSON.stringify({ entities: [{ type: "arc", center: { x: 300, y: 400 }, radius: 80, startAngle: 45, endAngle: 225 }] }),
+    drawing,
+    currentLayerId: "layer-structure"
+  });
+  const entity = imported.commands.find((command) => command.op === "add").entity;
+  assert.equal(entity.type, "arc");
+  assert.deepEqual(entity.center, { x: 300, y: 400 });
+  assert.equal(entity.radius, 80);
+  assert.equal(entity.startAngle, 45);
+  assert.equal(entity.endAngle, 225);
 });
 
 test("import rejects unsupported files, invalid JSON, and empty geometry", () => {

@@ -102,6 +102,16 @@ export function circle(layerId, center, radius, options = {}) {
   });
 }
 
+export function arc(layerId, center, radius, startAngle, endAngle, options = {}) {
+  return entityBase("arc", layerId, {
+    center: point(center),
+    radius,
+    startAngle: Number(startAngle),
+    endAngle: Number(endAngle),
+    ...options
+  });
+}
+
 export function polyline(layerId, points, options = {}) {
   return entityBase("polyline", layerId, {
     points: points.map(point),
@@ -373,6 +383,13 @@ export function validateDrawing(drawing) {
       issues.push(issue("critical", "missing-layer", `存在しないレイヤーを参照しています: ${entity.layerId}`, entity.id));
     }
 
+    if (entity.type === "arc" && (!Number.isFinite(entity.startAngle) || !Number.isFinite(entity.endAngle) || arcSweepDegrees(entity) <= EPSILON)) {
+      issues.push(issue("critical", "invalid-arc-angle", `円弧角度が不正です: ${entity.id}`, entity.id));
+    }
+    if ((entity.type === "circle" || entity.type === "arc") && (!Number.isFinite(entity.radius) || entity.radius <= 0)) {
+      issues.push(issue("critical", "invalid-radius", `円半径が不正です: ${entity.id}`, entity.id));
+    }
+
     const bounds = entityBounds(entity);
     if (!bounds) {
       issues.push(issue("major", "invalid-geometry", `図形の形状が不正です: ${entity.id}`, entity.id));
@@ -383,9 +400,6 @@ export function validateDrawing(drawing) {
     }
     if (entity.type === "line" && distance(entity.points[0], entity.points[1]) < EPSILON) {
       issues.push(issue("major", "zero-length-line", `長さ0の線分です: ${entity.id}`, entity.id));
-    }
-    if (entity.type === "circle" && entity.radius <= 0) {
-      issues.push(issue("critical", "invalid-radius", `円半径が不正です: ${entity.id}`, entity.id));
     }
   }
 
@@ -518,12 +532,21 @@ export function entityBounds(entity) {
     };
   }
   if (entity.type === "circle") {
+    if (!isFinitePoint(entity.center) || !Number.isFinite(entity.radius) || entity.radius <= 0) return null;
     return {
       minX: entity.center.x - entity.radius,
       minY: entity.center.y - entity.radius,
       maxX: entity.center.x + entity.radius,
       maxY: entity.center.y + entity.radius
     };
+  }
+  if (entity.type === "arc") {
+    if (!isFinitePoint(entity.center) || !Number.isFinite(entity.radius) || entity.radius <= 0 || arcSweepDegrees(entity) <= EPSILON) return null;
+    const points = [arcPointAt(entity, entity.startAngle), arcPointAt(entity, entity.endAngle)];
+    for (const angle of [0, 90, 180, 270]) {
+      if (angleOnArc(angle, entity.startAngle, entity.endAngle)) points.push(arcPointAt(entity, angle));
+    }
+    return boundsFromPoints(points);
   }
   if (entity.type === "text") {
     return {
@@ -579,6 +602,7 @@ export function entityLength(entity) {
   }
   if (entity.type === "rect") return Math.abs(entity.width * 2) + Math.abs(entity.height * 2);
   if (entity.type === "circle") return 2 * Math.PI * entity.radius;
+  if (entity.type === "arc") return (Math.PI * entity.radius * arcSweepDegrees(entity)) / 180;
   if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
   if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
   if (entity.type === "block") return (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
@@ -622,6 +646,11 @@ function distanceToEntity(entity, p) {
     return Math.min(...points.map((current, index) => pointToSegmentDistance(p, current, points[(index + 1) % 4])));
   }
   if (entity.type === "circle") return Math.abs(distance(p, entity.center) - entity.radius);
+  if (entity.type === "arc") {
+    const angle = (Math.atan2(p.y - entity.center.y, p.x - entity.center.x) * 180) / Math.PI;
+    if (angleOnArc(angle, entity.startAngle, entity.endAngle)) return Math.abs(distance(p, entity.center) - entity.radius);
+    return Math.min(distance(p, arcPointAt(entity, entity.startAngle)), distance(p, arcPointAt(entity, entity.endAngle)));
+  }
   if (entity.type === "polyline") {
     const points = entity.closed ? [...entity.points, entity.points[0]] : entity.points;
     return Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current)));
@@ -649,18 +678,45 @@ function pointToSegmentDistance(p, a, b) {
   return distance(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
 }
 
+export function arcSweepDegrees(entityOrStart, maybeEnd) {
+  const start = typeof entityOrStart === "object" ? Number(entityOrStart.startAngle) : Number(entityOrStart);
+  const end = typeof entityOrStart === "object" ? Number(entityOrStart.endAngle) : Number(maybeEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  const raw = end - start;
+  return ((raw % 360) + 360) % 360;
+}
+
+export function angleOnArc(angle, startAngle, endAngle) {
+  const sweep = arcSweepDegrees(startAngle, endAngle);
+  if (sweep <= EPSILON) return false;
+  const relative = ((Number(angle) - Number(startAngle)) % 360 + 360) % 360;
+  return relative <= sweep + EPSILON;
+}
+
+export function arcPointAt(entity, angle) {
+  const radians = (Number(angle) * Math.PI) / 180;
+  return {
+    x: entity.center.x + entity.radius * Math.cos(radians),
+    y: entity.center.y + entity.radius * Math.sin(radians)
+  };
+}
+
 function point(value) {
   return Array.isArray(value) ? { x: Number(value[0]), y: Number(value[1]) } : { x: Number(value.x), y: Number(value.y) };
 }
 
 function boundsFromPoints(points) {
-  if (!points.length) return null;
+  if (!points.length || points.some((value) => !isFinitePoint(value))) return null;
   return {
     minX: Math.min(...points.map((p) => p.x)),
     minY: Math.min(...points.map((p) => p.y)),
     maxX: Math.max(...points.map((p) => p.x)),
     maxY: Math.max(...points.map((p) => p.y))
   };
+}
+
+function isFinitePoint(value) {
+  return value && Number.isFinite(value.x) && Number.isFinite(value.y);
 }
 
 function polygonArea(points) {

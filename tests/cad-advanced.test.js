@@ -21,7 +21,7 @@ import {
   transformEntity,
   trimEntityToBoundaries
 } from "../src/cad-advanced.js";
-import { entityArea, entityBounds, line, rect, validateDrawing } from "../src/cad-core.js";
+import { arc, entityArea, entityBounds, line, rect, validateDrawing } from "../src/cad-core.js";
 
 test("move, rotate, and scale preserve deterministic geometry", () => {
   const source = line("layer-structure", [0, 0], [100, 0]);
@@ -193,19 +193,27 @@ test("chamferLines trims two corner lines and creates a connector", () => {
   assert.deepEqual(roundPoints(result.connector.points), [{ x: 20, y: 0 }, { x: 0, y: 30 }]);
 });
 
-test("filletLines creates a tangent quarter arc as a polyline", () => {
+test("filletLines creates a tangent quarter arc as a native arc", () => {
   const horizontal = line("layer-structure", [0, 0], [100, 0], { id: "e_horizontal" });
   const vertical = line("layer-structure", [0, 0], [0, 100], { id: "e_vertical" });
-  const result = filletLines(horizontal, vertical, 20, 8);
+  const result = filletLines(horizontal, vertical, 20);
   assert.deepEqual(roundPoints(result.first.points), [{ x: 20, y: 0 }, { x: 100, y: 0 }]);
   assert.deepEqual(roundPoints(result.second.points), [{ x: 0, y: 20 }, { x: 0, y: 100 }]);
-  assert.equal(result.arc.type, "polyline");
-  assert.equal(result.arc.closed, false);
-  assert.equal(result.arc.points.length, 9);
-  assert.deepEqual(roundPoints([result.arc.points[0], result.arc.points.at(-1)]), [{ x: 20, y: 0 }, { x: 0, y: 20 }]);
-  for (const point of result.arc.points) {
-    assert.ok(Math.abs(Math.hypot(point.x - result.center.x, point.y - result.center.y) - 20) < 1e-6);
-  }
+  assert.equal(result.arc.type, "arc");
+  assert.deepEqual(roundPoints([result.arc.center]), [{ x: 20, y: 20 }]);
+  assert.equal(result.arc.radius, 20);
+  assert.equal(Math.round(((result.arc.endAngle - result.arc.startAngle + 360) % 360)), 90);
+});
+
+test("native arc rotates, offsets, and mirrors while preserving sweep", () => {
+  const source = arc("layer-structure", [100, 100], 20, 0, 90);
+  const rotated = transformEntity(source, { angle: 45, base: { x: 100, y: 100 } });
+  assert.equal(rotated.startAngle, 45);
+  assert.equal(rotated.endAngle, 135);
+  assert.equal(offsetEntity(source, 5).radius, 25);
+  const mirrored = mirrorEntity(source, { x: 0, y: 0 }, { x: 0, y: 1 });
+  assert.deepEqual(roundPoints([mirrored.center]), [{ x: -100, y: 100 }]);
+  assert.equal(Math.round((mirrored.endAngle - mirrored.startAngle + 360) % 360), 90);
 });
 
 test("chamferLines and filletLines reject invalid inputs", () => {
