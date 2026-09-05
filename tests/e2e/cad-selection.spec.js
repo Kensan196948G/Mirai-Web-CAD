@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
     line("layer-structure", [400, 400], [1600, 400], { id: "first" }),
     line("layer-structure", [400, 1000], [1600, 1000], { id: "second" })
   ] });
-  await page.addInitScript((doc) => localStorage.setItem("mirai-web-cad-mvp", JSON.stringify(doc)), drawing);
+  await page.addInitScript((doc) => { if (!localStorage.getItem("mirai-web-cad-mvp")) localStorage.setItem("mirai-web-cad-mvp", JSON.stringify(doc)); }, drawing);
   await page.route("**/api/**", (route) => route.abort());
   await page.goto("/");
   await expect(page.locator(".save-status")).toHaveText("オフライン");
@@ -22,6 +22,58 @@ async function drag(page, a, b, beforeUp) {
 }
 
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("mirai-web-cad-mvp")));
+
+test("advanced selection supports paths, previous selection and saved sets after reload", async ({ page }, testInfo) => {
+  const command = async (value) => {
+    await page.locator("#commandInput").fill(value);
+    await page.locator("#commandInput").press("Enter");
+  };
+  await command("FENCE");
+  await page.locator("#cadCanvas").click({ position: { x: 120, y: 55 } });
+  await page.locator("#cadCanvas").click({ position: { x: 120, y: 130 } });
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("選択: 2件 / second", { exact: true })).toBeVisible();
+  await command("SELECT first");
+  await command("SELECT PREVIOUS");
+  await expect(page.getByText("選択: 2件 / second", { exact: true })).toBeVisible();
+  await command('SELECTION SAVE "work"');
+  expect((await stored(page)).selectionSets[0].entityIds).toEqual(["first", "second"]);
+  await command("UNDO");
+  expect((await stored(page)).selectionSets).toEqual([]);
+  await command("REDO");
+  await page.reload();
+  await expect(page.locator(".save-status")).toHaveText("オフライン");
+  await command('SELECTION LOAD "work"');
+  await expect(page.getByText("選択: 2件 / second", { exact: true })).toBeVisible();
+  await command("LASSO");
+  const box = await page.locator("#cadCanvas").boundingBox();
+  await page.mouse.move(box.x + 65, box.y + 55);
+  await page.mouse.down();
+  for (const [x,y] of [[185,55],[185,130],[65,130],[65,55]]) await page.mouse.move(box.x+x,box.y+y,{steps:4});
+  await page.mouse.up();
+  await expect(page.getByText("選択: 2件 / second", { exact: true })).toBeVisible();
+  await testInfo.attach("advanced-selection", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+});
+
+test("lengthen, reverse, overkill and purge use transactions and Undo", async ({ page }) => {
+  const command = async (value) => {
+    await page.locator("#commandInput").fill(value);
+    await page.locator("#commandInput").press("Enter");
+  };
+  await command("LENGTHEN 2400 first");
+  expect((await stored(page)).entities[0].points[1].x).toBe(2800);
+  await command("REVERSE first");
+  expect((await stored(page)).entities[0].points[0].x).toBe(2800);
+  await command("COPY first 0,0");
+  expect((await stored(page)).entities.length).toBe(3);
+  await command("QSELECT type line");
+  await command("OVERKILL");
+  expect((await stored(page)).entities.length).toBe(2);
+  await command("UNDO");
+  expect((await stored(page)).entities.length).toBe(3);
+  await command("PURGE");
+  expect((await stored(page)).layers.map((layer) => layer.id)).toEqual(["layer-structure"]);
+});
 
 test("associative dimension follows editing, shows broken references and recovers with Undo", async ({ page }, testInfo) => {
   const command = async (value) => {

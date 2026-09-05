@@ -3,7 +3,7 @@
 ![MVP](https://img.shields.io/badge/Status-MVP-F59E0B?style=for-the-badge)
 ![Cloudflare Access](https://img.shields.io/badge/Cloudflare-Access-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/Database-Local_PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![E2E](https://img.shields.io/badge/E2E-62%2F62_Passed-16A34A?style=for-the-badge&logo=playwright&logoColor=white)
+![E2E](https://img.shields.io/badge/E2E-68%2F68_Passed-16A34A?style=for-the-badge&logo=playwright&logoColor=white)
 
 建設・土木の図面を、Webブラウザで作成・修正・確認するための**試作版2D CAD**です。専用ソフトのインストールは不要です。
 
@@ -79,7 +79,7 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | コマンドライン | 限定対応 | 基本作図・精密編集に加え、線分の連想Aligned/水平/垂直、円/円弧の半径/直径寸法、書式Overrideを利用可能。詳細は[連想寸法](docs/associative-dimensions.md)。角度/公差/連続寸法/名前付きStyleは後続。`HATCH`は島・境界探索・連想更新なし。`BLOCK`はchildrenを持つ簡易構造で、属性なしBlockのEXPLODEは対応、定義/参照分離・属性定義・再定義・ライブラリは後続 |
 | Import | 限定対応 | Mirai JSON、ASCII DXFのLINE/CIRCLE/ARC/**ELLIPSE/SPLINE**/LWPOLYLINE/POLYLINE/TEXT/MTEXTを読込。円弧・楕円・スプラインはネイティブ図形としてDXF往復対応。DXF書出しはline/circle/arc/ellipse/spline/polyline/rect/text+Layersに対応。dimension/hatch/blockは「黙って捨てず」スキップ理由付きで報告。DWGは対象外です([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
 | レイヤー | 限定対応 | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更は動作 |
-| プロパティ | 限定対応 | 単一図形の種類・ID確認、レイヤー・線幅編集に対応。Window/Crossing/複数選択、Shift追加・除外、全選択、選択セットの移動・削除・数値変形に対応。個別プロパティ編集は1件選択時のみ。曲線選択は既存sampling精度、選択インデックスは後続 |
+| プロパティ | 限定対応 | 単一図形の種類・ID確認、レイヤー・線幅編集に対応。Window/Crossing/複数選択、Shift追加・除外、全選択、選択セットの移動・削除・数値変形に対応。Fence/Lasso、Previous/Last、類似・条件選択、名前付き選択セット保存を追加。LENGTHEN/REVERSE/PURGE/OVERKILLの対象制限は[高度な選択と追加編集](docs/advanced-selection-editing.md)を参照。個別プロパティ編集は1件選択時のみ。曲線選択はsampling近似、選択インデックスは後続 |
 | レイアウト | 試作 | A4～A1、縦横、縮尺、余白、表題の設定は可能だが、レイアウト空間は実図形を描画せずビューポートを示す文字表示に留まる。印刷は`window.print()`依存 |
 | AI提案 | 限定対応 | Promptから構造化コマンドを生成し、Canvasへプレビュー後、人の承認で適用。ルールベース(3パターン)を優先し、拾えない場合のみサーバー側プロキシ経由でOpenAI/Anthropicへフォールバックする(2026-08-30〜)。有効化状態は`GET /api/ai/status`で確認可能(鍵は返さない) |
 | 検査 | 限定対応 | 重複ID、存在しないレイヤー、用紙外、0長線、円半径、Critical残存を検出。API未接続時は「検査不能」表示に切り替え、承認操作を無効化する(2026-08-29修正) |

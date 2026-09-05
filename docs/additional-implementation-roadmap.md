@@ -10,6 +10,8 @@ DXF交換・精密CAD Core・尺度保証PDFをAI拡張より先に完成させ�
 
 ## 今回の実装
 
+継続追加: [高度な選択・追加編集](advanced-selection-editing.md)。Fence/Lasso、Previous/Last、類似/条件選択、保存セット、限定LENGTHEN/REVERSE/PURGE/OVERKILLを追加。各機能の対象形式・近似・残件をリンク先で明示する。
+
 - 複数選択、左→右Window、右→左Crossing、Shiftクリック追加/除外、Ctrl/Cmd+A、SELECT ALL。
 - 選択セットのドラッグ移動・削除・CLI MOVE/COPY/ROTATE/SCALE。1回のトランザクションで確定し、Undo/Redoを既存履歴へ統合。
 - LINE/PLINE/HATCH/DIMの点、SPLINE制御点、円中心/半径、ARC始終角、ELLIPSE中心/軸、TEXT/BLOCK/RECT基点のグリップ。変更プレビューを保存対象から分離しEsc/捕捉喪失で破棄。
@@ -69,11 +71,11 @@ STRETCHは2点の矩形と移動量、MATCHPROPはコピー元IDを指定する�
 | SEL-03 | Crossing | 一部実装・上記範囲参照 |
 | SEL-04 | Select All | 一部実装・上記範囲参照 |
 | SEL-05 | Shift追加・除外 | 一部実装・上記範囲参照 |
-| SEL-06 | Fence/Lasso | 後続 |
-| SEL-07 | Previous/Last | 後続 |
-| SEL-08 | Select Similar/Quick Select | 後続 |
-| SEL-09 | レイヤー・種類・色・線種・線幅・属性による選択 | 後続 |
-| SEL-10 | 選択セット保存 | 後続 |
+| SEL-06 | Fence/Lasso | 一部実装: 曲線はsampling |
+| SEL-07 | Previous/Last | 実装: 直前セット/最後の可視図形 |
+| SEL-08 | Select Similar/Quick Select | 一部実装: 種類・レイヤー等 |
+| SEL-09 | レイヤー・種類・色・線種・線幅・属性による選択 | 一部実装: 種類/レイヤー色/レイヤー/線幅 |
+| SEL-10 | 選択セット保存 | 実装: 図面保存・監査・Undo・JSON再割当 |
 
 ### GRIP: グリップ
 
@@ -105,13 +107,13 @@ STRETCHは2点の矩形と移動量、MATCHPROPはコピー元IDを指定する�
 | EDIT-01 | STRETCH | 一部実装・上記範囲参照 |
 | EDIT-02 | EXPLODE | 一部実装・上記範囲参照 |
 | EDIT-03 | MATCHPROP | 一部実装・上記範囲参照 |
-| EDIT-04 | LENGTHEN/REVERSE | 後続 |
+| EDIT-04 | LENGTHEN/REVERSE | 一部実装: 対応形式は追加編集文書参照 |
 | EDIT-05 | 曲線TRIM/EXTEND | 後続 |
 | EDIT-06 | ARC/SPLINE/ELLIPSE OFFSET | 後続 |
 | EDIT-07 | 円・円弧・Polyline FILLET/CHAMFER | 後続 |
 | EDIT-08 | BREAK AT POINT/JOIN拡張 | 後続 |
 | EDIT-09 | ALIGN/DIVIDE/MEASURE/FLATTEN | 後続 |
-| EDIT-10 | PURGE/OVERKILL | 後続 |
+| EDIT-10 | PURGE/OVERKILL | 一部実装: 未使用レイヤー/完全重複LINE・CIRCLE |
 
 ### SNAP: 作図補助
 

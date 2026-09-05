@@ -1,6 +1,7 @@
 import { arc, circle, ellipse, entityArea, line, polyline, rect, spline, text } from "./cad-core.js";
-import { explodeEntity, matchProperties, stretchEntity } from "./cad-edit.js";
+import { duplicateEntityIds, explodeEntity, lengthenEntity, matchProperties, reverseEntity, stretchEntity, unusedLayerIds } from "./cad-edit.js";
 import { selectableEntities } from "./cad-selection.js";
+import { quickSelect, selectByPath } from "./cad-selection-tools.js";
 import {
   arrayEntity,
   blockEntity,
@@ -119,6 +120,20 @@ export function parseCadCommand(input, context) {
     const entities = selectedEntities(tokens, context);
     return transaction("ERASE", entities.map(({ id }) => ({ op: "delete", id })));
   }
+  if (command === "LENGTHEN") {
+    const length = number(tokens.shift(), "total length");
+    return transaction(command, selectedEntities(tokens, context).map((entity) => ({ op: "update", id: entity.id, patch: withoutIdentity(lengthenEntity(entity, length)) })));
+  }
+  if (command === "REVERSE") return transaction(command, selectedEntities(tokens, context).map((entity) => ({ op: "update", id: entity.id, patch: withoutIdentity(reverseEntity(entity)) })));
+  if (command === "PURGE") {
+    requireCount(tokens, 0, "PURGE");
+    const ids = unusedLayerIds(context.drawing, context.currentLayerId);
+    return ids.length ? transaction(command, ids.map((id) => ({ op: "delete_layer", id }))) : { kind: "message", message: "未使用レイヤーはありません。" };
+  }
+  if (command === "OVERKILL") {
+    const ids = duplicateEntityIds(context.drawing, selectedEntities(tokens, context));
+    return ids.length ? transaction(command, ids.map((id) => ({ op: "delete", id }))) : { kind: "message", message: "削除可能な完全重複LINE/CIRCLEはありません。" };
+  }
   if (["X", "EXPLODE"].includes(command)) {
     return transaction("EXPLODE", selectedEntities(tokens, context).flatMap((entity) => [
       { op: "delete", id: entity.id }, ...explodeEntity(entity).map((piece) => ({ op: "add", entity: piece }))
@@ -232,12 +247,42 @@ export function parseCadCommand(input, context) {
   }
   if (["PLOT", "PRINT"].includes(command)) return { kind: "ui", action: "plot" };
   if (["S", "SELECT"].includes(command)) {
+    const mode = tokens[0]?.toUpperCase();
+    if (mode === "PREVIOUS") return { kind: "ui", action: "selectMany", entityIds: context.previousSelection ?? [] };
+    if (mode === "LAST") return { kind: "ui", action: "selectMany", entityIds: selectableEntities(context.drawing).slice(-1).map((entity) => entity.id) };
     if (tokens[0]?.toUpperCase() === "ALL") return { kind: "ui", action: "selectMany", entityIds: selectableEntities(context.drawing).map((entity) => entity.id) };
     if (!tokens[0]) throw new Error("SELECTには図形IDが必要です。");
     if (!context.drawing.entities.some((entity) => entity.id === tokens[0])) {
       throw new Error(`図形が見つかりません: ${tokens[0]}`);
     }
     return { kind: "ui", action: "select", entityId: tokens[0] };
+  }
+  if (["FENCE", "LASSO"].includes(command)) {
+    if (!tokens.length) return { kind: "ui", action: "tool", tool: command.toLowerCase() };
+    return { kind: "ui", action: "selectMany", entityIds: selectByPath(context.drawing, tokens.map(point), command.toLowerCase()) };
+  }
+  if (command === "SELECTSIMILAR") {
+    const source = selectedEntities(tokens, context)[0];
+    return { kind: "ui", action: "selectMany", entityIds: quickSelect(context.drawing, { type: source.type, layer: source.layerId }) };
+  }
+  if (command === "QSELECT") {
+    if (tokens.length % 2) throw new Error("QSELECT type line layer layerId color #rrggbb width 2");
+    const filters = Object.fromEntries(Array.from({ length: tokens.length / 2 }, (_, i) => [tokens[i * 2].toLowerCase(), tokens[i * 2 + 1]]));
+    return { kind: "ui", action: "selectMany", entityIds: quickSelect(context.drawing, filters) };
+  }
+  if (command === "SELECTION") {
+    const action = tokens.shift()?.toUpperCase();
+    requireCount(tokens, 1, "SELECTION SAVE/LOAD/DELETE name");
+    const name = tokens[0];
+    if (action === "SAVE") return transaction("SELECTION SAVE", [{ op: "save_selection", name, entityIds: selectedEntities([], context).map((entity) => entity.id) }]);
+    if (action === "DELETE") return transaction("SELECTION DELETE", [{ op: "delete_selection", name }]);
+    if (action === "LOAD") {
+      const set = context.drawing.selectionSets?.find((item) => item.name === name);
+      if (!set) throw new Error(`選択セットがありません: ${name}`);
+      const visible = new Set(selectableEntities(context.drawing).map((entity) => entity.id));
+      return { kind: "ui", action: "selectMany", entityIds: set.entityIds.filter((id) => visible.has(id)) };
+    }
+    throw new Error("SELECTION SAVE/LOAD/DELETE name");
   }
   if (command === "NEW") return { kind: "ui", action: "new", name: tokens.join(" ") };
   if (command === "IMPORT") return { kind: "ui", action: "import" };
@@ -247,7 +292,7 @@ export function parseCadCommand(input, context) {
   if (["HELP", "?"].includes(command)) {
     return {
       kind: "message",
-      message: "LINE RECT CIRCLE ARC ELLIPSE SPLINE PLINE TEXT DIM HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
+      message: "LINE RECT CIRCLE ARC ELLIPSE SPLINE PLINE TEXT DIM DIMASSOC DIMSTYLE HATCH ERASE MOVE COPY ROTATE SCALE OFFSET TRIM EXTEND MIRROR ARRAY BREAK JOIN CHAMFER FILLET BOUNDARY PEDIT STRETCH EXPLODE MATCHPROP LENGTHEN REVERSE PURGE OVERKILL SELECT FENCE LASSO QSELECT SELECTSIMILAR SELECTION DIST AREA ID BLOCK LAYER PAN ZOOM PLOT UNDO REDO"
     };
   }
   throw new Error(`未対応のコマンドです: ${command}`);
