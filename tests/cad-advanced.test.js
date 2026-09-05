@@ -21,7 +21,7 @@ import {
   transformEntity,
   trimEntityToBoundaries
 } from "../src/cad-advanced.js";
-import { arc, entityArea, entityBounds, line, rect, validateDrawing } from "../src/cad-core.js";
+import { arc, ellipse, entityArea, entityBounds, line, rect, spline, validateDrawing } from "../src/cad-core.js";
 
 test("move, rotate, and scale preserve deterministic geometry", () => {
   const source = line("layer-structure", [0, 0], [100, 0]);
@@ -32,6 +32,23 @@ test("move, rotate, and scale preserve deterministic geometry", () => {
   assert.equal(Math.round(rotated.points[1].y), 100);
   const scaled = transformEntity(source, { scale: 2, base: { x: 0, y: 0 } });
   assert.equal(scaled.points[1].x, 200);
+});
+
+test("ellipse and spline preserve native geometry through transform and mirror", () => {
+  const oval = ellipse("layer-structure", [100, 100], 80, 40, 15);
+  const scaledOval = transformEntity(oval, { scale: 2, angle: 30, base: { x: 100, y: 100 } });
+  assert.equal(scaledOval.radiusX, 160);
+  assert.equal(scaledOval.radiusY, 80);
+  assert.equal(scaledOval.rotation, 45);
+  const mirroredOval = mirrorEntity(oval, { x: 0, y: 0 }, { x: 0, y: 100 });
+  assert.ok(Math.abs(mirroredOval.center.x + 100) < 1e-9);
+  assert.ok(Math.abs(mirroredOval.rotation - 165) < 1e-9);
+
+  const curve = spline("layer-structure", [[0, 0], [50, 100], [100, 0]]);
+  const movedCurve = transformEntity(curve, { dx: 20, dy: 30 });
+  assert.deepEqual(movedCurve.controlPoints, [{ x: 20, y: 30 }, { x: 70, y: 130 }, { x: 120, y: 30 }]);
+  const mirroredCurve = mirrorEntity(curve, { x: 0, y: 0 }, { x: 0, y: 100 });
+  assert.deepEqual(mirroredCurve.controlPoints, [{ x: 0, y: 0 }, { x: -50, y: 100 }, { x: -100, y: 0 }]);
 });
 
 test("offset, trim, and extend reject invalid geometry", () => {

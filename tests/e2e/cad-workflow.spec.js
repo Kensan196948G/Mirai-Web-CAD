@@ -676,3 +676,28 @@ test("CHAMFER/FILLET/BOUNDARY/PEDITをコマンドラインから実操作でき
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
 });
+
+test("ELLIPSE/SPLINEをネイティブ図形として作図・保存できる", async ({ page }) => {
+  await page.getByRole("button", { name: "新規図面" }).click();
+  await page.getByLabel("図面名").fill("曲線作図 E2E");
+  await page.getByLabel("テンプレート").selectOption("blank");
+  await page.getByRole("button", { name: "作成", exact: true }).click();
+
+  const command = page.getByLabel("コマンド入力");
+  await command.fill("ELLIPSE 1000,1000 500 250 30");
+  await command.press("Enter");
+  await command.fill("SPLINE 2000,1000 2300,1500 2700,1500 3000,1000");
+  await command.press("Enter");
+
+  const curves = await page.evaluate(() => JSON.parse(localStorage.getItem("mirai-web-cad-mvp")).entities);
+  expect(curves).toHaveLength(2);
+  expect(curves[0]).toMatchObject({ type: "ellipse", radiusX: 500, radiusY: 250, rotation: 30 });
+  expect(curves[1]).toMatchObject({ type: "spline", degree: 3 });
+  expect(curves[1].controlPoints).toHaveLength(4);
+  expect(curves[1].knots).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
+
+  await page.getByRole("button", { name: "ホーム", exact: true }).click();
+  await expect(page.getByRole("button", { name: "楕円", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "スプライン", exact: true })).toBeVisible();
+  await expect(page.getByLabel("コマンドログ")).toContainText("SPLINE");
+});

@@ -5,6 +5,7 @@ import {
   buildAiProposal,
   createDrawing,
   circle,
+  ellipse,
   entityBounds,
   hitTest,
   line,
@@ -12,7 +13,9 @@ import {
   polyline,
   proposalToTransaction,
   rect,
+  sampleSpline,
   seedDrawing,
+  spline,
   text,
   validateDrawing
 } from "./cad-core.js";
@@ -109,6 +112,8 @@ const ICONS = {
   pline: "M3 19l6-10 5 6 7-11",
   circle: "M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16z",
   arc: "M5 17a9 9 0 0 1 14-10M5 17h4M5 17v-4M19 7h-4M19 7v4",
+  ellipse: "M3 12a9 5.5 0 1 0 18 0 9 5.5 0 1 0-18 0z",
+  spline: "M3 17c4-13 7 13 11 0s6-5 7-1M3 17h.01M21 16h.01",
   rect: "M4 6h16v12H4z",
   hatch: "M4 5h16v14H4zM9 5L4 10M15 5L4 16M20 7L7 19M20 13l-6 6",
   block: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12L4 7.5M12 12v9",
@@ -167,6 +172,8 @@ const RIBBON = {
         { icon: "rect", title: "矩形", tool: "rect" },
         { icon: "circle", title: "円", tool: "circle" },
         { icon: "arc", title: "円弧", tool: "arc" },
+        { icon: "ellipse", title: "楕円", tool: "ellipse" },
+        { icon: "spline", title: "スプライン", tool: "spline" },
         { icon: "pline", title: "ポリライン", tool: "polyline" },
         { icon: "hatch", title: "ハッチング", tool: "hatch" }
       ]
@@ -456,7 +463,7 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 }
 
-const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "arc", "polyline", "hatch", "dimension", "text"]);
+const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "arc", "ellipse", "spline", "polyline", "hatch", "dimension", "text"]);
 const RIBBON_EDIT_ACTIONS = new Set(["beginOperation", "deleteSelected", "undoLastTransaction", "triggerImport"]);
 
 function ribbonButtonDisabled(entry, policy) {
@@ -1857,7 +1864,13 @@ function onPointerDown(event) {
     else drawCanvas(world);
   }
 
-  if (state.tool === "polyline") {
+  if (state.tool === "ellipse") {
+    state.draftPoints.push(world);
+    if (state.draftPoints.length === 3) commitEllipseTool();
+    else drawCanvas(world);
+  }
+
+  if (state.tool === "polyline" || state.tool === "spline") {
     state.draftPoints.push(world);
     drawCanvas(world);
   }
@@ -1956,6 +1969,10 @@ function onCanvasKeyDown(event) {
     ]);
     state.draftPoints = [];
   }
+  if (event.key === "Enter" && state.tool === "spline" && state.draftPoints.length >= 2) {
+    commitCommands("スプライン作成", [{ op: "add", entity: spline(state.currentLayerId, state.draftPoints) }]);
+    state.draftPoints = [];
+  }
   if (event.key === "Enter" && state.tool === "hatch" && state.draftPoints.length >= 3) {
     commitCommands("ハッチング作成", [{ op: "add", entity: hatchEntity(state.currentLayerId, state.draftPoints) }]);
     state.draftPoints = [];
@@ -2001,6 +2018,22 @@ function commitArcTool() {
     return;
   }
   commitCommands("arc作成", [{ op: "add", entity: arc(state.currentLayerId, center, radius, startAngle, endAngle) }]);
+}
+
+function commitEllipseTool() {
+  const [center, majorEnd, minorPoint] = state.draftPoints;
+  const majorX = majorEnd.x - center.x;
+  const majorY = majorEnd.y - center.y;
+  const radiusX = Math.hypot(majorX, majorY);
+  const radiusY = radiusX <= 1e-9 ? 0 : Math.abs((majorX * (minorPoint.y - center.y) - majorY * (minorPoint.x - center.x)) / radiusX);
+  state.draftPoints = [];
+  if (radiusX <= 1e-9 || radiusY <= 1e-9 || radiusY > radiusX) {
+    log("楕円作成失敗: 中心、長軸端、長軸以下の短半径を順に指定してください。");
+    render();
+    return;
+  }
+  const rotation = Math.atan2(majorY, majorX) * 180 / Math.PI;
+  commitCommands("ellipse作成", [{ op: "add", entity: ellipse(state.currentLayerId, center, radiusX, radiusY, rotation) }]);
 }
 
 function deleteSelected() {
@@ -2225,15 +2258,29 @@ function drawCanvas(pointerWorld = null) {
     ctx.save();
     ctx.strokeStyle = "#ff8a00";
     ctx.setLineDash([8, 6]);
-    const points = [...state.draftPoints, pointerWorld];
-    ctx.beginPath();
-    const first = worldToScreen(points[0]);
-    ctx.moveTo(first.x, first.y);
-    for (const pointValue of points.slice(1)) {
-      const screen = worldToScreen(pointValue);
-      ctx.lineTo(screen.x, screen.y);
+    if (state.tool === "ellipse" && state.draftPoints.length === 2) {
+      const [center, majorEnd] = state.draftPoints;
+      const majorX = majorEnd.x - center.x;
+      const majorY = majorEnd.y - center.y;
+      const radiusX = Math.hypot(majorX, majorY);
+      const radiusY = radiusX <= 1e-9 ? 0 : Math.abs((majorX * (pointerWorld.y - center.y) - majorY * (pointerWorld.x - center.x)) / radiusX);
+      if (radiusX > 1e-9 && radiusY > 1e-9 && radiusY <= radiusX) {
+        const screenCenter = worldToScreen(center);
+        ctx.beginPath();
+        ctx.ellipse(screenCenter.x, screenCenter.y, radiusX * state.camera.scale, radiusY * state.camera.scale, Math.atan2(majorY, majorX), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else {
+      const points = [...state.draftPoints, pointerWorld];
+      ctx.beginPath();
+      const first = worldToScreen(points[0]);
+      ctx.moveTo(first.x, first.y);
+      for (const pointValue of points.slice(1)) {
+        const screen = worldToScreen(pointValue);
+        ctx.lineTo(screen.x, screen.y);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.restore();
   }
 
@@ -2318,6 +2365,30 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
       false
     );
     ctx.stroke();
+  }
+  if (entity.type === "ellipse") {
+    const center = worldToScreen(entity.center);
+    ctx.beginPath();
+    ctx.ellipse(
+      center.x,
+      center.y,
+      entity.radiusX * state.camera.scale,
+      entity.radiusY * state.camera.scale,
+      entity.rotation * Math.PI / 180,
+      entity.startParameter,
+      entity.endParameter
+    );
+    ctx.stroke();
+  }
+  if (entity.type === "spline") {
+    const points = sampleSpline(entity).map(worldToScreen);
+    if (points.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (const pointValue of points.slice(1)) ctx.lineTo(pointValue.x, pointValue.y);
+      if (entity.closed) ctx.closePath();
+      ctx.stroke();
+    }
   }
   if (entity.type === "polyline") {
     const points = entity.points.map(worldToScreen);
@@ -2722,7 +2793,7 @@ function parseArrayValue(value) {
 }
 
 function entityAnchor(entity) {
-  return entity.center ?? entity.origin ?? entity.at ?? entity.insertion ?? entity.points?.[0] ?? { x: 0, y: 0 };
+  return entity.center ?? entity.origin ?? entity.at ?? entity.insertion ?? entity.points?.[0] ?? entity.controlPoints?.[0] ?? { x: 0, y: 0 };
 }
 
 function formatNumber(value) {

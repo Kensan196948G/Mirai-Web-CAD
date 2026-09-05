@@ -7,6 +7,8 @@ import {
   boundsIntersect,
   buildAiProposal,
   circle,
+  ellipse,
+  entityArea,
   entityBounds,
   entityLength,
   hitTest,
@@ -14,6 +16,8 @@ import {
   measurements,
   proposalToTransaction,
   seedDrawing,
+  sampleSpline,
+  spline,
   validateDrawing
 } from "../src/cad-core.js";
 import { dimensionEntity } from "../src/cad-advanced.js";
@@ -106,6 +110,44 @@ test("native arc computes wrapped bounds, length, validation, and hit testing", 
   const invalid = arc("layer-structure", [100, 100], 50, 30, 30, { id: "e_bad_arc" });
   drawing.entities.push(invalid);
   assert.equal(validateDrawing(drawing).some((issue) => issue.code === "invalid-arc-angle"), true);
+});
+
+test("native ellipse computes rotated bounds, area, length, validation, and hit testing", () => {
+  const entity = ellipse("layer-structure", [500, 500], 200, 100, 30, { id: "e_ellipse" });
+  const bounds = entityBounds(entity);
+  assert.ok(bounds.minX < 325 && bounds.maxX > 675);
+  assert.ok(bounds.minY < 369 && bounds.maxY > 631);
+  assert.ok(Math.abs(entityArea(entity) - Math.PI * 200 * 100) < 1e-6);
+  assert.ok(entityLength(entity) > 960 && entityLength(entity) < 970);
+
+  const drawing = seedDrawing();
+  drawing.entities.push(entity);
+  const pointOnMajorAxis = { x: 500 + 200 * Math.cos(Math.PI / 6), y: 500 + 200 * Math.sin(Math.PI / 6) };
+  assert.equal(hitTest(drawing, pointOnMajorAxis, 3)?.id, "e_ellipse");
+  assert.equal(validateDrawing(drawing).some((issue) => issue.entityId === "e_ellipse" && issue.severity === "critical"), false);
+
+  drawing.entities.push(ellipse("layer-structure", [0, 0], 50, 80, 0, { id: "e_bad_ellipse" }));
+  assert.equal(validateDrawing(drawing).some((issue) => issue.code === "invalid-ellipse"), true);
+});
+
+test("native spline evaluates its endpoints, bounds, length, validation, and hit testing", () => {
+  const entity = spline("layer-structure", [[100, 100], [200, 300], [400, 300], [500, 100]], { id: "e_spline" });
+  const samples = sampleSpline(entity);
+  assert.deepEqual(samples[0], { x: 100, y: 100 });
+  assert.deepEqual(samples.at(-1), { x: 500, y: 100 });
+  assert.ok(entityBounds(entity).maxY > 240);
+  assert.ok(entityLength(entity) > 400);
+
+  const drawing = seedDrawing();
+  drawing.entities.push(entity);
+  assert.equal(hitTest(drawing, samples[Math.floor(samples.length / 2)], 3)?.id, "e_spline");
+  assert.equal(validateDrawing(drawing).some((issue) => issue.entityId === "e_spline" && issue.severity === "critical"), false);
+
+  const invalid = structuredClone(entity);
+  invalid.id = "e_bad_spline";
+  invalid.knots = [0, 1];
+  drawing.entities.push(invalid);
+  assert.equal(validateDrawing(drawing).some((issue) => issue.code === "invalid-spline"), true);
 });
 
 test("successful edits advance revision and content hash detects coordinate changes", () => {

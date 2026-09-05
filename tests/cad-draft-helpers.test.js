@@ -11,7 +11,7 @@ import {
   perpendicularFoot,
   segmentIntersection
 } from "../src/cad-draft-helpers.js";
-import { arc, circle, line, polyline, rect } from "../src/cad-core.js";
+import { arc, circle, ellipse, line, polyline, rect, spline } from "../src/cad-core.js";
 
 test("applyOrtho pins the axis with the smaller delta to the anchor", () => {
   assert.deepEqual(applyOrtho({ x: 0, y: 0 }, { x: 120, y: 40 }), { x: 120, y: 0 });
@@ -89,6 +89,27 @@ test("arc exposes only valid key points and segmented geometry for OSnap", () =>
 
   const drawing = { layers: [{ id: "layer-structure", visible: true }], entities: [entity] };
   assert.deepEqual(findOsnapPoint(drawing, { x: 1, y: 99 }, 5), { x: 0, y: 100 });
+});
+
+test("ellipse and spline expose native OSnap keys and sampled curve segments", () => {
+  const oval = ellipse("layer-structure", [100, 100], 80, 40, 90);
+  const ovalKeys = entityKeyPoints(oval);
+  assert.equal(ovalKeys.length, 5);
+  assert.ok(ovalKeys.some((point) => Math.abs(point.x - 100) < 1e-9 && Math.abs(point.y - 180) < 1e-9));
+  assert.ok(entitySegments(oval).length >= 12);
+
+  const curve = spline("layer-structure", [[0, 0], [50, 100], [100, 0]]);
+  assert.deepEqual(entityKeyPoints(curve), curve.controlPoints);
+  assert.ok(entitySegments(curve).length >= 8);
+  const drawing = { layers: [{ id: "layer-structure", visible: true }], entities: [curve] };
+  const endpointOnly = Object.fromEntries(OSNAP_MODES.map((mode) => [mode, mode === "endpoint"]));
+  assert.deepEqual(findOsnapPoint(drawing, { x: 2, y: 1 }, 5, endpointOnly), { x: 0, y: 0 });
+
+  const partial = ellipse("layer-structure", [0, 0], 100, 50, 0, { startParameter: 0, endParameter: Math.PI / 2 });
+  const partialKeys = entityKeyPoints(partial);
+  assert.ok(partialKeys.some((point) => Math.abs(point.x - 100) < 1e-9 && Math.abs(point.y) < 1e-9));
+  assert.ok(partialKeys.some((point) => Math.abs(point.x) < 1e-9 && Math.abs(point.y - 50) < 1e-9));
+  assert.equal(partialKeys.some((point) => Math.abs(point.x + 100) < 1e-9 && Math.abs(point.y) < 1e-9), false);
 });
 
 test("closestPointOnSegment clamps the projection to the segment", () => {

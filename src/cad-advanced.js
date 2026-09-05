@@ -15,8 +15,11 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
     if (next[key]) next[key] = transform(next[key]);
   }
   if (next.points) next.points = next.points.map(transform);
+  if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
   if (next.children) next.children = next.children.map((child) => transformEntity(child, { dx, dy, angle, scale, base }));
   if (typeof next.radius === "number") next.radius = Math.abs(next.radius * scale);
+  if (typeof next.radiusX === "number") next.radiusX = Math.abs(next.radiusX * scale);
+  if (typeof next.radiusY === "number") next.radiusY = Math.abs(next.radiusY * scale);
   if (typeof next.width === "number") next.width *= scale;
   if (typeof next.height === "number") next.height *= scale;
   if (typeof next.size === "number") next.size = Math.abs(next.size * scale);
@@ -272,17 +275,31 @@ export function mirrorEntity(entity, axisStart, axisEnd) {
         end: pointAtAngle(entity.center, entity.radius, entity.endAngle)
       }
     : null;
+  const originalEllipseAxis = entity.type === "ellipse"
+    ? {
+        x: entity.center.x + entity.radiusX * Math.cos((entity.rotation * Math.PI) / 180),
+        y: entity.center.y + entity.radiusX * Math.sin((entity.rotation * Math.PI) / 180)
+      }
+    : null;
   const next = structuredClone(entity);
   for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = reflect(next[key]);
   }
   if (next.points) next.points = next.points.map(reflect);
+  if (next.controlPoints) next.controlPoints = next.controlPoints.map(reflect);
   if (originalArcPoints) {
     const mirroredStart = reflect(originalArcPoints.start);
     const mirroredEnd = reflect(originalArcPoints.end);
     // 鏡像は回転方向を反転するため、始終点を交換して反時計回りの内部表現を維持する。
     next.startAngle = pointAngle(next.center, mirroredEnd);
     next.endAngle = pointAngle(next.center, mirroredStart);
+  }
+  if (originalEllipseAxis) {
+    const mirroredAxis = reflect(originalEllipseAxis);
+    next.rotation = pointAngle(next.center, mirroredAxis);
+    const start = next.startParameter;
+    next.startParameter = Math.PI * 2 - next.endParameter;
+    next.endParameter = Math.PI * 2 - start;
   }
   // ブロックのchildrenはローカル座標のため、挿入点を原点とするローカル軸で反転する
   if (next.children) {
@@ -292,7 +309,7 @@ export function mirrorEntity(entity, axisStart, axisEnd) {
     next.children = next.children.map((child) => mirrorEntity(child, localStart, localEnd));
   }
   // ブロック回転角は鏡像で符号反転する
-  if (typeof next.rotation === "number") next.rotation = -next.rotation;
+  if (typeof next.rotation === "number" && entity.type !== "ellipse") next.rotation = -next.rotation;
   return next;
 }
 

@@ -248,6 +248,22 @@ function geometryFacets(entity) {
         points: [entity.center],
         scalars: { radius: entity.radius, startAngle: entity.startAngle, endAngle: entity.endAngle }
       };
+    case "ellipse":
+      return {
+        points: [entity.center],
+        scalars: {
+          radiusX: entity.radiusX,
+          radiusY: entity.radiusY,
+          rotation: entity.rotation,
+          startParameter: entity.startParameter,
+          endParameter: entity.endParameter
+        }
+      };
+    case "spline":
+      return {
+        points: entity.controlPoints,
+        scalars: { degree: entity.degree, closed: entity.closed ? 1 : 0, ...Object.fromEntries((entity.knots ?? []).map((value, index) => [`knot${index}`, value])) }
+      };
     case "text":
       return { points: [entity.at], scalars: { size: entity.size } };
     case "block":
@@ -287,8 +303,9 @@ function evaluateCoordinateAxis(pairs, effectiveTolerance, tolerance, findings) 
       const expectedValue = expectedFacets.scalars[key] ?? 0;
       const actualValue = actualFacets.scalars[key] ?? 0;
       const angular = ["rotation", "startAngle", "endAngle"].includes(key);
+      const parameter = ["startParameter", "endParameter"].includes(key);
       const d = angular ? angleDelta(expectedValue, actualValue) : Math.abs(expectedValue - actualValue);
-      const scalarTolerance = angular ? tolerance.angle : effectiveTolerance;
+      const scalarTolerance = angular ? tolerance.angle : parameter ? tolerance.angle * Math.PI / 180 : effectiveTolerance;
       if (d <= scalarTolerance) {
         passed += 1;
       } else {

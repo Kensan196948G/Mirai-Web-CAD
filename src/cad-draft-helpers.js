@@ -1,4 +1,4 @@
-import { angleOnArc, arcPointAt, arcSweepDegrees } from "./cad-core.js";
+import { angleOnArc, arcPointAt, arcSweepDegrees, ellipsePointAt, ellipseSweepRadians, parameterOnEllipse, sampleEllipse, sampleSpline } from "./cad-core.js";
 
 /**
  * Pure geometry helpers for interactive drafting aids (orthogonal constraint,
@@ -68,6 +68,13 @@ export function entityKeyPoints(entity) {
     }
     return points;
   }
+  if (entity.type === "ellipse") {
+    const parameters = [entity.startParameter, entity.endParameter, 0, Math.PI / 2, Math.PI, Math.PI * 1.5]
+      .filter((parameter) => parameterOnEllipse(parameter, entity));
+    const points = [copy(entity.center), ...parameters.map((parameter) => ellipsePointAt(entity, parameter))];
+    return points.filter((value, index) => points.findIndex((candidate) => Math.hypot(candidate.x - value.x, candidate.y - value.y) < 1e-9) === index);
+  }
+  if (entity.type === "spline") return entity.controlPoints.map(copy);
   if (entity.type === "text") return [copy(entity.at)];
   if (entity.type === "block") return entity.insertion ? [copy(entity.insertion)] : [];
   return [];
@@ -96,6 +103,13 @@ export function entitySegments(entity) {
       arcPointAt(entity, entity.startAngle + (sweep * index) / count)
     );
     return points.slice(1).map((value, index) => ({ a: points[index], b: value }));
+  }
+  if (entity.type === "ellipse" || entity.type === "spline") {
+    const points = entity.type === "ellipse" ? sampleEllipse(entity) : sampleSpline(entity);
+    if (points.length < 2) return [];
+    const segments = points.slice(1).map((value, index) => ({ a: points[index], b: value }));
+    if (entity.type === "spline" && entity.closed) segments.push({ a: points.at(-1), b: points[0] });
+    return segments;
   }
   if (entity.type === "rect") {
     if (!entity.origin) return [];
@@ -234,6 +248,14 @@ function candidatesForEntity(entity, modes) {
         { ...arcPointAt(entity, entity.startAngle), mode: "endpoint" },
         { ...arcPointAt(entity, entity.endAngle), mode: "endpoint" }
       );
+    } else if (entity.type === "ellipse" && ellipseSweepRadians(entity) < Math.PI * 2 - 1e-9) {
+      result.push(
+        { ...ellipsePointAt(entity, entity.startParameter), mode: "endpoint" },
+        { ...ellipsePointAt(entity, entity.endParameter), mode: "endpoint" }
+      );
+    } else if (entity.type === "spline") {
+      const points = sampleSpline(entity);
+      if (points.length > 1) result.push({ ...points[0], mode: "endpoint" }, { ...points.at(-1), mode: "endpoint" });
     } else if (entity.type === "rect") {
       const o = entity.origin;
       result.push(
@@ -252,6 +274,8 @@ function candidatesForEntity(entity, modes) {
   if (modes.midpoint) {
     if (entity.type === "arc") {
       result.push({ ...arcPointAt(entity, entity.startAngle + arcSweepDegrees(entity) / 2), mode: "midpoint" });
+    } else if (entity.type === "ellipse") {
+      result.push({ ...ellipsePointAt(entity, entity.startParameter + ellipseSweepRadians(entity) / 2), mode: "midpoint" });
     } else for (const segment of segments) {
       result.push({
         x: (segment.a.x + segment.b.x) / 2,
@@ -261,11 +285,15 @@ function candidatesForEntity(entity, modes) {
     }
   }
 
-  if (modes.center && (entity.type === "circle" || entity.type === "arc") && entity.center) {
+  if (modes.center && (entity.type === "circle" || entity.type === "arc" || entity.type === "ellipse") && entity.center) {
     result.push({ ...copy(entity.center), mode: "center" });
   }
 
-  if (modes.quadrant && (entity.type === "circle" || entity.type === "arc") && entity.center) {
+  if (modes.quadrant && entity.type === "ellipse" && entity.center) {
+    for (const parameter of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+      if (parameterOnEllipse(parameter, entity)) result.push({ ...ellipsePointAt(entity, parameter), mode: "quadrant" });
+    }
+  } else if (modes.quadrant && (entity.type === "circle" || entity.type === "arc") && entity.center) {
     const c = entity.center;
     const r = Number.isFinite(entity.radius) ? entity.radius : 0;
     const quadrants = [

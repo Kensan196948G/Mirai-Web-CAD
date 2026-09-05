@@ -418,3 +418,14 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | CI | Terraform 1.16.1でfmt、provider init(バックエンド無し)、validateをPR必須ジョブ化 |
 | Runbook | サービス停止、Cloudflare Access変更、PostgreSQL障害を分離し、初動・切り分け・復旧・完了条件を明記。backup manifestへSHA-256、取得時刻、4表件数/最新版署名を保存し、隔離DB復元時にJSONB形状・全図面の最新版参照とともに機械照合。実機成功 |
 | 保留 | 現行Cloudflare tokenはTunnel棚卸しはできるがDNS/Access APIは403、Access更新は`auth.forbidden`。対象限定の管理token発行後にID棚卸し、import、初回plan/applyを行う |
+
+## Round 15 / 2026-09-05 外部入力再棚卸し・ネイティブELLIPSE/SPLINE
+
+| 項目 | 内容 |
+| --- | --- |
+| 外部入力 | 指定順序に沿ってCloudflare、Entra、DXF/UATを再確認。Cloudflareはtoken verify=200、Access apps=200/0件、DNS=403。EntraはOAuth token=200だが対象メールのGraph memberOf=404、role map未設定。DXF台帳/実体/UAT参加者は0件/0名。推測値を投入せず`docs/external-input-status.md`へ再開条件を記録 |
+| CAD Core | `ellipse` entity(中心・長短半径・回転・開始/終了parameter)と`spline` entity(制御点・次数・clamped knot)を追加。De Boor評価、曲線sampling、境界、長さ、楕円面積、hit-testを実装 |
+| UI/編集 | リボンへ「楕円」「スプライン」を追加。楕円は中心→長軸端→短半径、スプラインは制御点を順に指定してEnter。CLIは`ELLIPSE x,y radiusX radiusY [rotation]`と`SPLINE x,y ...`。移動・回転・尺度・鏡像、OSnapへ対応 |
+| 互換性 | Mirai JSONとASCII DXFのネイティブELLIPSE/SPLINE入出力、比較器の中心/半径/回転/parameter/制御点/次数/knot評価を追加。DXF往復でポリラインへ劣化しないことを単体検証 |
+| 検証 | `npm run verify`成功。unit 221件=220 pass+1 DB skip、desktop/mobile E2E 56/56。自動検出LAN URL `http://192.168.0.185:4174/`を`E2E_BASE_URL`へ明示し、同じ56件を再実行して全成功。Canvas画素とスクリーンショットで楕円・スプラインの非空描画と画面内配置を確認 |
+| 残課題 | NURBS weight/fit point編集、曲線グリップ、曲線TRIM/EXTEND/OFFSET、STRETCH/EXPLODE/MATCHPROP。Cloudflare/Entra/Phase 0は台帳記載の外部入力到着後に再開 |

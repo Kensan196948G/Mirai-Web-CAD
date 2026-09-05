@@ -3,7 +3,8 @@
 // 設計方針:
 // - 内部CADモデル(cad-core.jsのDrawing型)から、AutoCAD/ARES等が読める最小限のASCII DXF(R2000系)
 //   を生成する。純関数でありNode(CLI/テスト)とブラウザ(UI書出し)の両方から利用できる。
-// - 対象entity: line→LINE, circle→CIRCLE, arc→ARC, polyline→LWPOLYLINE(閉鎖フラグ70=1)、
+// - 対象entity: line→LINE, circle→CIRCLE, arc→ARC, ellipse→ELLIPSE, spline→SPLINE、
+//   polyline→LWPOLYLINE(閉鎖フラグ70=1)、
 //   text→TEXT(高さ40)。rectは閉鎖LWPOLYLINE(4頂点)として書出す(DXFにrect概念がないため)。
 //   dimension / hatch / block は現PhaseではDXFへ安全に写像できないため「黙って捨てず」、
 //   構造化されたskippedリストとして返す(未対応entity非破棄ポリシーの書出し側適用)。
@@ -134,6 +135,38 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
         "0", "ARC", ...base, ...point(center, 10), "40", num(entity.radius),
         "50", num(normalizeDegrees(entity.startAngle)), "51", num(normalizeDegrees(entity.endAngle))
       ];
+    }
+    case "ellipse": {
+      const center = finitePoint(entity.center);
+      if (
+        !center || !Number.isFinite(entity.radiusX) || entity.radiusX <= 0 ||
+        !Number.isFinite(entity.radiusY) || entity.radiusY <= 0 || entity.radiusY > entity.radiusX ||
+        !Number.isFinite(entity.rotation) || !Number.isFinite(entity.startParameter) || !Number.isFinite(entity.endParameter)
+      ) return skipEntity(entity, skipped, "楕円の中心/長半径/短半径/角度が不正です");
+      const rotation = entity.rotation * Math.PI / 180;
+      const majorAxis = { x: entity.radiusX * Math.cos(rotation), y: entity.radiusX * Math.sin(rotation) };
+      return [
+        "0", "ELLIPSE", ...base, ...point(center, 10), ...point(majorAxis, 11),
+        "40", num(entity.radiusY / entity.radiusX),
+        "41", num(entity.startParameter), "42", num(entity.endParameter)
+      ];
+    }
+    case "spline": {
+      const controlPoints = Array.isArray(entity.controlPoints) ? entity.controlPoints.map(finitePoint) : [];
+      const degree = Number(entity.degree);
+      const knots = Array.isArray(entity.knots) ? entity.knots.map(Number) : [];
+      if (
+        controlPoints.length < 2 || controlPoints.some((value) => !value) ||
+        !Number.isInteger(degree) || degree < 1 || degree >= controlPoints.length ||
+        knots.length !== controlPoints.length + degree + 1 || knots.some((value, index) => !Number.isFinite(value) || (index > 0 && value < knots[index - 1]))
+      ) return skipEntity(entity, skipped, "スプラインの制御点/次数/ノット列が不正です");
+      const groups = [
+        "0", "SPLINE", ...base, "70", String(8 | (entity.closed ? 1 : 0)),
+        "71", String(degree), "72", String(knots.length), "73", String(controlPoints.length), "74", "0"
+      ];
+      for (const knot of knots) groups.push("40", num(knot));
+      for (const controlPoint of controlPoints) groups.push(...point(controlPoint, 10));
+      return groups;
     }
     case "polyline": {
       if (!Array.isArray(entity.points) || entity.points.length < 2) return skipEntity(entity, skipped, "ポリラインの頂点が不足しています");
