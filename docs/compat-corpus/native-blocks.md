@@ -10,6 +10,9 @@
 - 定義の一括更新はset_block_resourcesトランザクションで行い、全参照を再構築する。専用の定義編集UIはまだない。
 - BLOCK_RECORD/BLOCK/INSERT/ATTDEF/ATTRIB/SEQENDをDXFへ再生成する。
 - 取込成功した原本はDrawing.dxfSourcesに保存し、JSON・サーバーの図面保存に含める。
+- 単一原本の対応済みBLOCK図面は、未編集なら原本を文字列完全一致でDXF書出しする。
+- INSERTの移動・回転・正の等方尺度変更と既存ATTRIBの値変更は、原本の対象group値のみを更新する。HEADER/TABLES/BLOCKS/OBJECTS等、ハンドル、所有者リンク、未使用定義、改行を保持する。
+- 原本保持経路は再解析した原本と現在モデルを照合して選択する。保存された比較用スナップショットを信用しない。
 - 存在しない定義、循環、入れ子32段以上、展開20000図形超過、不正形状等を拒否する。
 - リソースコマンド700000 bytes、取込コマンド全体750000 bytesを上限とし、API本文1MiBを無条件で超える取込をしない。
 
@@ -21,8 +24,10 @@
 - 属性は単一行。重複タグは順序付きで編集する。属性のMTEXT/複雑な整列等は拒否する。
 - 属性付きEXPLODE、定義参照BLOCKのMIRRORは未対応。通常BLOCKを新規作成する既存UI/コマンドは旧children型のまま。
 - 参照のないDXFの未使用定義だけの取込、ライブラリUI、ATTSYNC等は未実装。
-- 原本のTABLES/OBJECTS、BYBLOCK色、線種、TrueColor、フォント定義等の完全再生成ではない。取込・書出し時に警告を出す。
-- 原本保全と編集後DXF再生成は別機能。保存原本へ編集を重ねて元のハンドル・依存関係を非破壊保持する実装ではない。
+- 原本保持経路ではTABLES/OBJECTS、BYBLOCK色、線種、TrueColor、フォント定義を原本のまま保持するが、表示・編集対応や外部CADでの描画一致を意味しない。未知の連想情報の再計算もしない。
+- 図形追加/削除/並替え、定義変更、レイヤー変更、単位/レイアウト変更、複数原本の合成、属性配置変更は原本保持経路の対象外。明示的な警告付きの従来の限定再生成となり、完全保持ではない。
+- 原本保持には今回追加した原本レコード対応情報が必要。旧保存図面は原本DXFの再取込が必要になる場合がある。
+- 鏡像・非一様尺度のネイティブ描画/編集/書出しは引き続き残作業。拒否を解除していない。
 - 従来のCanvas表示倍率・CSS縦横比の課題 (#78)、尺度保証PDF、外部CADでの目視受入は別途残る。
 
 ## 検証
@@ -32,6 +37,7 @@ python3 -m venv artifacts/corpus-venv
 artifacts/corpus-venv/bin/pip install -r DXF-Test-Corpus/requirements.txt
 artifacts/corpus-venv/bin/python DXF-Test-Corpus/build_corpus.py
 node --test tests/cad-block.test.js
+node --test tests/dxf-source-export.test.js
 node scripts/check-native-block-corpus.mjs
 artifacts/corpus-venv/bin/python scripts/audit-native-block-corpus.py
 npx playwright test tests/e2e/native-block.spec.js
@@ -44,7 +50,7 @@ npx playwright test tests/e2e/native-block.spec.js
 比較対象は形状、基点、入れ子参照、INSERTの位置/回転/XYZ尺度、順序付き属性の値/位置/文字高さ/回転/フラグ、単位。
 編集試験では移動・回転・拡縮と先頭属性値の変更を同時に適用し、元DXFへのezdxf変換結果と照合する。
 36/36で一致し、ezdxf監査のエラー・自動修復は0件。
-フォント/色/線種/OBJECTS等はこの限定比較の合格対象に含めない。
+加えて未編集18件の原本完全一致と、編集前後36件の全非ENTITIESセクションのタグ列一致を検証する。フォント/色/線種/OBJECTS等の原本データ保持は含むが、その描画や連想更新の受入は含めない。
 
 ブラウザはデスクトップ・モバイルで取込、属性変更、移動、Undo/Redo、再読込、ダウンロードDXFの再取込を検証する。
 PostgreSQL統合試験には定義と原本のJSONB復元確認を追加した。

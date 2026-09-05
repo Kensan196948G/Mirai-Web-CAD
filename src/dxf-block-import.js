@@ -45,7 +45,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
     if ([72, 74, 71, 51].some((code) => Number(dxfGroup(record, code, 0)) !== 0) || Number(dxfGroup(record, 41, 1)) !== 1 || record.groups.some((group) => group.code === 101)) {
       throw new Error("属性の整列・傾斜・MTEXTは未対応です。");
     }
-    return { id: `attr_${crypto.randomUUID()}`, tag: decodeDxfText(source.tag), value: decodeDxfText(source.value), prompt: decodeDxfText(source.prompt),
+    return { id: `attr_${crypto.randomUUID()}`, dxfRecordId: source.recordId, tag: decodeDxfText(source.tag), value: decodeDxfText(source.value), prompt: decodeDxfText(source.prompt),
       at: { x: source.position.x, y: source.position.y }, size: source.height, rotation: source.rotation,
       flags: source.flags, styleName: source.style, layerId: layers.resolve(source.layer) };
   }
@@ -58,6 +58,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
         throw new Error("INSERTの非一様尺度・鏡像・配列は未対応です。");
       }
       const reference = blockReference(layerId, definitionIds.get(source.definitionRecordId), source.position, { rotation: source.rotation, scale: source.scale.x, scaleZ: source.scale.z });
+      reference.dxfRecordId = record.id;
       if (!reference.definitionId) throw new Error(`INSERT定義が未対応です: ${source.name}`);
       reference.attributeReferences = source.attributes.map((sourceAttribute) => {
         const value = attribute(sourceAttribute);
@@ -75,6 +76,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
       throw new Error("BLOCK図面内の整列・傾斜TEXTは未対応です。");
     }
     const normalized = parsePrimitive(record, layerId);
+    normalized.dxfRecordId = record.id;
     if (normalized.type === "text") {
       normalized.rotation = Number(dxfGroup(record, 50, 0));
       normalized.value = decodeDxfText(normalized.value);

@@ -7,6 +7,8 @@ from pathlib import Path
 import ezdxf
 from ezdxf.math import Matrix44
 from ezdxf.lldxf.encoding import decode_dxf_unicode
+from ezdxf.lldxf.tagger import ascii_tags_loader
+from io import StringIO
 
 source_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "DXF-Test-Corpus")
 output_dir = Path(sys.argv[2] if len(sys.argv) > 2 else "artifacts/native-block-corpus")
@@ -65,6 +67,21 @@ def reachable_blocks(document):
 
 checked = 0
 excluded = []
+
+
+def preserved_sections(path):
+    # Compare the original tag stream, not ezdxf's normalized object model.
+    tags = list(ascii_tags_loader(StringIO(path.read_text())))
+    result = {}
+    for i, tag in enumerate(tags):
+        if tag == (0, "SECTION"):
+            name = tags[i + 1].value
+            end = next(j for j in range(i + 2, len(tags)) if tags[j] == (0, "ENDSEC"))
+            if name != "ENTITIES":
+                result[name] = tags[i:end + 1]
+    return result
+
+
 for entry in report["results"]:
     if not entry["accepted"]:
         continue
@@ -74,6 +91,7 @@ for entry in report["results"]:
                      if not block.name.lower().startswith(("*model_space", "*paper_space")) and block.name.casefold() not in original_blocks]})
     for phase in ("before", "after"):
         actual = ezdxf.readfile(output_dir / f"{phase}-{entry['file']}")
+        assert preserved_sections(source_dir / entry["source"]) == preserved_sections(output_dir / f"{phase}-{entry['file']}"), (entry["file"], phase, "source sections differ")
         audit = actual.audit()
         assert not audit.errors and not audit.fixes, (entry["file"], audit.errors, audit.fixes)
         assert source.header["$INSUNITS"] == actual.header["$INSUNITS"]
@@ -91,13 +109,15 @@ for entry in report["results"]:
         assert equal(expected, observed), (entry["file"], phase, expected, observed)
         actual_blocks = {block.name.casefold(): block for block in actual.blocks
                          if not block.name.lower().startswith(("*model_space", "*paper_space"))}
-        assert set(original_blocks) == set(actual_blocks), (entry["file"], phase, "reachable block set differs")
+        all_original = {block.name.casefold() for block in source.blocks
+                        if not block.name.lower().startswith(("*model_space", "*paper_space"))}
+        assert all_original == set(actual_blocks), (entry["file"], phase, "original block set differs")
         for name, original in original_blocks.items():
             block = actual_blocks[name]
             assert equal(tuple(original.base_point), tuple(block.base_point))
             assert equal([signature(e) for e in original], [signature(e) for e in block]), (entry["file"], block.name)
         checked += 1
-print(f"Independent source geometry/attributes/unit comparison: {checked}/36; zero audit errors/fixes. Not full compatibility.")
+print(f"Independent source geometry/attributes/unit + non-ENTITIES tag preservation: {checked}/36; zero audit errors/fixes. Not full compatibility.")
 assert checked == 36
-(output_dir / "audit.json").write_text(json.dumps({"scope": "reachable-blocks-only", "fullCompatibility": False,
+(output_dir / "audit.json").write_text(json.dumps({"scope": "reachable-block-geometry-and-all-non-ENTITIES-tags", "fullCompatibility": False,
                                                 "checked": checked, "excluded": excluded}, indent=2))

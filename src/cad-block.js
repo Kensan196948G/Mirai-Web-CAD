@@ -6,6 +6,7 @@ export const BLOCK_RESOURCE_MAX_BYTES = 700000;
 export function blockReference(layerId, definitionId, insertion, options = {}) {
   return {
     id: options.id ?? `e_block_${crypto.randomUUID()}`, type: "block", layerId, definitionId,
+    ...(options.dxfRecordId ? { dxfRecordId: options.dxfRecordId } : {}),
     insertion: { x: insertion.x, y: insertion.y }, rotation: options.rotation ?? 0, scale: options.scale ?? 1, scaleZ: options.scaleZ ?? options.scale ?? 1,
     attributeReferences: structuredClone(options.attributeReferences ?? []), children: [],
     style: { strokeWidth: 2, lineDash: [], fill: "transparent" }

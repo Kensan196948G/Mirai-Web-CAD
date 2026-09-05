@@ -20,6 +20,7 @@ for (const folder of ["03_block", "04_attribute_block"]) {
       const imported = applyTransaction(drawing, { commands: parsed.commands });
       if (!imported.ok) throw new Error(imported.error);
       const before = exportDxf(imported.drawing);
+      if (before.preservation?.mode !== "source-patch" || before.content !== content) throw new Error("Unedited source preservation failed");
       if (before.skipped.length) throw new Error("Unexpected skipped entities");
       const commands = imported.drawing.entities.filter((entity) => entity.definitionId).map((entity) => {
         const patch = transformEntity(entity, transform);
@@ -29,11 +30,12 @@ for (const folder of ["03_block", "04_attribute_block"]) {
       const modified = applyTransaction(imported.drawing, { commands });
       if (!modified.ok) throw new Error(modified.error);
       const after = exportDxf(modified.drawing);
+      if (after.preservation?.mode !== "source-patch") throw new Error(`Edited source preservation failed: ${after.warnings.join(" / ")}`);
       if (after.skipped.length) throw new Error("Unexpected skipped edited entities");
       await writeFile(path.join(output, `before-${file}`), before.content);
       await writeFile(path.join(output, `after-${file}`), after.content);
       const expected = !rejected.has(file);
-      results.push({ source, file, accepted: true, expected, warnings: before.warnings });
+      results.push({ source, file, accepted: true, expected, warnings: before.warnings, preservation: { before: before.preservation, after: after.preservation } });
     } catch (error) {
       results.push({ source, file, accepted: false, expected: rejected.has(file) && /鏡像/.test(error.message), error: error.message });
     }

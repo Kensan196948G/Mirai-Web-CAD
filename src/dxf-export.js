@@ -19,6 +19,7 @@
 
 import { resolveBlocks, blockAttributeText } from "./cad-block.js";
 import { transformEntity } from "./cad-advanced.js";
+import { exportDxfFromSource } from "./dxf-source-export.js";
 
 /** 色相の近傍ACI探索に使う代表色(RGB)。AutoCAD標準色(1〜9)とグレー(250〜255)の近似値。 */
 const ACI_ANCHORS = [
@@ -49,9 +50,20 @@ const CONTINUOUS_LINETYPE = "CONTINUOUS";
 export function exportDxf(drawing) {
   drawing = structuredClone(drawing);
   resolveBlocks(drawing);
+  let preservationFailure = "";
+  if (drawing.dxfSources?.length) {
+    try {
+      const preserved = exportDxfFromSource(drawing);
+      if (preserved) return preserved;
+      preservationFailure = "原本保持の対象外の編集があるため限定再生成します。";
+    } catch (error) {
+      preservationFailure = `原本保持を適用できません: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
   const lines = [];
   const skipped = [];
   const warnings = [];
+  if (preservationFailure) warnings.push(preservationFailure);
   const layerNameById = new Map((drawing.layers ?? []).map((layer) => [layer.id, layer.name]));
   const definitions = new Map((drawing.blockDefinitions ?? []).map((definition) => [definition.id, definition.name]));
   if (drawing.dxfSources?.length) warnings.push("限定DXF再生成: 原本のTABLES・OBJECTS・表現属性の完全保持は未対応です。原本はJSON書出しのdxfSourcesに保持されています。");
