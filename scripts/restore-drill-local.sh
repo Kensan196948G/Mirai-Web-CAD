@@ -23,9 +23,17 @@ if [[ ! -s "$backup_file" ]]; then
   exit 1
 fi
 
+reset_recovery_database() {
+  "${pg_bin}/psql" "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -c 'drop schema if exists public cascade; create schema public' >/dev/null
+}
+cleanup() {
+  reset_recovery_database || echo "restore drill cleanup FAILED: ${restore_database}" >&2
+}
+trap cleanup EXIT
+
 "${pg_bin}/pg_restore" --list "$backup_file" >/dev/null
-"${pg_bin}/psql" "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -c 'drop schema if exists public cascade; create schema public' >/dev/null
+reset_recovery_database
 
 BACKUP_FILE="$backup_file" ALLOW_DATABASE_RESTORE=yes \
   bash "$(dirname "$0")/restore-database.sh"
@@ -42,4 +50,4 @@ if [[ "$json_string_count" != "0" ]]; then
   exit 1
 fi
 
-echo "restore drill ok: source=${source_database}, recovery=${restore_database}, JSONB strings=0"
+echo "restore drill ok: source=${source_database}, recovery=${restore_database}, JSONB strings=0; recovery data will be cleared"

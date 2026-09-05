@@ -26,7 +26,7 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 - DB: ローカルPostgreSQLの`mirai_web_cad_mvp`。本番DB`mirai_web_cad`とは分離
 - 秘密値: `~/.config/mirai-web-cad/mvp.env` (mode 0600、Git管理外)
 - Backup: `mirai-web-cad-mvp-backup.timer`が専用DBを`/var/backups/mirai-web-cad/mvp-postgres/`へ日次保存し、`mirai-web-cad-mvp-backup-check.timer`が鮮度を検査
-- Restore drill: `mirai-web-cad-mvp-restore-drill.timer`が毎週、隔離DB`mirai_web_cad_mvp_recovery`へ最新dumpを復元して件数とJSONB型を検査
+- Restore drill: `mirai-web-cad-mvp-restore-drill.timer`が毎週、隔離DB`mirai_web_cad_mvp_recovery`へ最新dumpを復元して件数とJSONB型を検査し、終了時に復元データを消去
 - Monitor: `mirai-web-cad-mvp-monitor.timer`が15分ごとにローカルAPI、接続DB名、公開URLのAccess境界を検査
 
 MVP用envは`production.env`と同じ必須項目を持つ。ただし`DATABASE_URL`のDB名、`CF_ACCESS_AUD`、`CORS_ORIGIN`をMVP専用値にし、`ACCESS_ROLE_MAP`は許可メール1件だけにする。Access Applicationはbypass policyを作らず、サイト全体へ適用する。
@@ -154,7 +154,7 @@ bash scripts/deploy-local.sh
 
 `mirai-web-cad-backup.timer`が毎日03:10(JST、`RandomizedDelaySec=30min`)に`scripts/backup-local.sh`を実行し、`/var/backups/mirai-web-cad/postgres/`へdumpを保存する(保持14日)。`mirai-web-cad-backup-check.timer`が毎日06:00に鮮度(36時間以内・0バイト超)を検証する。
 
-MVPは本番と別に、`mirai-web-cad-mvp-backup.timer`が毎日03:40(JST、最大20分のランダム遅延)に`/var/backups/mirai-web-cad/mvp-postgres/`へ保存する。鮮度検査は毎日06:30、隔離DBへの復元ドリルは毎週日曜04:30、公開境界を含むhealth検査は15分ごとに行う。復元スクリプトは接続先DB名が`mirai_web_cad_mvp_recovery`と完全一致し、かつ元DBと異なる場合だけ初期化を許可する。手動確認は次のとおり。
+MVPは本番と別に、`mirai-web-cad-mvp-backup.timer`が毎日03:40(JST、最大20分のランダム遅延)に`/var/backups/mirai-web-cad/mvp-postgres/`へ保存する。鮮度検査は毎日06:30、隔離DBへの復元ドリルは毎週日曜04:30、公開境界を含むhealth検査は15分ごとに行う。復元スクリプトは接続先DB名が`mirai_web_cad_mvp_recovery`と完全一致し、かつ元DBと異なる場合だけ初期化を許可する。復元した図面データは成功・失敗にかかわらず終了時に隔離DBから消去する。手動確認は次のとおり。
 
 ```bash
 sudo systemctl start mirai-web-cad-mvp-backup.service
