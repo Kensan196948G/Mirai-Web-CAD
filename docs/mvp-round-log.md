@@ -389,5 +389,5 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | --- | --- |
 | Production migration | 適用直前にcustom archiveを作成し`pg_restore --list`成功を確認。本番DBへ`0006_normalize_jsonb_columns.sql`をトランザクション適用し、drawing_versions 10件を含む4つのJSONB列でstring scalarがすべて0件になったことを実測。本番サービスを最新`main`で再起動しhealth成功 |
 | MVP backup | `mirai-web-cad-mvp-backup.timer`を毎日03:40 JSTで追加。読取り専用`mirai_web_cad_backup`ロールへMVP DBのSELECT権限を付与し、本番とは別の`/var/backups/mirai-web-cad/mvp-postgres/`へ14日保持で保存 |
-| Restore drill | 専用DB`mirai_web_cad_mvp_recovery`へ毎週日曜に最新dumpを復元。スクリプトは対象DB名の完全一致と元DBとの差異を破壊操作前に検証。実測でdrawings=1、versions=1、audits=2、JSONB strings=0 |
+| Restore drill | 専用DB`mirai_web_cad_mvp_recovery`へ毎週日曜に最新dumpを復元。スクリプトは対象DB名の完全一致と元DBとの差異を破壊操作前に検証。実測でdrawings=1、versions=1、audits=2、JSONB strings=0。検証後は成功・失敗を問わず隔離DBを空へ戻す |
 | Monitoring | `mirai-web-cad-mvp-monitor.timer`を15分間隔で追加。ローカルAPIのPostgreSQL接続/migration、実DB名`mirai_web_cad_mvp`、公開URLがCloudflare Accessへ302転送されることを同時検査 |
