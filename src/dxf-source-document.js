@@ -78,6 +78,9 @@ export function rewriteDxfSourceDocument(document, { patches = [], removeRecordI
     const allowedByType = {
       INSERT: [2, 10, 20, 41, 42, 43, 50], ATTRIB: [1, 10, 20, 40, 41, 50, 51, 71], ATTDEF: [1, 3, 10, 20, 40, 41, 50, 51, 70, 71],
       LINE: [10, 20, 11, 21], CIRCLE: [10, 20, 40], ARC: [10, 20, 40, 50, 51], LWPOLYLINE: [10, 20, 70], TEXT: [1, 10, 20, 40, 41, 50, 51, 71],
+      DIMENSION: [1, 3, 10, 20, 11, 21, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 50, 70, 71],
+      HATCH: [2, 10, 20, 11, 21, 40, 41, 42, 50, 51, 52, 70, 71, 72, 73, 75, 76, 77],
+      VIEWPORT: [10, 20, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 40, 41, 42, 43, 44, 45, 50, 51, 68, 69, 90, 410],
       TABLE: [70], BLOCK_RECORD: [2], BLOCK: [2, 3]
     };
     const allowed = allowedByType[record?.type] ?? [];

@@ -119,7 +119,7 @@ test("rectは閉鎖LWPOLYLINE(4頂点)として書出される", () => {
   assert.match(content, /\n0\nLWPOLYLINE\n8\n構造物\n90\n4\n70\n1\n10\n0\n20\n0\n10\n100\n20\n0\n10\n100\n20\n50\n10\n0\n20\n50\n/);
 });
 
-test("dimension/hatch/blockは黙って捨てずskippedへ構造化して報告する", () => {
+test("dimension/hatchはネイティブDXFへ書出し、旧children型blockだけを報告する", () => {
   const drawing = drawingWith([
     {
       id: "d1",
@@ -145,13 +145,14 @@ test("dimension/hatch/blockは黙って捨てずskippedへ構造化して報告�
     { id: "e1", type: "line", layerId: "layer-structure", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] }
   ]);
   const result = exportDxf(drawing);
-  assert.equal(result.exported, 1);
+  assert.equal(result.exported, 3);
   assert.deepEqual(
     result.skipped.map((item) => item.type),
-    ["dimension", "hatch", "block"]
+    ["block"]
   );
   assert.ok(result.skipped.every((item) => typeof item.id === "string" && typeof item.reason === "string"));
-  assert.doesNotMatch(result.content, /\n0\nDIMENSION\n/);
+  assert.match(result.content, /\n0\nDIMENSION\n/);
+  assert.match(result.content, /\n0\nHATCH\n/);
 });
 
 test("存在しないレイヤーを参照するentityはskippedへ報告する", () => {

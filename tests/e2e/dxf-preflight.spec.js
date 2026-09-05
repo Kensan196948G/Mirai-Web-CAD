@@ -10,8 +10,8 @@ test("unsupported DXF does not partially import or rename the current drawing", 
   const before = await stored();
   const line = "0\nLINE\n8\nNEW_LAYER\n10\n0\n20\n0\n11\n100\n21\n100\n";
   const dxf = (extra) => `0\nSECTION\n2\nENTITIES\n${line}${extra}0\nENDSEC\n0\nEOF`;
-  await page.locator("#importFile").setInputFiles({ name: "must-not-rename.dxf", mimeType: "application/dxf", buffer: Buffer.from(dxf("0\nHATCH\n0\nDIMENSION\n")) });
-  await expect(page.getByLabel("コマンドログ")).toContainText("HATCH 1件, DIMENSION 1件");
+  await page.locator("#importFile").setInputFiles({ name: "must-not-rename.dxf", mimeType: "application/dxf", buffer: Buffer.from(dxf("0\nLEADER\n0\nACAD_PROXY_ENTITY\n")) });
+  await expect(page.getByLabel("コマンドログ")).toContainText("LEADER 1件, ACAD_PROXY_ENTITY 1件");
   await expect(page.getByLabel("コマンドログ")).toContainText("図面は変更していません");
   expect(await stored()).toBe(before);
   await page.reload();
