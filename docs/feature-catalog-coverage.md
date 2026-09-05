@@ -23,7 +23,7 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 機能カタログ | 状態 | 現状・対応 | 備考 |
 |---|---|---|---|
 | 線分/連続線/ポリライン/矩形/ポリゴン/円 | ◐ | LINE/RECT/CIRCLE/PLINEコマンド・リボン | 連続線・ポリゴン専用コマンドなし |
-| 円弧 | ⬜ | DXF import時にポリライン近似のみ | ネイティブARC未対応(README記載) |
+| 円弧 | ✅ | **2026-09-05実装**: 中心・半径・開始角・終了角を持つネイティブARC。リボン3点作図、CLI、Canvas描画、選択、境界、長さ、OSnap、移動/回転/尺度/鏡像/配列/OFFSET、FILLET生成、JSON・DXF入出力、往復比較に対応 | 円弧を対象にしたTRIM/EXTEND、曲線グリップ編集は未対応(P1-02) |
 | 楕円/スプライン | ⬜ | — | 内部CADモデルにentity型なし |
 | 点/測点/中心点/交点/分割点/任意点 | ◐ | 中心点・交点はOSnap候補で捕捉可能(2026-09-04〜)。点entityの作図は未対応 | — |
 | リビジョンクラウド(雲形) | ⬜ | — | — |
@@ -43,7 +43,7 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 鏡像/配列/分割/結合 | ◐ | **2026-09-04実装**: MIRROR(軸2点で線対称、rectは閉polyline化して置換)/ARRAY(矩形配列・元位置を除くcols×rows-1複写)/BREAK(line・開polylineを分割点で2分割)/JOIN(同一直線・端点一致2線分の結合)をcad-advanced.js+cad-command+リボン「修正」に追加 | ストレッチ/EXPLODE/FILLET/CHAMFERはPhase 1(P1-02) |
 | トリム/延長 | ◐ | **2026-09-04改善**: 境界交点演算による正確なTRIM/EXTENDへ更新(`trimEntityToBoundaries`/`extendEntityToBoundary`/`collectBoundarySegments`)。対象lineを図面内の他エンティティ(境界)との交点でクリップ・延長し、クリック点で残す側/伸ばす端点を指定 | polylineのクリップ・延長はP1-02 |
 | オフセット | ◐ | **2026-09-04改善**: LINE/CIRCLE/RECTに加え、polyline/hatchを重心放射から**真の平行オフセット(miter join)へ改善**(`parallelOffsetPoints`)。閉は符号付き面積から外側/内側を判定、開は進行方向の左側(正)へ。直線セグメントのみ対応 | 円弧バルジ・自己交差形状のオフセットはP1-02 |
-| 面取り/フィレット/交差処理/境界作成 | ◐ | **2026-09-05実装**: CHAMFER(直線2本を交点から指定距離で切断+面取り線追加)、FILLET(接線条件を満たす円弧を16分割polylineで追加)、BOUNDARY(接続線分3本以上から閉polylineを作成)をCLI/リボンから利用可能 | ネイティブ円弧、円/曲線との面取り・フィレット、任意点境界探索は未対応(P1-02) |
+| 面取り/フィレット/交差処理/境界作成 | ◐ | **2026-09-05実装**: CHAMFER(直線2本を交点から指定距離で切断+面取り線追加)、FILLET(接線条件を満たすネイティブ円弧を追加)、BOUNDARY(接続線分3本以上から閉polylineを作成)をCLI/リボンから利用可能 | 円/曲線との面取り・フィレット、任意点境界探索は未対応(P1-02) |
 | ポリライン編集/頂点編集/曲線編集/グリップ | ◐ | **2026-09-05実装**: PEDITで頂点のMOVE/ADD/DELETEとCLOSE/OPENをCLI/リボンから利用可能 | Canvasグリップ操作、曲線編集、幅/バルジ編集は未対応(P1-02) |
 | 数値入力・基準点/相対/極座標 | ◐ | コマンドラインで座標数値入力は可能 | ダイナミック入力なし |
 | OSnap(端点/中点/交点/垂線/接線/近接/グリッド) | ◐ | **2026-09-04拡張**: 端点・中点・中心・四分点・交点(既定ON)+垂線・近接点(設定ダイアログ「OSnap対象」で追加ON)を実装。グリッドはgridスナップ | 接線・極トラッキング・追跡線は未対応(P1-02) |
@@ -120,7 +120,7 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | 機能カタログ | 状態 | 現状・対応 | 備考 |
 |---|---|---|---|
 | SXF(P21/SFC)入出力 | ⬜ | — | 電子納品はPhase 4以降(P2-05)。SXF変換は個別選定が必要 |
-| DWG/DXF/DGN/JWW/PDF等入出力 | ◐ | **DXF import**: LINE/CIRCLE/LWPOLYLINE/POLYLINE/ARC/TEXT/MTEXT。**DXF書出し(2026-09-04〜)**: line/circle/polyline/rect/text+Layers。DWGは対象外([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)) | P1-03a(今回PRでdxf-roundtrip測定可能化)。DGN/JWW等は対象外/未計画 |
+| DWG/DXF/DGN/JWW/PDF等入出力 | ◐ | **DXF import/export**: LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/MTEXT(書出しはline/circle/arc/polyline/rect/text+Layers)。ARCは2026-09-05からネイティブ往復。DWGは対象外([ADR-0002](adr/ADR-0002-dwg-scope-drop-dxf-only.md)) | dimension/hatch/blockのDXF書出し、PDF尺度保証は後続。DGN/JWW等は対象外/未計画 |
 | LandXML/IFC/CityGML/GeoJSON等連携 | ⬜ | — | 参照連携は90%要件、Phase 4以降 |
 | 一括変換/フォルダ監視/変換ログ | ⬜ | — | バッチはPhase 5(API) |
 | 変換前後差分レポート | ◐ | compat-report CLI・compareDrawings(9軸) | dxf-roundtripは今回から実行可能 |

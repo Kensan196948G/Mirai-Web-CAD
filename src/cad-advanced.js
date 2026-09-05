@@ -22,6 +22,8 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   if (typeof next.size === "number") next.size = Math.abs(next.size * scale);
   if (typeof next.offset === "number") next.offset *= scale;
   if (typeof next.rotation === "number") next.rotation += angle;
+  if (typeof next.startAngle === "number") next.startAngle += angle;
+  if (typeof next.endAngle === "number") next.endAngle += angle;
   return next;
 }
 
@@ -34,7 +36,7 @@ export function offsetEntity(entity, distance) {
     if (length < EPSILON) throw new Error("長さ0の線はオフセットできません。");
     const delta = { x: (-(b.y - a.y) / length) * distance, y: ((b.x - a.x) / length) * distance };
     next.points = next.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
-  } else if (next.type === "circle") {
+  } else if (next.type === "circle" || next.type === "arc") {
     next.radius += distance;
     if (next.radius <= EPSILON) throw new Error("オフセット後の半径が0以下です。");
   } else if (next.type === "rect") {
@@ -264,11 +266,24 @@ export function mirrorEntity(entity, axisStart, axisEnd) {
       origin: undefined
     };
   }
+  const originalArcPoints = entity.type === "arc"
+    ? {
+        start: pointAtAngle(entity.center, entity.radius, entity.startAngle),
+        end: pointAtAngle(entity.center, entity.radius, entity.endAngle)
+      }
+    : null;
   const next = structuredClone(entity);
   for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = reflect(next[key]);
   }
   if (next.points) next.points = next.points.map(reflect);
+  if (originalArcPoints) {
+    const mirroredStart = reflect(originalArcPoints.start);
+    const mirroredEnd = reflect(originalArcPoints.end);
+    // 鏡像は回転方向を反転するため、始終点を交換して反時計回りの内部表現を維持する。
+    next.startAngle = pointAngle(next.center, mirroredEnd);
+    next.endAngle = pointAngle(next.center, mirroredStart);
+  }
   // ブロックのchildrenはローカル座標のため、挿入点を原点とするローカル軸で反転する
   if (next.children) {
     const insertion = normalizePoint(entity.insertion ?? { x: 0, y: 0 });
@@ -395,10 +410,9 @@ export function chamferLines(firstEntity, secondEntity, firstDistance, secondDis
 }
 
 /**
- * 2本の線分間へ接線フィレットを作成する。
- * 現行モデルには円弧entityがないため、円弧は分割polylineで保持する。
+ * 2本の線分間へ接線フィレットを作成し、ネイティブ円弧で保持する。
  */
-export function filletLines(firstEntity, secondEntity, radius, segmentCount = 16) {
+export function filletLines(firstEntity, secondEntity, radius) {
   const corner = lineCornerGeometry(firstEntity, secondEntity);
   const value = positiveDistance(radius, "フィレット半径");
   const dot = Math.max(-1, Math.min(1, corner.firstDirection.x * corner.secondDirection.x + corner.firstDirection.y * corner.secondDirection.y));
@@ -413,18 +427,12 @@ export function filletLines(firstEntity, secondEntity, radius, segmentCount = 16
   });
   const centerDistance = value / Math.sin(angle / 2);
   const center = pointAlong(corner.intersection, bisector, centerDistance);
-  const startAngle = Math.atan2(pointA.y - center.y, pointA.x - center.x);
+  const startAngle = pointAngle(center, pointA);
+  const endAngle = pointAngle(center, pointB);
   const cross = corner.firstDirection.x * corner.secondDirection.y - corner.firstDirection.y * corner.secondDirection.x;
-  const delta = cross > 0 ? -angle : angle;
-  const count = Math.max(4, Math.min(128, Math.round(Number(segmentCount) || 16)));
-  const points = [];
-  for (let index = 0; index <= count; index += 1) {
-    const current = startAngle + (delta * index) / count;
-    points.push({ x: center.x + value * Math.cos(current), y: center.y + value * Math.sin(current) });
-  }
   const first = replaceNearestEndpoint(firstEntity, corner.intersection, pointA);
   const second = replaceNearestEndpoint(secondEntity, corner.intersection, pointB);
-  const arc = lineLike(firstEntity, points, { polyline: true });
+  const arc = arcLike(firstEntity, center, value, cross > 0 ? endAngle : startAngle, cross > 0 ? startAngle : endAngle);
   return { first, second, arc, center, radius: value };
 }
 
@@ -528,6 +536,29 @@ function normalizeVector(vector) {
 
 function pointAlong(origin, direction, distance) {
   return { x: origin.x + direction.x * distance, y: origin.y + direction.y * distance };
+}
+
+function pointAtAngle(center, radius, angle) {
+  const radians = (Number(angle) * Math.PI) / 180;
+  return { x: center.x + radius * Math.cos(radians), y: center.y + radius * Math.sin(radians) };
+}
+
+function pointAngle(center, value) {
+  return ((Math.atan2(value.y - center.y, value.x - center.x) * 180) / Math.PI + 360) % 360;
+}
+
+function arcLike(source, center, radius, startAngle, endAngle) {
+  return {
+    ...structuredClone(source),
+    id: `e_${randomId()}`,
+    type: "arc",
+    center,
+    radius,
+    startAngle,
+    endAngle,
+    points: undefined,
+    meta: { ...(source.meta ?? {}), createdBy: "user", createdAt: new Date().toISOString() }
+  };
 }
 
 function replaceNearestEndpoint(entity, reference, replacement) {

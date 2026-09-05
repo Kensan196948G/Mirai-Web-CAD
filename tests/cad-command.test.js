@@ -8,11 +8,12 @@ function context(overrides = {}) {
   return { drawing, currentLayerId: "layer-structure", selectedId: null, ...overrides };
 }
 
-test("command line creates line, rectangle, circle, polyline, and text transactions", () => {
+test("command line creates line, rectangle, circle, arc, polyline, and text transactions", () => {
   const cases = [
     ["LINE 0,0 100,200", "line"],
     ["RECT 10,20 110,220", "rect"],
     ["CIRCLE 50,60 25", "circle"],
+    ["ARC 50,60 25 350 20", "arc"],
     ["PLINE 0,0 100,0 100,100 CLOSE", "polyline"],
     ['TEXT 30,40 "施工 注記"', "text"]
   ];
@@ -45,6 +46,7 @@ test("command line supports UI commands and rejects malformed input", () => {
   assert.equal(parseCadCommand("NEW 仮設計画図", context()).name, "仮設計画図");
   assert.throws(() => parseCadCommand("LINE 0,0 100,", context()), /yが空/);
   assert.throws(() => parseCadCommand("CIRCLE 0,0 -1", context()), /半径/);
+  assert.throws(() => parseCadCommand("ARC 0,0 10 90 90", context()), /開始角度/);
   assert.throws(() => parseCadCommand("UNKNOWN", context()), /未対応/);
 });
 
@@ -145,8 +147,8 @@ test("command line supports chamfer, fillet, boundary, and polyline vertex editi
 
   const fillet = parseCadCommand("FILLET e_horizontal e_vertical 15", context({ drawing }));
   assert.equal(fillet.kind, "transaction");
-  assert.equal(fillet.commands[2].entity.type, "polyline");
-  assert.equal(fillet.commands[2].entity.closed, false);
+  assert.equal(fillet.commands[2].entity.type, "arc");
+  assert.equal(fillet.commands[2].entity.radius, 15);
 
   const boundary = parseCadCommand("BOUNDARY e_horizontal e_vertical e_top e_right", context({ drawing }));
   assert.equal(boundary.commands[0].entity.type, "polyline");

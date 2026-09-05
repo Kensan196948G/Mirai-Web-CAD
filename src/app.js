@@ -1,6 +1,7 @@
 import {
   ROLE_POLICIES,
   applyTransaction,
+  arc,
   buildAiProposal,
   createDrawing,
   circle,
@@ -107,6 +108,7 @@ const ICONS = {
   line: "M4 20L20 4",
   pline: "M3 19l6-10 5 6 7-11",
   circle: "M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16z",
+  arc: "M5 17a9 9 0 0 1 14-10M5 17h4M5 17v-4M19 7h-4M19 7v4",
   rect: "M4 6h16v12H4z",
   hatch: "M4 5h16v14H4zM9 5L4 10M15 5L4 16M20 7L7 19M20 13l-6 6",
   block: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12L4 7.5M12 12v9",
@@ -164,6 +166,7 @@ const RIBBON = {
         { icon: "line", title: "線", tool: "line" },
         { icon: "rect", title: "矩形", tool: "rect" },
         { icon: "circle", title: "円", tool: "circle" },
+        { icon: "arc", title: "円弧", tool: "arc" },
         { icon: "pline", title: "ポリライン", tool: "polyline" },
         { icon: "hatch", title: "ハッチング", tool: "hatch" }
       ]
@@ -453,7 +456,7 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 }
 
-const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "polyline", "hatch", "dimension", "text"]);
+const RIBBON_EDIT_TOOLS = new Set(["line", "rect", "circle", "arc", "polyline", "hatch", "dimension", "text"]);
 const RIBBON_EDIT_ACTIONS = new Set(["beginOperation", "deleteSelected", "undoLastTransaction", "triggerImport"]);
 
 function ribbonButtonDisabled(entry, policy) {
@@ -1848,6 +1851,12 @@ function onPointerDown(event) {
     }
   }
 
+  if (state.tool === "arc") {
+    state.draftPoints.push(world);
+    if (state.draftPoints.length === 3) commitArcTool();
+    else drawCanvas(world);
+  }
+
   if (state.tool === "polyline") {
     state.draftPoints.push(world);
     drawCanvas(world);
@@ -1978,6 +1987,20 @@ function commitTwoPointTool() {
   }
   commitCommands(`${state.tool}作成`, commands);
   state.draftPoints = [];
+}
+
+function commitArcTool() {
+  const [center, start, end] = state.draftPoints;
+  const radius = Math.hypot(start.x - center.x, start.y - center.y);
+  const startAngle = (Math.atan2(start.y - center.y, start.x - center.x) * 180) / Math.PI;
+  const endAngle = (Math.atan2(end.y - center.y, end.x - center.x) * 180) / Math.PI;
+  state.draftPoints = [];
+  if (radius <= 1e-9 || Math.abs((((endAngle - startAngle) % 360) + 360) % 360) <= 1e-9) {
+    log("円弧作成失敗: 中心・始点・終点を異なる位置で指定してください。");
+    render();
+    return;
+  }
+  commitCommands("arc作成", [{ op: "add", entity: arc(state.currentLayerId, center, radius, startAngle, endAngle) }]);
 }
 
 function deleteSelected() {
@@ -2281,6 +2304,19 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     const center = worldToScreen(entity.center);
     ctx.beginPath();
     ctx.arc(center.x, center.y, entity.radius * state.camera.scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (entity.type === "arc") {
+    const center = worldToScreen(entity.center);
+    ctx.beginPath();
+    ctx.arc(
+      center.x,
+      center.y,
+      entity.radius * state.camera.scale,
+      (entity.startAngle * Math.PI) / 180,
+      (entity.endAngle * Math.PI) / 180,
+      false
+    );
     ctx.stroke();
   }
   if (entity.type === "polyline") {

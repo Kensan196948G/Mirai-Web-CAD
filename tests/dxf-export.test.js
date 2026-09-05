@@ -48,10 +48,11 @@ test("DXF書出しはHEADER/TABLES/ENTITIES/EOFを含む最小構成を生成す
   assert.match(meters, /\n9\n\$INSUNITS\n70\n6\n/);
 });
 
-test("line/circle/polyline/textが対応entityとしてDXFへ書出される", () => {
+test("line/circle/arc/polyline/textが対応entityとしてDXFへ書出される", () => {
   const drawing = drawingWith([
     { id: "e1", type: "line", layerId: "layer-structure", points: [{ x: 10, y: 20 }, { x: 110, y: 120 }] },
     { id: "e2", type: "circle", layerId: "layer-temporary", center: { x: 200, y: 300 }, radius: 25 },
+    { id: "e_arc", type: "arc", layerId: "layer-structure", center: { x: 500, y: 600 }, radius: 75, startAngle: -10, endAngle: 380 },
     {
       id: "e3",
       type: "polyline",
@@ -62,11 +63,12 @@ test("line/circle/polyline/textが対応entityとしてDXFへ書出される", (
     { id: "e4", type: "text", layerId: "layer-annotation", at: { x: 400, y: 500 }, value: "施工注記", size: 240 }
   ]);
   const result = exportDxf(drawing);
-  assert.equal(result.exported, 4);
+  assert.equal(result.exported, 5);
   assert.equal(result.skipped.length, 0);
   const { content } = result;
   assert.match(content, /\n0\nLINE\n8\n構造物\n10\n10\n20\n20\n11\n110\n21\n120\n/);
   assert.match(content, /\n0\nCIRCLE\n8\n仮設\n10\n200\n20\n300\n40\n25\n/);
+  assert.match(content, /\n0\nARC\n8\n構造物\n10\n500\n20\n600\n40\n75\n50\n350\n51\n20\n/);
   assert.match(content, /\n0\nLWPOLYLINE\n8\n中心線\n90\n3\n70\n1\n/);
   assert.match(content, /\n0\nTEXT\n8\n注記\n10\n400\n20\n500\n40\n240\n1\n施工注記\n/);
 });
@@ -152,6 +154,7 @@ test("書出したDXFを再importすると対応entityは幾何一致で往復�
     "0", "SECTION", "2", "ENTITIES",
     "0", "LINE", "8", "DXF-LINE", "10", "10", "20", "20", "11", "110", "21", "120",
     "0", "CIRCLE", "8", "DXF-CIRCLE", "10", "200", "20", "300", "40", "25",
+    "0", "ARC", "8", "DXF-ARC", "10", "250", "20", "350", "40", "50", "50", "350", "51", "20",
     "0", "LWPOLYLINE", "8", "DXF-PLINE", "90", "3", "70", "1",
     "10", "0", "20", "0", "10", "100", "20", "0", "10", "100", "20", "50",
     "0", "TEXT", "8", "DXF-TEXT", "10", "400", "20", "500", "40", "240", "1", "R100 施工",
