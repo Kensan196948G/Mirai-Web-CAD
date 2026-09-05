@@ -110,13 +110,14 @@ export function compareDrawings(expected, actual, tolerance, options = {}) {
 
 export function pairEntities(expectedEntities, actualEntities, layerNameByIdExpected, layerNameByIdActual, effectiveTolerance) {
   const actualById = new Map(actualEntities.map((entity) => [entity.id, entity]));
+  const actualBySourceRecord = new Map(actualEntities.filter((entity) => entity.dxfRecordId).map((entity) => [entity.dxfRecordId, entity]));
   const claimed = new Set();
   const pairs = [];
   const remainingExpected = [];
 
   // Step 1: ID完全一致(JSON往復ではこの段階でほぼ全件決まる)
   for (const expectedEntity of expectedEntities) {
-    const actualEntity = actualById.get(expectedEntity.id);
+    const actualEntity = actualById.get(expectedEntity.id) ?? (expectedEntity.dxfRecordId ? actualBySourceRecord.get(expectedEntity.dxfRecordId) : null);
     if (actualEntity && actualEntity.type === expectedEntity.type && !claimed.has(actualEntity.id)) {
       pairs.push({ expected: expectedEntity, actual: actualEntity });
       claimed.add(actualEntity.id);
@@ -241,6 +242,8 @@ function geometryFacets(entity) {
       return { points: entity.points, scalars: {} };
     case "dimension":
       return { points: entity.points, scalars: { offset: entity.offset } };
+    case "viewport":
+      return { points: [entity.center, entity.viewCenter, entity.viewTarget].filter(Boolean), scalars: { width: entity.width, height: entity.height, viewHeight: entity.viewHeight, twistAngle: entity.twistAngle } };
     case "rect":
       return { points: [entity.origin], scalars: { width: entity.width, height: entity.height } };
     case "circle":
