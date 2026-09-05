@@ -7,5 +7,18 @@ test-results/
 .env
 *.env
 
+# Terraformの実値・state・provider実体はリポジトリに含めない
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
 # 実案件図面の実体(著作権・機密保持のためコミットしない)。docs/compat-corpus/参照
 corpus/

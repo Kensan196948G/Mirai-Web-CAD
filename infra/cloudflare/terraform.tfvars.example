@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars only after obtaining an API token with the permissions
+# described in README.md. terraform.tfvars is ignored by Git.
+enable_management = false
+
+account_id = "4f1e888469df7e0b896bb4e211b12633"
+zone_id    = "e375e651e49a40801a305b89e297bff0"
+tunnel_id  = "f8c9fb57-fb21-4a24-b1be-f7dd5699badc"
+
+mvp_allowed_email = "kensan1969@gmail.com"
+
+# Obtain these IDs during the read-only inventory step. Never guess them.
+mvp_access_application_id = "00000000-0000-0000-0000-000000000000"
+mvp_dns_record_id          = "00000000000000000000000000000000"
+production_dns_record_id   = "00000000000000000000000000000000"

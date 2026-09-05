@@ -46,6 +46,14 @@ Cloudflare Tunnel(mirai-web-cad-cloudflared.service)
 
 セットアップ手順、systemdユニット一覧、日常運用(デプロイ・バックアップ・ログ確認・ロールバック)は[ローカルデプロイ運用メモ](deployment-local.md)を参照してください。
 
+Cloudflare設定は`infra/cloudflare/`にTerraform v5構成を置き、既存資源のimport-firstで管理する。誤削除防止、MVP許可メールの完全一致制約、広範囲なAccessルールの静的検査を持つ。現行API tokenはDNS/Access管理権限不足のため、実資源のimport/applyは保留中。手順は[Cloudflare Terraform](../infra/cloudflare/README.md)を参照。
+
+障害時は次のRunbookを使用する。
+
+- [サービス停止](runbooks/service-outage.md)
+- [Cloudflare Access変更](runbooks/cloudflare-access-change.md)
+- [PostgreSQL障害](runbooks/database-incident.md)
+
 MVP URLはサイト全体をCloudflare Accessで保護し、`kensan1969@gmail.com`だけを許可する。本番の公開デモ用bypass policyはMVPへ引き継がない。MVPと本番は同じソースとTunnelを使うが、待受ポート、環境ファイル、PostgreSQLデータベース、バックアップ保存先を分離する。`mirai-web-cad-mvp-monitor.timer`は15分ごとにローカルAPI、DB名、公開URLのAccess 302境界を検証する。`mirai-web-cad-mvp-restore-drill.timer`は毎週、最新バックアップを専用の隔離DBへ復元する。
 
 Cloudflare Pages(`functions/api/`、`wrangler.toml`)はロールバック手段として当面残置していますが、`main`へのマージでは自動デプロイされません(`.github/workflows/production.yml`のdeployジョブは削除済み、`CLOUDFLARE_DEPLOY_ENABLED`変数もPR Preview用途にのみ影響します)。
