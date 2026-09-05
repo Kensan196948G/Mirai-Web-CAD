@@ -1,3 +1,4 @@
+import { blockWorldEntities } from "./cad-affine.js";
 import {
   ROLE_POLICIES,
   applyTransaction,
@@ -1426,7 +1427,6 @@ async function handleImportFile(event) {
       : imported.commands;
     const committed = await commitCommands(`Import: ${file.name}`, commands);
     if (committed) {
-      if (imported.unitConversion?.factor !== undefined && imported.unitConversion.factor !== 1) log(`DXF単位換算: ${imported.unitConversion.source} -> ${imported.unitConversion.target} (${imported.unitConversion.factor}倍)`);
       for (const warning of imported.warnings) log(`Import警告: ${warning}`);
       log(`Import完了: ${imported.entityCount}/${imported.sourceCount}図形`);
       fitCameraToDrawing();
@@ -1712,6 +1712,7 @@ async function applyOperationForm(event) {
     if (!next) throw new Error("操作を選択してください。");
     if (["copy", "offset"].includes(operation)) {
       next.id = `e_${operation}_${Date.now().toString(36)}`;
+      delete next.dxfRecordId;
       next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
       state.selectedId = next.id;
       state.pendingOperation = null;
@@ -2590,6 +2591,8 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     ctx.font = `${Math.max(11, entity.size * state.camera.scale)}px sans-serif`;
     ctx.translate(at.x, at.y);
     ctx.rotate((entity.rotation ?? 0) * Math.PI / 180);
+    const sx = (entity.generationFlags ?? 0)&2 ? -1 : 1, sy = (entity.generationFlags ?? 0)&4 ? -1 : 1;
+    ctx.transform((entity.widthFactor ?? 1)*sx, 0, Math.tan((entity.oblique ?? 0)*Math.PI/180)*sy, sy, 0, 0);
     ctx.fillText(entity.value, 0, 0);
   }
   if (entity.type === "dimension") {
@@ -2627,7 +2630,9 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     }
   }
   if (entity.type === "block") {
-    for (const child of entity.children ?? []) {
+    if (entity.definitionId) {
+      for (const child of blockWorldEntities(entity)) drawEntity(ctx, child, overrideColor, preview);
+    } else for (const child of entity.children ?? []) {
       const transformed = transformEntity(child, { dx: entity.insertion?.x ?? 0, dy: entity.insertion?.y ?? 0, angle: entity.rotation ?? 0, scale: entity.scale ?? 1 });
       drawEntity(ctx, { ...transformed, layerId: entity.definitionId ? transformed.layerId : entity.layerId }, overrideColor, preview);
     }

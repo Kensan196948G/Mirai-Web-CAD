@@ -117,7 +117,13 @@ for entry in report["results"]:
             assert equal(tuple(original.base_point), tuple(block.base_point))
             assert equal([signature(e) for e in original], [signature(e) for e in block]), (entry["file"], block.name)
         checked += 1
-print(f"Independent source geometry/attributes/unit + non-ENTITIES tag preservation: {checked}/36; zero audit errors/fixes. Not full compatibility.")
-assert checked == 36
+print(f"Independent source geometry/attributes/unit + non-ENTITIES tag preservation: {checked}/40; zero audit errors/fixes. Not full compatibility.")
+assert checked == 40
+source_edits = ezdxf.readfile(output_dir / report["sourceEdits"]["file"])
+source_edit_audit = source_edits.audit()
+assert not source_edit_audit.errors and not source_edit_audit.fixes, (source_edit_audit.errors, source_edit_audit.fixes)
+assert "SOURCE_EDIT_ADDED" in source_edits.blocks
+added_insert = source_edits.modelspace().query('INSERT[name=="SOURCE_EDIT_ADDED"]').first
+assert added_insert is not None and equal([added_insert.dxf.xscale, added_insert.dxf.yscale], [-2, 3])
 (output_dir / "audit.json").write_text(json.dumps({"scope": "reachable-block-geometry-and-all-non-ENTITIES-tags", "fullCompatibility": False,
-                                                "checked": checked, "excluded": excluded}, indent=2))
+                                                "checked": checked, "sourceEditAudit": "zero-errors-zero-fixes", "excluded": excluded}, indent=2))

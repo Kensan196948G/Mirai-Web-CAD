@@ -1,9 +1,13 @@
 import { createDxfSourceDocument, inspectDxfSourceDocument, inspectDxfBlocks, dxfGroup } from "./dxf-source-document.js";
 import { blockReference } from "./cad-block.js";
-import { transformEntity } from "./cad-advanced.js";
+import { affineText, blockAffine, inverseAffine } from "./cad-affine.js";
 
 export function decodeDxfText(value) {
   return String(value).replace(/\\U\+([0-9a-f]{4})/gi, (_match, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function textOptions(record) {
+  return { widthFactor: Number(dxfGroup(record, 41, 1)), oblique: Number(dxfGroup(record, 51, 0)), generationFlags: Number(dxfGroup(record, 71, 0)) };
 }
 
 export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive) {
@@ -31,7 +35,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
     let name = baseName, suffix = 1;
     while (names.has(name.toUpperCase())) name = `${baseName.slice(0, 240)}_${suffix++}`;
     names.add(name.toUpperCase());
-    return { id: `block_${crypto.randomUUID()}`, name, basePoint: { x: source.basePoint.x, y: source.basePoint.y }, entities: [], attributeDefinitions: [] };
+    return { id: `block_${crypto.randomUUID()}`, dxfRecordId: source.recordId, name, basePoint: { x: source.basePoint.x, y: source.basePoint.y }, entities: [], attributeDefinitions: [] };
   });
   const definitionIds = new Map(sourceDefinitions.map((source, index) => [source.recordId, definitions[index].id]));
   const references = new Map(view.references.map((reference) => [reference.recordId, reference]));
@@ -42,29 +46,29 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
   function attribute(source) {
     const record = recordsById.get(source.recordId);
     checkPlanar(record);
-    if ([72, 74, 71, 51].some((code) => Number(dxfGroup(record, code, 0)) !== 0) || Number(dxfGroup(record, 41, 1)) !== 1 || record.groups.some((group) => group.code === 101)) {
+    if ([72, 74].some((code) => Number(dxfGroup(record, code, 0)) !== 0) || record.groups.some((group) => group.code === 101)) {
       throw new Error("属性の整列・傾斜・MTEXTは未対応です。");
     }
     return { id: `attr_${crypto.randomUUID()}`, dxfRecordId: source.recordId, tag: decodeDxfText(source.tag), value: decodeDxfText(source.value), prompt: decodeDxfText(source.prompt),
       at: { x: source.position.x, y: source.position.y }, size: source.height, rotation: source.rotation,
-      flags: source.flags, styleName: source.style, layerId: layers.resolve(source.layer) };
+      flags: source.flags, styleName: source.style, layerId: layers.resolve(source.layer), ...textOptions(record) };
   }
   function entity(record) {
     checkPlanar(record);
     const layerId = layers.resolve(dxfGroup(record, 8, "0"));
     if (record.type === "INSERT") {
       const source = references.get(record.id);
-      if (!source || source.scale.x <= 0 || source.scale.z <= 0 || source.scale.x !== source.scale.y || source.rows !== 1 || source.columns !== 1) {
-        throw new Error("INSERTの非一様尺度・鏡像・配列は未対応です。");
+      if (!source || [source.scale.x, source.scale.y, source.scale.z].some((value) => !Number.isFinite(value) || value === 0) || source.rows !== 1 || source.columns !== 1) {
+        throw new Error("INSERTのゼロ尺度・配列は未対応です。");
       }
-      const reference = blockReference(layerId, definitionIds.get(source.definitionRecordId), source.position, { rotation: source.rotation, scale: source.scale.x, scaleZ: source.scale.z });
+      const uniform = source.scale.x > 0 && source.scale.x === source.scale.y;
+      const reference = blockReference(layerId, definitionIds.get(source.definitionRecordId), source.position, { rotation: source.rotation, scale: uniform ? source.scale.x : 1,
+        axisScale: uniform ? { x: 1, y: 1 } : { x: source.scale.x, y: source.scale.y }, scaleZ: source.scale.z });
       reference.dxfRecordId = record.id;
       if (!reference.definitionId) throw new Error(`INSERT定義が未対応です: ${source.name}`);
       reference.attributeReferences = source.attributes.map((sourceAttribute) => {
         const value = attribute(sourceAttribute);
-        const translated = transformEntity({ ...value, type: "text" }, { dx: -source.position.x, dy: -source.position.y });
-        const local = transformEntity(translated, { angle: -source.rotation, scale: 1 / source.scale.x });
-        return { ...value, at: local.at, size: local.size, rotation: local.rotation };
+        return affineText(value, inverseAffine(blockAffine(reference)));
       });
       return reference;
     }
@@ -72,7 +76,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
     if (record.type === "LWPOLYLINE" && record.groups.some((group) => [40, 41, 42, 43].includes(group.code) && Number(group.value) !== 0)) {
       throw new Error("BLOCK内の幅・bulge付きポリラインは未対応です。");
     }
-    if (record.type === "TEXT" && ([71, 72, 73, 51].some((code) => Number(dxfGroup(record, code, 0)) !== 0) || Number(dxfGroup(record, 41, 1)) !== 1)) {
+    if (record.type === "TEXT" && [72, 73].some((code) => Number(dxfGroup(record, code, 0)) !== 0)) {
       throw new Error("BLOCK図面内の整列・傾斜TEXTは未対応です。");
     }
     const normalized = parsePrimitive(record, layerId);
@@ -81,6 +85,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
       normalized.rotation = Number(dxfGroup(record, 50, 0));
       normalized.value = decodeDxfText(normalized.value);
       normalized.styleName = dxfGroup(record, 7, "STANDARD");
+      Object.assign(normalized, textOptions(record));
     }
     return normalized;
   }

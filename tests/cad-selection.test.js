@@ -3,6 +3,7 @@ import test from "node:test";
 import { arc, circle, createDrawing, entityArea, entityBounds, line, polyline, rect, spline } from "../src/cad-core.js";
 import { blockEntity, transformEntity } from "../src/cad-advanced.js";
 import { entityGrips, moveGrip, selectInBox } from "../src/cad-selection.js";
+import { blockReference, resolveBlocks } from "../src/cad-block.js";
 
 const layer = "layer-structure";
 const drawing = (entities) => createDrawing({ entities });
@@ -26,6 +27,14 @@ test("crossing checks arc sweep and polyline segments, hidden and frozen layers 
   assert.deepEqual(selectInBox(doc, { x: 69, y: 69 }, { x: 72, y: 72 }, true), [curve.id]);
   doc.layers.find((item) => item.id === layer).visible = false;
   assert.deepEqual(selectInBox(doc, { x: -200, y: -200 }, { x: 200, y: 200 }), []);
+});
+
+test("an empty native BLOCK remains crossing-selectable at its insertion point", () => {
+  const reference = blockReference(layer, "empty", { x: 25, y: 30 });
+  const doc = drawing([reference]);
+  doc.blockDefinitions = [{ id: "empty", name: "EMPTY", basePoint: { x: 0, y: 0 }, entities: [], attributeDefinitions: [] }];
+  resolveBlocks(doc);
+  assert.deepEqual(selectInBox(doc, { x: 30, y: 35 }, { x: 20, y: 25 }, true), [reference.id]);
 });
 
 test("grip editing changes only the chosen point and keeps the original immutable", () => {

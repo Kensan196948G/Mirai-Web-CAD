@@ -35,6 +35,15 @@ test("半径・文字高さが0以下のentityは不正DXFとして出力せずs
   assert.doesNotMatch(result.content, /\n40\n0\n1\n高さ0\n/);
 });
 
+test("不正なTEXT変換属性はDXFへ出力せずskippedへ報告する", () => {
+  for (const patch of [{ widthFactor: 0 }, { widthFactor: Infinity }, { oblique: 90 }, { oblique: NaN }, { generationFlags: 1 }]) {
+    const drawing = drawingWith([{ id: "bad-text", type: "text", layerId: "layer-annotation", at: { x: 0, y: 0 }, value: "invalid", size: 10, ...patch }]);
+    const result = exportDxf(drawing);
+    assert.equal(result.exported, 0);
+    assert.equal(result.skipped[0].type, "text");
+  }
+});
+
 test("DXF書出しはHEADER/TABLES/ENTITIES/EOFを含む最小構成を生成する", () => {
   const drawing = createDrawing();
   const { content } = exportDxf(drawing);

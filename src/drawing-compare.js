@@ -404,12 +404,12 @@ function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, expec
 function blockShape(value, layers) {
   if (Array.isArray(value)) return value.map((item) => blockShape(item, layers));
   if (!value || typeof value !== "object") return value;
-  const keys = ["type", "name", "layerId", "x", "y", "points", "origin", "width", "height", "center", "at", "radius", "radiusX", "radiusY", "controlPoints", "degree", "knots", "startParameter", "endParameter", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "scaleZ", "tag", "flags", "styleName", "attributeReferences", "children"];
+  const keys = ["type", "name", "layerId", "x", "y", "points", "origin", "width", "height", "center", "at", "radius", "radiusX", "radiusY", "controlPoints", "degree", "knots", "startParameter", "endParameter", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "axisScale", "scaleZ", "widthFactor", "oblique", "generationFlags", "tag", "flags", "styleName", "attributeReferences", "children"];
   return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, key === "layerId" ? layers.get(value[key]) ?? value[key] : blockShape(value[key], layers)]));
 }
 
 function blockValuesEqual(a, b, coordinateTolerance, angleTolerance, key = "") {
-  if (typeof a === "number" && typeof b === "number") return /angle|rotation/i.test(key) ? angleDelta(a, b) <= angleTolerance : Math.abs(a - b) <= coordinateTolerance;
+  if (typeof a === "number" && typeof b === "number") return /angle|rotation|oblique/i.test(key) ? angleDelta(a, b) <= angleTolerance : Math.abs(a - b) <= coordinateTolerance;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return a === b;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((childKey) => Object.hasOwn(b, childKey) && blockValuesEqual(a[childKey], b[childKey], coordinateTolerance, angleTolerance, childKey));

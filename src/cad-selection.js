@@ -1,5 +1,6 @@
 import { angleOnArc, boundsIntersect, entityBounds, sampleEllipse, sampleSpline } from "./cad-core.js";
 import { transformEntity } from "./cad-advanced.js";
+import { blockWorldEntities } from "./cad-affine.js";
 import { dimensionGeometry } from "./cad-dimension.js";
 
 export function selectionBounds(a, b) {
@@ -35,6 +36,10 @@ function crosses(entity, box) {
   const bounds = entityBounds(entity);
   if (!bounds || !boundsIntersect(bounds, box)) return false;
   if (entity.type === "block") {
+    if (entity.definitionId) {
+      const children = blockWorldEntities(entity);
+      return children.length ? children.some((child) => crosses(child, box)) : inside(entity.insertion, box);
+    }
     return (entity.children ?? []).some((child) => crosses(transformEntity(child, {
       dx: entity.insertion.x, dy: entity.insertion.y, angle: entity.rotation ?? 0, scale: entity.scale ?? 1
     }), box));

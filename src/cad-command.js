@@ -317,6 +317,7 @@ function transformCommand(label, tokens, context, copy) {
     if (!copy) return { op: "update", id: entity.id, patch: movedPatch(entity, offset.x, offset.y) };
     const next = movedEntity(entity, offset.x, offset.y);
     next.id = `e_copy_${randomId()}`;
+    delete next.dxfRecordId;
     next.meta = { createdBy: "user", createdAt: new Date().toISOString() };
     return { op: "add", entity: next };
   });

@@ -10,6 +10,7 @@ import { nativeBlockDrawing } from "./fixtures/native-block.js";
 import { compareDrawings } from "../src/drawing-compare.js";
 import { TOLERANCE_V0 } from "../src/compat-score.js";
 import { importUnits } from "../src/import-units.js";
+import { blockWorldEntities } from "../src/cad-affine.js";
 
 const importDrawing = (content, filename = "test.dxf") => {
   const drawing = createDrawing();
@@ -87,14 +88,18 @@ test("definition replacement refreshes every instance atomically; invalid/cyclic
   assert.equal(drawing.entities[1].children[0].points[1].x, 100);
   assert.equal(applyTransaction(drawing, { commands: [{ op: "update", id: "inner-ref", patch: { definitionId: "missing" } }] }).ok, false);
   assert.equal(applyTransaction(drawing, { commands: [{ op: "update", id: "inner-ref", patch: { scale: -1 } }] }).ok, false);
-  assert.throws(() => mirrorEntity(drawing.entities[0], { x: 0, y: 0 }, { x: 1, y: 0 }), /未対応/);
+  const mirrored = mirrorEntity(drawing.entities[0], { x: 0, y: 0 }, { x: 1, y: 0 });
+  assert.equal(mirrored.insertion.y, -drawing.entities[0].insertion.y);
+  assert.equal(mirrored.axisScale.y, -1);
 });
 
-test("nonuniform, missing INSERT definitions, unsupported child geometry and resource overflow fail without mutation", () => {
+test("nonuniform INSERT imports while missing definitions, unsupported child geometry and resource overflow fail without mutation", () => {
   const content = exportDxf(nativeBlockDrawing()).content;
   const drawing = createDrawing();
   const before = structuredClone(drawing);
-  for (const source of [content.replace("42\n2", "42\n3"), content.replace("2\nINNER\n10", "2\nMISSING\n10"), content.replace("0\nCIRCLE", "0\nHATCH")]) {
+  const nonuniform = importDrawing(content.replace("42\n2", "42\n3"));
+  assert.deepEqual(nonuniform.entities[0].axisScale, { x: 2, y: 3 });
+  for (const source of [content.replace("2\nINNER\n10", "2\nMISSING\n10"), content.replace("0\nCIRCLE", "0\nHATCH")]) {
     assert.throws(() => parseCadImport({ filename: "bad.dxf", content: source, drawing, currentLayerId: drawing.layers[0].id }));
     assert.deepEqual(drawing, before);
   }
@@ -160,4 +165,38 @@ test("equivalent wrapped block angles compare equally", () => {
   actual.entities[1].rotation += 360;
   actual.entities[1].attributeReferences[0].rotation += 360;
   assert.equal(compareDrawings(drawing, actual, TOLERANCE_V0).axes.block.score, 1);
+});
+
+test("signed nonuniform and nested transforms resolve lines, circles and bounds through affine matrices", () => {
+  const drawing = nativeBlockDrawing();
+  const reference = drawing.entities[1];
+  reference.axisScale = { x: -2, y: 3 };
+  reference.rotation = 90;
+  resolveBlocks(drawing);
+  const world = blockWorldEntities(reference);
+  assert.ok(world.some((entity) => entity.type === "ellipse" && Math.abs(entity.radiusX - 45) < 1e-8 && Math.abs(entity.radiusY - 30) < 1e-8));
+  const line = world.find((entity) => entity.type === "line");
+  assert.deepEqual(line.points.map((point) => ({ x: Math.round(point.x), y: Math.round(point.y) })), [{ x: 1000, y: 500 }, { x: 1000, y: 300 }]);
+  const bounds = entityBounds(reference);
+  assert.ok(Math.abs(bounds.minX - 835) < 1e-8);
+  assert.ok(Math.abs(bounds.minY - 300) < 1e-8);
+  assert.ok(Math.abs(bounds.maxX - 1164.3163488855494) < 1e-8);
+  assert.ok(Math.abs(bounds.maxY - 500) < 1e-8);
+});
+
+test("mirrored nonuniform BLOCK survives standalone DXF regeneration", () => {
+  const drawing = nativeBlockDrawing();
+  drawing.dxfSources = [];
+  const reference = mirrorEntity(drawing.entities[1], { x: 0, y: 0 }, { x: 1, y: 0 });
+  reference.axisScale.x = 2;
+  drawing.entities = [reference];
+  resolveBlocks(drawing);
+  const output = exportDxf(drawing);
+  assert.equal(output.skipped.length, 0);
+  const view = inspectDxfBlocks(createDxfSourceDocument(output.content));
+  const root = view.references.find((item) => !item.containerRecordId);
+  assert.equal(root.scale.x, 2);
+  assert.equal(root.scale.y, -1);
+  const reloaded = importDrawing(output.content);
+  assert.deepEqual(reloaded.entities[0].axisScale, { x: 2, y: -1 });
 });

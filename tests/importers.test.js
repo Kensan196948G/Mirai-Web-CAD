@@ -23,6 +23,18 @@ test("DXF original entity limit applies before unsupported records disappear", (
   assert.throws(() => parseCadImport({ filename: "large.dxf", content, drawing: seedDrawing() }), /10000件まで/);
 });
 
+test("DXF source archive is dropped before enforcing the total API command limit", () => {
+  const content = (count) => ["0", "SECTION", "2", "HEADER", "0", "ENDSEC", "0", "SECTION", "2", "ENTITIES",
+    ...Array.from({ length: count }, (_value, index) => ["0", "TEXT", "8", "0", "10", String(index), "20", "0", "40", "2", "1", "X".repeat(200)]).flat(),
+    "0", "ENDSEC", "0", "EOF"].join("\n");
+  const drawing = seedDrawing();
+  drawing.entities = [];
+  const imported = parseCadImport({ filename: "capacity.dxf", content: content(1200), drawing, currentLayerId: "layer-structure" });
+  assert.equal(imported.commands.some((command) => command.op === "set_block_resources"), false);
+  assert.match(imported.warnings.join(" "), /取込コマンド容量/);
+  assert.throws(() => parseCadImport({ filename: "too-large.dxf", content: content(1500), drawing, currentLayerId: "layer-structure" }), /API容量上限/);
+});
+
 test("JSON export geometry imports through add-layer and add commands", () => {
   const drawing = seedDrawing();
   const source = {
