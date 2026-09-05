@@ -38,6 +38,7 @@ export function createDrawing(overrides = {}) {
     entities: [],
     blockDefinitions: [],
     dxfSources: [],
+    dxfLayouts: [],
     selectionSets: [],
     comments: [],
     dimensionStyles: [{ id: "dim-standard", name: "標準", textSize: 180, arrowSize: 120, precision: 0, suffix: "" }],
@@ -204,6 +205,8 @@ export function applyTransaction(drawing, transaction) {
       try { command.sources.forEach(inspectDxfSourceDocument); } catch { return fail("DXF原本が不正です。", drawing); }
       next.blockDefinitions = structuredClone(command.definitions);
       next.dxfSources = structuredClone(command.sources);
+      next.dxfLayouts = structuredClone(command.dxfLayouts ?? next.dxfLayouts ?? []);
+      if (Array.isArray(command.dimensionStyles) && command.dimensionStyles.length) next.dimensionStyles = structuredClone(command.dimensionStyles);
     }
     if (command.op === "set_empty_drawing_unit") {
       if (!["mm", "m"].includes(command.unit) || next.entities.length > 0 || next.blockDefinitions?.length) return fail("単位の設定は図形・BLOCK定義がない図面でのみ可能です(mm/m)。", drawing);
@@ -660,7 +663,11 @@ export function entityBounds(entity) {
   if (entity.type === "dimension") {
     try { return boundsFromPoints(dimensionGeometry(entity).segments.flat()); } catch { return null; }
   }
-  if (entity.type === "hatch") return boundsFromPoints(entity.points);
+  if (entity.type === "hatch") return boundsFromPoints((entity.boundaries ?? [{ points: entity.points }]).flatMap((boundary) => boundary.points ?? []));
+  if (entity.type === "viewport") return boundsFromPoints([
+    { x: entity.center.x - entity.width / 2, y: entity.center.y - entity.height / 2 },
+    { x: entity.center.x + entity.width / 2, y: entity.center.y + entity.height / 2 }
+  ]);
   if (entity.type === "block") {
     if (entity.definitionId) {
       const bounds = blockWorldEntities(entity).map(entityBounds).filter(Boolean);
@@ -702,6 +709,7 @@ export function entityLength(entity) {
   if (entity.type === "spline") return sampledLength(sampleSpline(entity), Boolean(entity.closed));
   if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
   if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
+  if (entity.type === "viewport") return 2 * (entity.width + entity.height);
   if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityLength(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
   return 0;
 }
@@ -711,7 +719,8 @@ export function entityArea(entity) {
   if (entity.type === "circle") return Math.PI * entity.radius * entity.radius;
   if (entity.type === "ellipse" && ellipseSweepRadians(entity) >= Math.PI * 2 - EPSILON) return Math.PI * entity.radiusX * entity.radiusY;
   if (entity.type === "polyline" && entity.closed) return polygonArea(entity.points);
-  if (entity.type === "hatch") return polygonArea(entity.points);
+  if (entity.type === "hatch") return (entity.boundaries ?? [{ points: entity.points }]).reduce((sum, boundary, index) => sum + (index ? -1 : 1) * polygonArea(boundary.points ?? []), 0);
+  if (entity.type === "viewport") return entity.width * entity.height;
   if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityArea(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
   return 0;
 }
@@ -763,8 +772,15 @@ function distanceToEntity(entity, p) {
     try { return Math.min(...dimensionGeometry(entity).segments.map(([a, b]) => pointToSegmentDistance(p, a, b))); } catch { return Infinity; }
   }
   if (entity.type === "hatch") {
-    const points = [...entity.points, entity.points[0]];
-    return Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current)));
+    return Math.min(...(entity.boundaries ?? [{ points: entity.points }]).map((boundary) => {
+      const points = [...(boundary.points ?? []), boundary.points?.[0]].filter(Boolean);
+      return points.length > 1 ? Math.min(...points.slice(1).map((current, index) => pointToSegmentDistance(p, points[index], current))) : Infinity;
+    }));
+  }
+  if (entity.type === "viewport") {
+    const bounds = entityBounds(entity);
+    const corners = [{ x: bounds.minX, y: bounds.minY }, { x: bounds.maxX, y: bounds.minY }, { x: bounds.maxX, y: bounds.maxY }, { x: bounds.minX, y: bounds.maxY }];
+    return Math.min(...corners.map((current, index) => pointToSegmentDistance(p, current, corners[(index + 1) % 4])));
   }
   if (entity.type === "block") {
     const bounds = entityBounds(entity);

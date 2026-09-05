@@ -2617,10 +2617,10 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     ctx.fillText(geometry.label, labelPoint.x, labelPoint.y);
   }
   if (entity.type === "hatch") {
-    const points = entity.points.map(worldToScreen);
-    ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-    for (const pointValue of points.slice(1)) ctx.lineTo(pointValue.x, pointValue.y);
-    ctx.closePath(); ctx.stroke(); ctx.clip();
+    const paths = (entity.boundaries ?? [{ points: entity.points }]).map((boundary) => (boundary.points ?? []).map(worldToScreen)).filter((points) => points.length >= 3);
+    ctx.beginPath();
+    for (const points of paths) { ctx.moveTo(points[0].x, points[0].y); for (const pointValue of points.slice(1)) ctx.lineTo(pointValue.x, pointValue.y); ctx.closePath(); }
+    ctx.stroke(); ctx.clip("evenodd");
     const bounds = entityBounds(entity);
     const a = worldToScreen({ x: bounds.minX, y: bounds.minY });
     const b = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
@@ -2628,6 +2628,12 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     for (let x = a.x - Math.abs(b.y - a.y); x < b.x + Math.abs(b.y - a.y); x += spacing) {
       ctx.beginPath(); ctx.moveTo(x, b.y); ctx.lineTo(x + (b.y - a.y), a.y); ctx.stroke();
     }
+  }
+  if (entity.type === "viewport") {
+    const bounds = entityBounds(entity);
+    const a = worldToScreen({ x: bounds.minX, y: bounds.minY });
+    const b = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+    ctx.save(); ctx.setLineDash([8, 5]); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.restore();
   }
   if (entity.type === "block") {
     if (entity.definitionId) {

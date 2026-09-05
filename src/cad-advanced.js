@@ -32,18 +32,46 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   }
   if (next.points) next.points = next.points.map(transform);
   if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
+  for (const key of ["dimensionLinePoint", "textPoint", "viewCenter", "snapBase", "snapSpacing", "gridSpacing"]) {
+    if (next[key]) next[key] = transform(next[key]);
+  }
+  if (next.viewTarget) next.viewTarget = { ...next.viewTarget, ...transform(next.viewTarget) };
+  if (next.definitionPoints) next.definitionPoints = Object.fromEntries(Object.entries(next.definitionPoints).map(([key, value]) => [key, transform(value)]));
+  if (next.seedPoints) next.seedPoints = next.seedPoints.map(transform);
+  if (next.boundaries) next.boundaries = next.boundaries.map((boundary) => ({
+    ...boundary,
+    points: boundary.points?.map(transform),
+    vertices: boundary.vertices?.map((vertex) => ({ ...vertex, ...transform(vertex) })),
+    edges: boundary.edges?.map((edge) => {
+      if (edge.type === "line") return { ...edge, start: transform(edge.start), end: transform(edge.end) };
+      if (edge.type === "arc") return { ...edge, center: transform(edge.center), radius: Math.abs(edge.radius * scale), startAngle: edge.startAngle + angle, endAngle: edge.endAngle + angle };
+      if (edge.type === "ellipse") return { ...edge, center: transform(edge.center), majorAxis: rotateScaleVector(edge.majorAxis, angle, scale), startParameter: edge.startParameter, endParameter: edge.endParameter };
+      return edge;
+    })
+  }));
   if (next.children) next.children = next.children.map((child) => transformEntity(child, { dx, dy, angle, scale, base }));
   if (typeof next.radius === "number") next.radius = Math.abs(next.radius * scale);
   if (typeof next.radiusX === "number") next.radiusX = Math.abs(next.radiusX * scale);
   if (typeof next.radiusY === "number") next.radiusY = Math.abs(next.radiusY * scale);
   if (typeof next.width === "number") next.width *= scale;
   if (typeof next.height === "number") next.height *= scale;
+  if (typeof next.viewHeight === "number") next.viewHeight = Math.abs(next.viewHeight * scale);
+  if (typeof next.patternScale === "number") next.patternScale = Math.abs(next.patternScale * scale);
+  if (typeof next.spacing === "number") next.spacing = Math.abs(next.spacing * scale);
   if (typeof next.size === "number") next.size = Math.abs(next.size * scale);
   if (typeof next.offset === "number") next.offset *= scale;
   if (typeof next.rotation === "number") next.rotation += angle;
   if (typeof next.startAngle === "number") next.startAngle += angle;
   if (typeof next.endAngle === "number") next.endAngle += angle;
+  if (typeof next.dimensionLineAngle === "number") next.dimensionLineAngle += angle;
+  if (typeof next.patternAngle === "number") next.patternAngle += angle;
+  if (typeof next.twistAngle === "number") next.twistAngle += angle;
   return next;
+}
+
+function rotateScaleVector(vector, angle, scale) {
+  const radians = angle * Math.PI / 180;
+  return { x: scale * (vector.x * Math.cos(radians) - vector.y * Math.sin(radians)), y: scale * (vector.x * Math.sin(radians) + vector.y * Math.cos(radians)) };
 }
 
 export function offsetEntity(entity, distance) {
