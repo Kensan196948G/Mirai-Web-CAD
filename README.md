@@ -76,7 +76,7 @@ GitHub正本は`Kensan196948G/Mirai-Web-CAD`です。2026-08-26に`Construction-
 | 作図 | 限定対応 | 基本図形、パン・ズーム、移動、複写、回転、尺度、Undo/Redoは動作。**精密編集(2026-09-04〜05追加)**: MIRROR/ARRAY/BREAK/JOIN、境界交点TRIM・EXTEND、真の平行OFFSET、CHAMFER、BOUNDARY、PEDITを利用可能。**円弧・楕円・スプライン**はリボンまたは`ARC`/`ELLIPSE`/`SPLINE`コマンドで作図でき、ネイティブ図形のままJSON/DXF往復、選択、OSnap、移動・回転・尺度・鏡像に対応。STRETCH(点列/制御点)、EXPLODE(RECT/PLINE/属性なしBLOCK)、MATCHPROP(layer/style)、単一図形の点・曲線グリップを追加。全形式対応とMulti-gripは後続。詳細は[追加実装ロードマップ](docs/additional-implementation-roadmap.md) |
 | UI | 限定対応 | リボン、モデル/レイアウト空間タブ、タブ式右ドック、ステータスバーは動作。モバイルは固定コマンドラインがCanvasを覆う等、編集用途では未成熟(閲覧・朱書き用途を推奨) |
 | 作図補助 | 限定対応 | グリッド表示・スナップ、直交モードは動作。**OSnap(2026-09-04拡張)**: 端点・中点・中心・四分点・交点を既定とし、垂線・近接点は設定ダイアログの「OSnap対象」から追加ON可能。接線・極トラッキング・追跡線は未対応 |
-| コマンドライン | 限定対応 | 基本作図・精密編集コマンドは動作。`DIM`は2点間の簡易寸法のみ(角度/半径/直径/公差/連続寸法/寸法スタイル/連想更新は未対応)。`HATCH`は島・境界探索・連想更新なし。`BLOCK`は1図形をchildrenへ包む簡易構造(定義/参照分離、属性、再定義、分解、ライブラリは未対応) |
+| コマンドライン | 限定対応 | 基本作図・精密編集に加え、線分の連想Aligned/水平/垂直、円/円弧の半径/直径寸法、書式Overrideを利用可能。詳細は[連想寸法](docs/associative-dimensions.md)。角度/公差/連続寸法/名前付きStyleは後続。`HATCH`は島・境界探索・連想更新なし。`BLOCK`はchildrenを持つ簡易構造で、属性なしBlockのEXPLODEは対応、定義/参照分離・属性定義・再定義・ライブラリは後続 |
 | Import | 限定対応 | Mirai JSON、ASCII DXFのLINE/CIRCLE/ARC/**ELLIPSE/SPLINE**/LWPOLYLINE/POLYLINE/TEXT/MTEXTを読込。円弧・楕円・スプラインはネイティブ図形としてDXF往復対応。DXF書出しはline/circle/arc/ellipse/spline/polyline/rect/text+Layersに対応。dimension/hatch/blockは「黙って捨てず」スキップ理由付きで報告。DWGは対象外です([ADR-0002](docs/adr/ADR-0002-dwg-scope-drop-dxf-only.md)) |
 | レイヤー | 限定対応 | 作成、名称・色編集、表示、ロック、現在レイヤー指定、図形のレイヤー変更は動作 |
 | プロパティ | 限定対応 | 単一図形の種類・ID確認、レイヤー・線幅編集に対応。Window/Crossing/複数選択、Shift追加・除外、全選択、選択セットの移動・削除・数値変形に対応。個別プロパティ編集は1件選択時のみ。曲線選択は既存sampling精度、選択インデックスは後続 |
