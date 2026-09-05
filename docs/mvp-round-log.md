@@ -401,3 +401,10 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 互換性 | JSONとASCII DXFのARC入出力、OSnap(端点/中点/中心/円弧内四分点/近接/交点)、比較器の半径・開始角・終了角評価を追加。DXF往復で型と幾何を保持 |
 | 検証 | 単体テスト4件を追加し既存FILLET/E2EをネイティブARC前提へ更新。全検証結果は本RoundのGit履歴と`state.json`へ記録 |
 | 残課題 | 円弧を対象にしたTRIM/EXTEND、曲線グリップ編集、ELLIPSE/SPLINE、STRETCH/EXPLODE/MATCHPROPは後続Round |
+
+### Round 13 配備・公開境界確認
+
+- `main`(`e39b518`)のCIとProduction workflow成功後、MVPサービスを再起動し、配備済みJSにARC実装が含まれることを確認した。
+- ローカルMVPはhealth 200、PostgreSQL connected、migration適用済み、実DB名`mirai_web_cad_mvp`を監視ジョブで確認した。公開URLは未認証でAccessログインへ302となり、保護境界は正常。
+- ローカル完全E2Eはdesktop/mobile 54/54成功。認証済み公開E2EはRound 11で成功済みだが、Round 13の再実行に必要な一時Service Tokenは削除済みであり、現行API tokenはAccess管理が`auth.forbidden`のため未実施。メール1件のallowポリシーは変更していない。
+- 改善台帳のIDは先頭列72件を機械検査し、重複は0件。依存欄の`P1-01`参照を重複IDと誤判定しないことを確認し、現行認証方式と異なる古いOTP表記を更新した。

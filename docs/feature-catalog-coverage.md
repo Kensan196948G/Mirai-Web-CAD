@@ -1,6 +1,6 @@
 # 機能カタログ×実装状況マトリクス
 
-更新日: 2026-09-05(機能カタログRound 6反映)
+更新日: 2026-09-05(機能カタログRound 7反映)
 
 本マトリクスは、ユーザー提示の「理想的な建設・土木2D CAD 機能カタログ」(2026-09-04受領)の各項目を、
 Mirai Web CAD の現行実装・開発ロードマップへ対応付けた監査(確認)結果である。
@@ -230,7 +230,7 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | プロジェクト/フォルダ/図面/レイヤ/オブジェクト単位ACL | ◐ | 図面単位write保護+5ロール | 案件/組織ACLはP1-01(Phase 2) |
 | 閲覧/印刷/注記/編集/承認/出力/管理の分離 | ◐ | viewer/drafter/reviewer/approver/cad_admin | canCommentはP0-33 |
 | 発注者/設計者/施工者等ロール定義 | ⬜ | 5ロールは社内利用想定 | P1-01/Entra連携(実施済みP0-42の一部) |
-| 外部共有の期限/パスワード/MFA/IP制限 | ◐ | Cloudflare Access(OTP)・CORS許可リスト | P2-04 |
+| 外部共有の期限/パスワード/MFA/IP制限 | ◐ | Cloudflare Access(現行はCloudflareアカウント認証)・CORS許可リスト | P2-04 |
 | 監査ログ(閲覧/編集/出力/共有/削除/承認) | ◐ | DB追記専用audit_log・CSV export | 閲覧ログ等はPhase 2 |
 | 改ざん検知/電子署名/証跡保全 | ◐ | 監査ログ追記専用・stableHash | 電子署名はP2-05/エンタープライズ |
 | 機微情報マスキング/保管ポリシー | ⬜ | — | エンタープライズ |
@@ -293,8 +293,8 @@ Phase番号は方針文書§9ロードマップ、P番号は[改善台帳](impro
 | Windows/Linux/macOS/Web/iPad/Android | ◐ | Web SPA(モバイル閲覧推奨) | 編集はデスクトップ主体 |
 | 軽量ビューア/高性能編集 | ◐ | 同一SPA | — |
 | オフライン編集と復帰時同期 | ◐ | LocalStorage一時保存+サーバー同期・競合表示 | 暗号化IndexedDBはP1-07 |
-| SSO/Entra ID/AD/SAML/OIDC | ◐ | Cloudflare Access(OTP)+EntraグループRBAC(P0-42) | ログイン自体はOTP |
-| MFA/条件付きアクセス/端末準拠 | ◐ | Access MFA(OTP) | 条件付きアクセス等はエンタープライズ |
+| SSO/Entra ID/AD/SAML/OIDC | ◐ | Cloudflare Access(現行はCloudflareアカウント認証)+EntraグループRBAC(P0-42) | 利用者ログインのEntra ID統合は未実施 |
+| MFA/条件付きアクセス/端末準拠 | ◐ | Cloudflare Accessによるエッジ認証 | MFA・条件付きアクセス・端末準拠は未実施 |
 | ライセンス/資産管理/自動更新 | ◐ | 本プロジェクトは社内SaaS運用 | — |
 | PDF/A/SXF/TIFFアーカイブ | ⬜ | — | P1-06/Phase 4 |
 | バックアップ/DR/ランサム対策 | ◐ | 日次systemd backup+鮮度検証、restore drill | オフサイトはP0-12残 |
