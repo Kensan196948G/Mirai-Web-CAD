@@ -23,3 +23,10 @@ override.tf.json
 # 実案件図面の実体(著作権・機密保持のためコミットしない)。docs/compat-corpus/参照
 corpus/
 sample/
+
+# Synthetic corpus outputs are regenerated from the supplied source.
+DXF-Test-Corpus/**/*.dxf
+DXF-Test-Corpus/**/__pycache__/
+DXF-Test-Corpus/00_manifest/corpus_manifest.*
+DXF-Test-Corpus/00_manifest/verification.json
+DXF-Test-Corpus/.write_test

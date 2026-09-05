@@ -1,0 +1,8 @@
+corpus_manifest.csv と corpus_manifest.json は、
+DXF-Test-Corpus 直下で
+
+    pip install ezdxf
+    python build_corpus.py
+
+を実行すると、100件のDXFと同時に自動生成されます。
+（この note ファイルは生成後に削除して構いません）
