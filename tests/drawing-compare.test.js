@@ -5,6 +5,27 @@ import { dimensionEntity } from "../src/cad-advanced.js";
 import { IGNORED_FIELDS, compareDrawings, pairEntities } from "../src/drawing-compare.js";
 import { TOLERANCE_V0 } from "../src/compat-score.js";
 
+test("concentric circles pair by radius after reordering and ID reassignment", () => {
+  const expected = seedDrawing();
+  expected.entities = [10, 20, 30, 40].map((r, i) => circle("layer-structure", [100, 100], r, { id: `before-${i}` }));
+  const actual = structuredClone(expected);
+  actual.entities.reverse();
+  actual.entities.forEach((e, i) => { e.id = `after-${i}`; });
+  const report = compareDrawings(expected, actual, TOLERANCE_V0);
+  assert.equal(report.totals.paired, 4);
+  assert.equal(report.findings.length, 0);
+  actual.entities[0].radius += 1;
+  assert.ok(compareDrawings(expected, actual, TOLERANCE_V0).axes.coordinate.score < 1);
+});
+
+test("identical concentric circles remain ambiguous rather than silently matched", () => {
+  const expected = seedDrawing();
+  expected.entities = ["a", "b"].map((id) => circle("layer-structure", [100, 100], 10, { id }));
+  const actual = structuredClone(expected);
+  actual.entities.forEach((e) => { e.id = `new-${e.id}`; });
+  assert.equal(compareDrawings(expected, actual, TOLERANCE_V0).totals.ambiguous, 2);
+});
+
 test("compareDrawings gives every axis a perfect score with zero findings for an identical drawing", () => {
   const drawing = seedDrawing();
   const report = compareDrawings(drawing, drawing, TOLERANCE_V0);
