@@ -45,6 +45,28 @@ test("associative dimension follows editing, shows broken references and recover
   await testInfo.attach("associative-dimension", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 });
 
+test("rectangle corner grip and rotation preserve geometry through Undo", async ({ page }) => {
+  const command = async (value) => {
+    await page.locator("#commandInput").fill(value);
+    await page.locator("#commandInput").press("Enter");
+  };
+  await command("RECT 400,400 1600,1000");
+  const original = (await stored(page)).entities.at(-1);
+  await command(`SELECT ${original.id}`);
+  await drag(page, { x: 170, y: 115 }, { x: 200, y: 145 });
+  const resized = (await stored(page)).entities.at(-1);
+  expect(resized.width).toBeCloseTo(1600, 8);
+  expect(resized.height).toBeCloseTo(1000, 8);
+  await command("ROTATE 90 400,400");
+  const rotated = (await stored(page)).entities.at(-1);
+  expect(rotated.type).toBe("polyline");
+  expect(rotated.closed).toBe(true);
+  expect(rotated.points[2].x).toBeCloseTo(-600, 8);
+  expect(rotated.points[2].y).toBeCloseTo(2000, 8);
+  await command("UNDO");
+  expect((await stored(page)).entities.at(-1).type).toBe("rect");
+});
+
 test("window selection, group preview cancellation, atomic move, undo and delete", async ({ page }, testInfo) => {
   const canvas = page.locator("#cadCanvas");
   await drag(page, { x: 65, y: 55 }, { x: 185, y: 130 });

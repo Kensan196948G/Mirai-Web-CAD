@@ -3,6 +3,13 @@ import { dimensionOptions } from "./cad-dimension.js";
 const EPSILON = 1e-9;
 
 export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, base = { x: 0, y: 0 } } = {}) {
+  if (entity.type === "rect" && angle % 360 !== 0) {
+    const { origin, width, height, ...rest } = entity;
+    return transformEntity({ ...rest, type: "polyline", closed: true, points: [
+      origin, { x: origin.x + width, y: origin.y },
+      { x: origin.x + width, y: origin.y + height }, { x: origin.x, y: origin.y + height }
+    ] }, { dx, dy, angle, scale, base });
+  }
   const next = structuredClone(entity);
   const transform = (point) => {
     const x = (point.x - base.x) * scale;
