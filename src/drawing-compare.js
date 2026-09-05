@@ -208,6 +208,8 @@ function entityDistance(expectedEntity, actualEntity) {
   for (let i = 0; i < expectedFacets.points.length; i += 1) {
     sum += distance(expectedFacets.points[i], actualFacets.points[i]);
   }
+  // Concentric circles need radius-aware matching after DXF reassigns IDs.
+  if (expectedEntity.type === "circle") sum += Math.abs(expectedEntity.radius - actualEntity.radius);
   return sum;
 }
 
