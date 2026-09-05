@@ -584,10 +584,10 @@ export function entityBounds(entity) {
   }
   if (entity.type === "rect") {
     return {
-      minX: entity.origin.x,
-      minY: entity.origin.y,
-      maxX: entity.origin.x + entity.width,
-      maxY: entity.origin.y + entity.height
+      minX: Math.min(entity.origin.x, entity.origin.x + entity.width),
+      minY: Math.min(entity.origin.y, entity.origin.y + entity.height),
+      maxX: Math.max(entity.origin.x, entity.origin.x + entity.width),
+      maxY: Math.max(entity.origin.y, entity.origin.y + entity.height)
     };
   }
   if (entity.type === "circle") {

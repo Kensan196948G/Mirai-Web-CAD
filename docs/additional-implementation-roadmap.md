@@ -16,7 +16,9 @@ DXF交換・精密CAD Core・尺度保証PDFをAI拡張より先に完成させ�
 - STRETCH (LINE/PLINE/HATCH/SPLINE頂点)、EXPLODE (RECT/PLINE/属性なしBLOCK)、MATCHPROP (layerId/style)。CLIとプロパティパネルの操作メニューへ接続。
 - ブロックの移動・回転・尺度で子座標を二重変換しない修正。
 
-これらは限定対応。Multi-grip、選択インデックス、曲線選択の厳密解、属性付きBlock分解、全属性MATCHPROP、全形式STRETCHは未完了。ELLIPSE/SPLINEの選択は既存sampling精度。回転RECT等の既存変換制約は後続精密編集で解消する。複数選択時の個別プロパティ更新は無効化し、プロパティのコピーはMATCHPROPを使用する。
+これらは限定対応。Multi-grip、選択インデックス、曲線選択の厳密解、属性付きBlock分解、全属性MATCHPROP、全形式STRETCHは未完了。ELLIPSE/SPLINEの選択は既存sampling精度。複数選択時の個別プロパティ更新は無効化し、プロパティのコピーはMATCHPROPを使用する。
+
+精密編集の追加: RECTの回転は閉polylineへ変換して全頂点を保持。矩形角は対角を固定して伸縮し、交差ドラッグでも正の幅/高さへ正規化。LINE/PLINE中点グリップは該当線分の両端を移動し、円弧半径グリップは始終角を保持する。負の幅/高さを持つ既存矩形の境界も正規化する。
 
 継続開発で[連想寸法の第1段階](associative-dimensions.md)を追加。Aligned/水平/垂直/半径/直径、参照切れ検出、書式Override、オフセットグリップ、JSON参照の再割当、選択セットCOPYの参照付け替えに対応。完全な寸法エンジンとDXF/PDF受入は引き続き未完了。
 

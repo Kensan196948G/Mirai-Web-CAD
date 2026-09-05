@@ -93,6 +93,13 @@ export function entityGrips(entity) {
   const grips = [];
   const add = (key, point, index = -1) => grips.push({ key, point, index });
   if (entity.points && ["line", "polyline", "hatch", "dimension"].includes(entity.type) && !entity.references) entity.points.forEach((p, i) => add("points", p, i));
+  if (["line", "polyline"].includes(entity.type)) {
+    const count = entity.closed ? entity.points.length : entity.points.length - 1;
+    for (let i = 0; i < count; i++) {
+      const a = entity.points[i], b = entity.points[(i + 1) % entity.points.length];
+      add("midpoint", { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, i);
+    }
+  }
   if (entity.type === "dimension" && !["radius", "diameter"].includes(entity.dimensionType)) {
     const geometry = dimensionGeometry(entity);
     add("offset", { x: (geometry.start.x + geometry.end.x) / 2, y: (geometry.start.y + geometry.end.y) / 2 });
@@ -104,13 +111,21 @@ export function entityGrips(entity) {
     const angle = entity[key] * Math.PI / 180;
     add(key, { x: entity.center.x + entity.radius * Math.cos(angle), y: entity.center.y + entity.radius * Math.sin(angle) });
   }
+  if (entity.type === "arc") {
+    const sweep = ((entity.endAngle - entity.startAngle) % 360 + 360) % 360;
+    const angle = (entity.startAngle + sweep / 2) * Math.PI / 180;
+    add("radius", { x: entity.center.x + entity.radius * Math.cos(angle), y: entity.center.y + entity.radius * Math.sin(angle) });
+  }
   if (entity.type === "ellipse") for (const key of ["radiusX", "radiusY"]) {
     const angle = (entity.rotation ?? 0) * Math.PI / 180 + (key === "radiusY" ? Math.PI / 2 : 0);
     add(key, { x: entity.center.x + entity[key] * Math.cos(angle), y: entity.center.y + entity[key] * Math.sin(angle) });
   }
   if (entity.type === "text") add("move", entity.at);
   if (entity.type === "block") add("move", entity.insertion);
-  if (entity.type === "rect") add("move", entity.origin);
+  if (entity.type === "rect") {
+    corners(entityBounds(entity)).forEach((point, index) => add("corner", point, index));
+    add("move", { x: entity.origin.x + entity.width / 2, y: entity.origin.y + entity.height / 2 });
+  }
   return grips;
 }
 
@@ -118,6 +133,19 @@ export function moveGrip(entity, grip, target) {
   const next = structuredClone(entity);
   if (![target.x, target.y].every(Number.isFinite)) throw new Error("Invalid grip coordinate");
   if (grip.key === "move") return transformEntity(entity, { dx: target.x - grip.point.x, dy: target.y - grip.point.y });
+  if (grip.key === "midpoint") {
+    const dx = target.x - grip.point.x, dy = target.y - grip.point.y;
+    const indices = [grip.index, (grip.index + 1) % entity.points.length];
+    next.points = next.points.map((point, index) => indices.includes(index) ? { x: point.x + dx, y: point.y + dy } : point);
+    return next;
+  }
+  if (grip.key === "corner") {
+    const opposite = corners(entityBounds(entity))[(grip.index + 2) % 4];
+    next.origin = { x: Math.min(target.x, opposite.x), y: Math.min(target.y, opposite.y) };
+    next.width = Math.abs(target.x - opposite.x); next.height = Math.abs(target.y - opposite.y);
+    if (next.width <= 1e-9 || next.height <= 1e-9) throw new Error("Invalid rectangle size");
+    return next;
+  }
   if (grip.key === "offset") {
     const [a, b] = entity.points;
     const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
