@@ -30,7 +30,13 @@ test("explode preserves closure, style and transformed block geometry", () => {
 
 test("exploding a native BLOCK creates new source-independent entities", () => {
   const drawing = nativeBlockDrawing();
-  drawing.blockDefinitions.flatMap((definition) => definition.entities).forEach((entity, index) => { entity.dxfRecordId = `source-${index}`; });
+  let sourceCount = 0;
+  const markResolvedChildren = (entity) => {
+    if (entity.type === "block") entity.children.forEach(markResolvedChildren);
+    else entity.dxfRecordId = `source-${sourceCount++}`;
+  };
+  markResolvedChildren(drawing.entities[0]);
+  assert.ok(sourceCount > 0);
   const pieces = explodeEntity(drawing.entities[0]);
   assert.ok(pieces.length > 0);
   assert.ok(pieces.every((piece) => piece.id.startsWith("e_explode_") && piece.dxfRecordId === undefined));
