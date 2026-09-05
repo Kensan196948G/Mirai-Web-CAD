@@ -6,8 +6,9 @@
 // - 対象entity: line→LINE, circle→CIRCLE, arc→ARC, ellipse→ELLIPSE, spline→SPLINE、
 //   polyline→LWPOLYLINE(閉鎖フラグ70=1)、
 //   text→TEXT(高さ40)。rectは閉鎖LWPOLYLINE(4頂点)として書出す(DXFにrect概念がないため)。
-//   dimension / hatch / block は現PhaseではDXFへ安全に写像できないため「黙って捨てず」、
+//   dimension / hatch / 旧children型block は現PhaseではDXFへ安全に写像できないため「黙って捨てず」、
 //   構造化されたskippedリストとして返す(未対応entity非破棄ポリシーの書出し側適用)。
+//   definitionId付きblockは通常2D BLOCK/INSERT/属性として限定再生成する。
 // - 書出し座標は1e-9単位へ丸める(絶対許容差0.01mmのTOLERANCE_V0に対して十分な精度)。
 //   レイヤ色は近傍ACI(代表16色)へ近似する(真色420・CTB/STB対応は後続Phase)。
 // - dxf-parserで再importした際、importers.jsが生成するDrawingと比較器(compareDrawings)の
@@ -15,6 +16,9 @@
 //
 // 生成するDXF構造(最小限だが一般的なCADが読める構成):
 //   HEADER($ACADVER/$INSUNITS) + TABLES(LAYER) + ENTITIES + EOF
+
+import { resolveBlocks, blockAttributeText } from "./cad-block.js";
+import { transformEntity } from "./cad-advanced.js";
 
 /** 色相の近傍ACI探索に使う代表色(RGB)。AutoCAD標準色(1〜9)とグレー(250〜255)の近似値。 */
 const ACI_ANCHORS = [
@@ -43,25 +47,30 @@ const CONTINUOUS_LINETYPE = "CONTINUOUS";
  * @returns {{ content: string, exported: number, skipped: Array<{type: string, id: string, reason: string}>, warnings: string[] }}
  */
 export function exportDxf(drawing) {
+  drawing = structuredClone(drawing);
+  resolveBlocks(drawing);
   const lines = [];
   const skipped = [];
   const warnings = [];
   const layerNameById = new Map((drawing.layers ?? []).map((layer) => [layer.id, layer.name]));
+  const definitions = new Map((drawing.blockDefinitions ?? []).map((definition) => [definition.id, definition.name]));
+  if (drawing.dxfSources?.length) warnings.push("限定DXF再生成: 原本のTABLES・OBJECTS・表現属性の完全保持は未対応です。原本はJSON書出しのdxfSourcesに保持されています。");
 
   appendHeader(lines, drawing);
   appendLayerTable(lines, drawing, layerNameById);
+  appendBlocks(lines, drawing, layerNameById, warnings, skipped, definitions);
 
   let exported = 0;
   lines.push("0", "SECTION", "2", "ENTITIES");
   for (const entity of drawing.entities ?? []) {
-    const encoded = encodeEntity(entity, layerNameById, warnings, skipped);
+    const encoded = encodeEntity(entity, layerNameById, warnings, skipped, definitions);
     if (!encoded) continue;
     lines.push(...encoded);
     exported += 1;
   }
   lines.push("0", "ENDSEC", "0", "EOF");
 
-  return { content: lines.join("\n"), exported, skipped, warnings };
+  return { content: lines.map((value) => definitions.size ? dxfText(value) : value).join("\n"), exported, skipped, warnings };
 }
 
 function appendHeader(lines, drawing) {
@@ -75,7 +84,7 @@ function appendHeader(lines, drawing) {
 }
 
 function appendLayerTable(lines, drawing, layerNameById) {
-  lines.push("0", "SECTION", "2", "TABLES", "0", "TABLE", "2", "LAYER", "70", String(layerNameById.size));
+  lines.push("0", "SECTION", "2", "TABLES", "0", "TABLE", "2", "LAYER", "5", "F00", "100", "AcDbSymbolTable", "70", String(layerNameById.size));
   for (const layer of drawing.layers ?? []) {
     if (!layerNameById.has(layer.id)) continue;
     lines.push(
@@ -86,7 +95,49 @@ function appendLayerTable(lines, drawing, layerNameById) {
       "6", CONTINUOUS_LINETYPE
     );
   }
-  lines.push("0", "ENDTAB", "0", "ENDSEC");
+  lines.push("0", "ENDTAB");
+  if (drawing.blockDefinitions?.length) {
+    const names = ["*Model_Space", "*Paper_Space", ...drawing.blockDefinitions.map((definition) => definition.name)];
+    lines.push("0", "TABLE", "2", "BLOCK_RECORD", "5", "F01", "100", "AcDbSymbolTable", "70", String(names.length));
+    names.forEach((name, index) => lines.push("0", "BLOCK_RECORD", "5", (4096 + index).toString(16), "100", "AcDbSymbolTableRecord", "100", "AcDbBlockTableRecord", "2", sanitizeName(name), "70", "0"));
+    lines.push("0", "ENDTAB");
+    const styles = new Set(["STANDARD"]);
+    const collect = (entity) => { if (entity.styleName) styles.add(entity.styleName); for (const attribute of entity.attributeReferences ?? []) if (attribute.styleName) styles.add(attribute.styleName); };
+    drawing.entities.forEach(collect);
+    for (const definition of drawing.blockDefinitions) { definition.entities.forEach(collect); definition.attributeDefinitions.forEach(collect); }
+    lines.push("0", "TABLE", "2", "STYLE", "5", "F02", "100", "AcDbSymbolTable", "70", String(styles.size));
+    for (const name of styles) lines.push("0", "STYLE", "100", "AcDbSymbolTableRecord", "100", "AcDbTextStyleTableRecord", "2", dxfText(name), "70", "0", "40", "0", "41", "1", "50", "0", "71", "0", "42", "1", "3", "txt", "4", "");
+    lines.push("0", "ENDTAB");
+  }
+  lines.push("0", "ENDSEC");
+}
+
+function appendBlocks(lines, drawing, layers, warnings, skipped, definitions) {
+  if (!drawing.blockDefinitions?.length) return;
+  lines.push("0", "SECTION", "2", "BLOCKS");
+  const all = [{ name: "*Model_Space", basePoint: { x: 0, y: 0 }, entities: [], attributeDefinitions: [] },
+    { name: "*Paper_Space", basePoint: { x: 0, y: 0 }, entities: [], attributeDefinitions: [] }, ...drawing.blockDefinitions];
+  all.forEach((definition, index) => {
+    const owner = (4096 + index).toString(16);
+    lines.push("0", "BLOCK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockBegin", "2", sanitizeName(definition.name), "70", definition.attributeDefinitions.length ? "2" : "0", ...point(definition.basePoint, 10), "3", sanitizeName(definition.name), "1", "");
+    for (const entity of definition.entities) {
+      const encoded = encodeEntity(entity, layers, warnings, skipped, definitions);
+      if (encoded) lines.push(...encoded);
+    }
+    for (const attribute of definition.attributeDefinitions) lines.push(...encodeAttribute(attribute, "ATTDEF", layers));
+    lines.push("0", "ENDBLK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockEnd");
+  });
+  lines.push("0", "ENDSEC");
+}
+
+function dxfText(value) {
+  return String(value ?? "").replace(/[\r\n]/g, " ").replace(/[^\x00-\x7f]/g, (character) => `\\U+${character.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`);
+}
+
+function encodeAttribute(attribute, type, layers) {
+  return ["0", type, "100", "AcDbEntity", "8", sanitizeName(layers.get(attribute.layerId) ?? "0"), "100", "AcDbText",
+    ...point(attribute.at, 10), "40", num(attribute.size), "1", dxfText(attribute.value), "50", num(attribute.rotation ?? 0), "7", dxfText(attribute.styleName ?? "STANDARD"),
+    "100", type === "ATTDEF" ? "AcDbAttributeDefinition" : "AcDbAttribute", ...(type === "ATTDEF" ? ["3", dxfText(attribute.prompt ?? "")] : []), "2", dxfText(attribute.tag), "70", String(attribute.flags ?? 0)];
 }
 
 /**
@@ -98,7 +149,20 @@ function appendLayerTable(lines, drawing, layerNameById) {
  * @param skipped
  * @returns {string[] | null}
  */
-function encodeEntity(entity, layerNameById, warnings, skipped) {
+function encodeEntity(entity, layerNameById, warnings, skipped, definitions = new Map()) {
+  const encoded = encodeEntityBody(entity, layerNameById, warnings, skipped, definitions);
+  if (!encoded || !definitions.size || entity.type === "block") return encoded;
+  const subclass = { LINE: "AcDbLine", CIRCLE: "AcDbCircle", ARC: "AcDbCircle", LWPOLYLINE: "AcDbPolyline", TEXT: "AcDbText", ELLIPSE: "AcDbEllipse", SPLINE: "AcDbSpline" }[encoded[1]];
+  if (!subclass) return encoded;
+  const result = [...encoded.slice(0, 2), "100", "AcDbEntity", ...encoded.slice(2, 4), "100", subclass, ...encoded.slice(4)];
+  if (entity.type === "arc") {
+    const index = result.findIndex((value, i) => i % 2 === 0 && value === "50");
+    result.splice(index, 0, "100", "AcDbArc");
+  }
+  return result;
+}
+
+function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions) {
   if (!entity || typeof entity !== "object" || typeof entity.id !== "string" || typeof entity.type !== "string") {
     return null;
   }
@@ -109,6 +173,21 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
   }
   const base = ["8", layerName];
   switch (entity.type) {
+    case "block": {
+      if (!entity.definitionId) return skipEntity(entity, skipped, "旧children型BLOCKのDXF書出しは未対応です。");
+      const name = definitions.get(entity.definitionId);
+      if (!name) return skipEntity(entity, skipped, "BLOCK定義がありません。");
+      const groups = ["0", "INSERT", "100", "AcDbEntity", ...base, "100", "AcDbBlockReference", "2", sanitizeName(name), ...point(entity.insertion, 10), "41", num(entity.scale), "42", num(entity.scale), "43", num(entity.scaleZ ?? entity.scale), "50", num(entity.rotation)];
+      if (entity.attributeReferences.length) {
+        groups.push("66", "1");
+        for (const attribute of entity.attributeReferences) {
+          const world = transformEntity(blockAttributeText(attribute), { dx: entity.insertion.x, dy: entity.insertion.y, angle: entity.rotation, scale: entity.scale });
+          groups.push(...encodeAttribute({ ...attribute, at: world.at, size: world.size, rotation: world.rotation }, "ATTRIB", layerNameById));
+        }
+        groups.push("0", "SEQEND", ...base);
+      }
+      return groups;
+    }
     case "line": {
       const a = finitePoint(entity.points?.[0]);
       const b = finitePoint(entity.points?.[1]);
@@ -205,7 +284,7 @@ function encodeEntity(entity, layerNameById, warnings, skipped) {
       if (!Number.isFinite(size) || size <= 0) {
         return skipEntity(entity, skipped, "文字高さが不正です(正の値が必要)");
       }
-      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", value];
+      return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD")];
     }
     default:
       return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です(現Phase: dimension/hatch/block)");

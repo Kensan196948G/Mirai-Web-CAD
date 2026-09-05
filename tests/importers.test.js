@@ -4,7 +4,7 @@ import { applyTransaction, seedDrawing } from "../src/cad-core.js";
 import { parseCadImport } from "../src/importers.js";
 
 test("DXF preflight rejects unsupported records atomically before parser loss", () => {
-  for (const type of ["HATCH", "LEADER", "VIEWPORT", "DIMENSION", "INSERT", "ACAD_PROXY_ENTITY", "CUSTOM_ENTITY", "__proto__"]) {
+  for (const type of ["HATCH", "LEADER", "VIEWPORT", "DIMENSION", "ACAD_PROXY_ENTITY", "CUSTOM_ENTITY", "__proto__"]) {
     const drawing = seedDrawing(), before = structuredClone(drawing);
     const content = ["0", "SECTION", "2", "ENTITIES", "0", "LINE", "10", "0", "20", "0", "11", "1", "21", "1", "0", type, "0", "ENDSEC", "0", "EOF"].join("\n");
     assert.throws(() => parseCadImport({ filename: "mixed.dxf", content, drawing, currentLayerId: "layer-structure" }), (error) => error.message.includes(`${type} 1件`) && error.message.includes("図面は変更していません"));

@@ -82,7 +82,7 @@ export function compareDrawings(expected, actual, tolerance, options = {}) {
       "layer",
       evaluateLayerAxis(expected.layers, actual.layers, pairs, layerNameByIdExpected, layerNameByIdActual, findings)
     ),
-    block: finalizeAxis("block", evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings)),
+    block: finalizeAxis("block", evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, layerNameByIdExpected, layerNameByIdActual)),
     text: finalizeAxis("text", evaluateTextAxis(pairs, effectiveTolerance, findings)),
     dimension: finalizeAxis("dimension", evaluateDimensionAxis(pairs, effectiveTolerance, findings)),
     layout: finalizeAxis("layout", evaluateLayoutAxis(expected, actual, tolerance, findings)),
@@ -374,7 +374,7 @@ function evaluateLayerAxis(expectedLayers, actualLayers, pairs, layerNameByIdExp
   return { checked, passed };
 }
 
-function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings) {
+function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, expectedLayers, actualLayers) {
   let checked = 0;
   let passed = 0;
   for (const { expected, actual } of pairs) {
@@ -390,8 +390,29 @@ function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings) {
     else findings.push(entityFinding("block", expected, actual, "scale"));
     if (expected.children.length === actual.children.length && attributesEqual(expected.attributes, actual.attributes)) passed += 1;
     else findings.push(entityFinding("block", expected, actual, "children-or-attributes"));
+    if (expected.definitionId || actual.definitionId) {
+      checked += 2;
+      if (Boolean(expected.definitionId) === Boolean(actual.definitionId) && Math.abs((expected.scaleZ ?? 1) - (actual.scaleZ ?? 1)) <= effectiveTolerance) passed++;
+      else findings.push(entityFinding("block", expected, actual, "definition-reference-scaleZ"));
+      if (blockValuesEqual(blockShape(expected, expectedLayers), blockShape(actual, actualLayers), effectiveTolerance, tolerance.angle)) passed++;
+      else findings.push(entityFinding("block", expected, actual, "native-geometry-or-ordered-attributes"));
+    }
   }
   return { checked, passed };
+}
+
+function blockShape(value, layers) {
+  if (Array.isArray(value)) return value.map((item) => blockShape(item, layers));
+  if (!value || typeof value !== "object") return value;
+  const keys = ["type", "name", "layerId", "x", "y", "points", "center", "at", "radius", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "scaleZ", "tag", "flags", "styleName", "attributeReferences", "children"];
+  return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, key === "layerId" ? layers.get(value[key]) ?? value[key] : blockShape(value[key], layers)]));
+}
+
+function blockValuesEqual(a, b, coordinateTolerance, angleTolerance, key = "") {
+  if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) <= (/angle|rotation/i.test(key) ? angleTolerance : coordinateTolerance);
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return a === b;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((childKey) => Object.hasOwn(b, childKey) && blockValuesEqual(a[childKey], b[childKey], coordinateTolerance, angleTolerance, childKey));
 }
 
 function attributesEqual(a, b) {

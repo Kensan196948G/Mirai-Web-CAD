@@ -697,7 +697,7 @@ function propsDockHtml(drawing, selected) {
           )}" /></label>
           ${
             selected.type === "block"
-              ? `<label>ブロック属性<input name="blockAttributes" value="${escapeHtml(
+              ? selected.definitionId ? (selected.attributeReferences ?? []).map((attribute, index) => `<label>${escapeHtml(attribute.tag)}<input name="blockAttribute_${index}" value="${escapeHtml(attribute.value)}" /></label>`).join("") : `<label>ブロック属性<input name="blockAttributes" value="${escapeHtml(
                   Object.entries(selected.attributes ?? {})
                     .map(([key, value]) => `${key}=${value}`)
                     .join(";")
@@ -1245,16 +1245,17 @@ function exportDrawing() {
 }
 
 function exportDrawingDxf() {
-  const result = exportDxf(state.drawing);
-  const note = result.skipped.length > 0 ? `（スキップ: ${result.skipped.length}件）` : "";
-  log(`DXF書出し: ${result.exported}件${note}`);
-  if (result.skipped.length > 0) {
-    log(`DXF未対応: ${result.skipped.map((entry) => `${entry.type}:${entry.id}`).join(", ")}`);
-  }
-  for (const warning of result.warnings) {
-    log(warning);
-  }
-  exportDxfFile(state.drawing, result.content);
+  try {
+    const result = exportDxf(state.drawing);
+    const note = result.skipped.length > 0 ? `（スキップ: ${result.skipped.length}件）` : "";
+    log(`DXF書出し: ${result.exported}件${note}`);
+    if (result.skipped.length > 0) {
+      log(`DXF未対応: ${result.skipped.map((entry) => `${entry.type}:${entry.id}`).join(", ")}`);
+    }
+    for (const warning of result.warnings) log(warning);
+    render();
+    exportDxfFile(state.drawing, result.content);
+  } catch (error) { log(`DXF書出し失敗: ${error instanceof Error ? error.message : String(error)}`); render(); }
 }
 
 function openNewDrawingDialog(name = "") {
@@ -1741,7 +1742,8 @@ async function updateSelectedProperties(event) {
     patch: {
       layerId: String(data.get("layerId")),
       style: { ...selected.style, strokeWidth },
-      ...(selected.type === "block" ? { attributes: parseAttributes(String(data.get("blockAttributes") ?? "")) } : {})
+      ...(selected.definitionId ? { attributeReferences: selected.attributeReferences.map((attribute, index) => ({ ...attribute, value: String(data.get(`blockAttribute_${index}`) ?? attribute.value) })) }
+        : selected.type === "block" ? { attributes: parseAttributes(String(data.get("blockAttributes") ?? "")) } : {})
     }
   }]);
 }
@@ -2223,6 +2225,9 @@ async function redoLastTransaction() {
 
 function snapshotCommands(current, target) {
   const commands = [];
+  if (JSON.stringify(current.blockDefinitions ?? []) !== JSON.stringify(target.blockDefinitions ?? []) || JSON.stringify(current.dxfSources ?? []) !== JSON.stringify(target.dxfSources ?? [])) {
+    commands.push({ op: "set_block_resources", definitions: target.blockDefinitions ?? [], sources: target.dxfSources ?? [] });
+  }
   for (const set of current.selectionSets ?? []) {
     if (!(target.selectionSets ?? []).some((item) => item.name === set.name)) commands.push({ op: "delete_selection", name: set.name });
   }
@@ -2581,7 +2586,9 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     const at = worldToScreen(entity.at);
     ctx.fillStyle = overrideColor ?? layer.color;
     ctx.font = `${Math.max(11, entity.size * state.camera.scale)}px sans-serif`;
-    ctx.fillText(entity.value, at.x, at.y);
+    ctx.translate(at.x, at.y);
+    ctx.rotate((entity.rotation ?? 0) * Math.PI / 180);
+    ctx.fillText(entity.value, 0, 0);
   }
   if (entity.type === "dimension") {
     const geometry = dimensionGeometry(entity);
@@ -2620,12 +2627,12 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
   if (entity.type === "block") {
     for (const child of entity.children ?? []) {
       const transformed = transformEntity(child, { dx: entity.insertion?.x ?? 0, dy: entity.insertion?.y ?? 0, angle: entity.rotation ?? 0, scale: entity.scale ?? 1 });
-      drawEntity(ctx, { ...transformed, layerId: entity.layerId }, overrideColor, preview);
+      drawEntity(ctx, { ...transformed, layerId: entity.definitionId ? transformed.layerId : entity.layerId }, overrideColor, preview);
     }
     const at = worldToScreen(entity.insertion ?? { x: 0, y: 0 });
     ctx.fillStyle = overrideColor ?? layer.color;
     ctx.font = "11px sans-serif";
-    ctx.fillText(`${entity.name}${Object.keys(entity.attributes ?? {}).length ? ` [${Object.values(entity.attributes).join(" / ")}]` : ""}`, at.x + 5, at.y - 5);
+    if (!entity.definitionId) ctx.fillText(`${entity.name}${Object.keys(entity.attributes ?? {}).length ? ` [${Object.values(entity.attributes).join(" / ")}]` : ""}`, at.x + 5, at.y - 5);
   }
   ctx.restore();
 }

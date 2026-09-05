@@ -3,6 +3,8 @@ import { arc, circle, ellipse, line, polyline, rect, spline, text } from "./cad-
 import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 import { sourceEntityInventory } from "./dxf-source-inventory.js";
 import { importUnits, dxfUnit } from "./import-units.js";
+import { prepareDxfBlocks, decodeDxfText } from "./dxf-block-import.js";
+import { blockReference, resolveBlocks } from "./cad-block.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -34,6 +36,16 @@ function parseJsonImport(content, drawing, currentLayerId) {
   if (units.factor !== 1) throw new Error("JSONの単位が既存図面と異なります。空図面へ取り込んでください。");
   const layers = createLayerMapping(sourceLayers, drawing, currentLayerId);
   const commands = [...layers.commands, ...units.commands];
+  if (parsed.blockDefinitions?.length || sourceEntities.some((entity) => entity.definitionId)) {
+    if (drawing.entities.length || drawing.blockDefinitions?.length) throw new Error("定義参照BLOCKのJSONは空図面へ取り込んでください。");
+    const mapEntity = (entity) => ({ ...entity, layerId: layers.resolve(entity.layerId),
+      ...(entity.attributeReferences ? { attributeReferences: entity.attributeReferences.map((attribute) => ({ ...attribute, layerId: layers.resolve(attribute.layerId) })) } : {}) });
+    const definitions = (parsed.blockDefinitions ?? []).map((definition) => ({ ...definition,
+      entities: definition.entities.map(mapEntity),
+      attributeDefinitions: definition.attributeDefinitions.map((attribute) => ({ ...attribute, layerId: layers.resolve(attribute.layerId) })) }));
+    commands.push({ op: "set_block_resources", definitions, sources: parsed.dxfSources ?? [] });
+    sourceEntities.forEach((entity) => { if (entity.attributeReferences) entity.attributeReferences = mapEntity(entity).attributeReferences; });
+  }
   const warnings = [];
   const importedIds = new Map();
   for (const [index, entity] of sourceEntities.entries()) {
@@ -73,8 +85,9 @@ function parseDxfImport(content, drawing, currentLayerId) {
   const inventory = sourceEntityInventory(content);
   assertEntityLimit(inventory.total);
   const supported = new Set(["LINE", "CIRCLE", "ARC", "LWPOLYLINE", "POLYLINE", "ELLIPSE", "SPLINE", "TEXT", "MTEXT"]);
+  if (inventory.types.INSERT) supported.add("INSERT");
   const unsupported = Object.entries(inventory.types).filter(([type]) => !supported.has(type));
-  if (inventory.children.ATTRIB) unsupported.push(["ATTRIB", inventory.children.ATTRIB]);
+  if (inventory.children.ATTRIB && !inventory.types.INSERT) unsupported.push(["ATTRIB", inventory.children.ATTRIB]);
   if (unsupported.length) {
     throw new Error(`DXF取込を中止しました。未対応Entity: ${unsupported.map(([type, count]) => `${type} ${count}件`).join(", ")}。図面は変更していません。`);
   }
@@ -86,6 +99,24 @@ function parseDxfImport(content, drawing, currentLayerId) {
   }
   const sourceEntities = parsed?.entities ?? [];
   const units = importUnits(drawing, dxfUnit(parsed.header));
+  if (inventory.types.INSERT) {
+    if (units.factor !== 1) throw new Error("異なる単位のBLOCKは空図面へ取り込んでください。");
+    const blocks = prepareDxfBlocks(content, drawing,
+      (names) => createLayerMapping(names.map((name) => ({ id: name, name: decodeDxfText(name) })), drawing, currentLayerId),
+      (record, layerId) => {
+        const source = ["0", "SECTION", "2", "ENTITIES", ...record.groups.flatMap((group) => [String(group.code), group.value]), "0", "ENDSEC", "0", "EOF"].join("\n");
+        const entity = new DxfParser().parseSync(source)?.entities?.[0];
+        const normalized = entity && normalizeDxfEntity(entity, layerId, 0);
+        if (!normalized) throw new Error(`${record.type}を変換できません。`);
+        return normalized;
+      });
+    const definitions = [...(drawing.blockDefinitions ?? []), ...blocks.definitions];
+    const sources = [...(drawing.dxfSources ?? []), blocks.document];
+    const commands = [...blocks.layers.commands, ...units.commands, { op: "set_block_resources", definitions, sources }, ...blocks.entities.map((entity) => ({ op: "add", entity }))];
+    if (new TextEncoder().encode(JSON.stringify(commands)).length > 750000) throw new Error("BLOCK取込がAPI容量上限を超えます。図面を分割してください。");
+    resolveBlocks({ layers: [...drawing.layers, ...blocks.layers.commands.map((command) => command.layer)], entities: structuredClone(blocks.entities), blockDefinitions: definitions });
+    return { ...importResult(commands, [...units.warnings, "BLOCKは2D・正の等方尺度の限定対応です。原本はJSON内に保持し、DXF再生成時の表現属性は限定されます。"], inventory.total), unitConversion: { source: units.sourceUnit, target: units.targetUnit, factor: units.factor } };
+  }
   const parsedTypes = new Map();
   for (const entity of sourceEntities) parsedTypes.set(entity.type, (parsedTypes.get(entity.type) ?? 0) + 1);
   if (sourceEntities.length !== inventory.total || Object.entries(inventory.types).some(([type, count]) => parsedTypes.get(type) !== count)) {
@@ -94,7 +125,7 @@ function parseDxfImport(content, drawing, currentLayerId) {
   assertEntityLimit(sourceEntities.length);
   const layerNames = [...new Set(sourceEntities.map((entity) => entity.layer).filter(Boolean))];
   const layers = createLayerMapping(
-    layerNames.map((name) => ({ id: name, name })),
+    layerNames.map((name) => ({ id: name, name: decodeDxfText(name) })),
     drawing,
     currentLayerId
   );
@@ -206,6 +237,7 @@ function normalizeJsonEntity(entity, layerId, index) {
     return hatchEntity(layerId, entity.points.map(coordinate), { ...options, pattern: entity.pattern, spacing: entity.spacing, angle: entity.angle });
   }
   if (entity.type === "block") {
+    if (entity.definitionId) return blockReference(layerId, entity.definitionId, coordinate(entity.insertion), { ...options, rotation: entity.rotation, scale: entity.scale, scaleZ: entity.scaleZ, attributeReferences: entity.attributeReferences });
     if (!Array.isArray(entity.children) || entity.children.length === 0) throw new Error("blockにchildrenがありません。");
     const children = entity.children.map((child, childIndex) => normalizeJsonEntity(child, layerId, index * 100 + childIndex));
     return blockEntity(layerId, entity.name, coordinate(entity.insertion), children, entity.attributes, {
@@ -255,8 +287,9 @@ function normalizeDxfEntity(entity, layerId, index) {
     });
   }
   if (entity.type === "TEXT") {
-    return text(layerId, coordinate(entity.startPoint), String(entity.text ?? ""), {
+    return text(layerId, coordinate(entity.startPoint), decodeDxfText(entity.text ?? ""), {
       ...options,
+      rotation: Number(entity.rotation ?? 0),
       size: positive(entity.textHeight, 180)
     });
   }
