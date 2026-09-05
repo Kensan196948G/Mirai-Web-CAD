@@ -381,3 +381,4 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | Public E2E | `scripts/verify-mvp-domain.mjs`を追加。指定HTTPS URL経由でdesktop/mobileのCanvas描画(各11,740 sampled pixels)、healthの`database=mirai_web_cad_mvp`/`migrated=true`、新規図面、`LINE`作図、サーバー同期を確認。テスト用Service Token/policyは実行直後に削除し、最終policyがメール1件のみ・一時token 0件であることをCloudflare APIで再確認 |
 | DB不具合修正 | 公開E2E後のDB検査で、postgres.jsへ`JSON.stringify`済み値を渡したためJSONBがstring scalarになる既存不具合を発見。書込みを`sql.json()`へ統一し、読込み互換処理とmigration `0006_normalize_jsonb_columns.sql`を追加。図面・command・AI proposal・監査detailを正規化し、監査追記専用triggerを再作成する |
 | Verify | ローカルPostgreSQL統合7/7成功。公開MVP専用E2E成功後、テストデータを消去してDB再初期化。`npm run verify`成功(unit 211件=210 pass+1 DB skip、desktop/mobile E2E 54/54)。最終origin health 200、外部未認証302、MVP systemd active/enabled |
+| CI補正 | Pages Previewは静的SPAの確認用途であり、API正規経路ではないため、旧Neon依存の`/api/health=200`検証を削除。Preview SPA 200、通常CIのPostgreSQL統合、MVP公開E2Eで責務を分離した(P0-21完了) |

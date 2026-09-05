@@ -171,6 +171,6 @@ jobs:
       - name: Verify preview
         env:
           PREVIEW_URL: https://pr-${{ github.event.number }}.mirai-web-cad.pages.dev
-        run: |
-          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' "$PREVIEW_URL/")" = "200"
-          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null --write-out '%{http_code}' "$PREVIEW_URL/api/health")" = "200"
+        run: >-
+          test "$(curl --retry 8 --retry-all-errors --silent --output /dev/null
+          --write-out '%{http_code}' "$PREVIEW_URL/")" = "200"
