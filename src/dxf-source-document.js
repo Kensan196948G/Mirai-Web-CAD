@@ -18,6 +18,9 @@ export function inspectDxfSourceDocument(document) {
   if (document?.format !== FORMAT || document.version !== 1 || typeof document.source !== "string") {
     throw new Error("Unsupported DXF source document");
   }
+  const rawLines = document.source.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g).filter(Boolean);
+  let offset = 0;
+  const offsets = rawLines.map((line) => { const start = offset; offset += line.length; return start; });
   const lines = document.source.replace(/^\uFEFF/, "").split(/\r\n|\n|\r/);
   if (lines.at(-1) === "") lines.pop();
   if (lines.length % 2) throw new Error("Incomplete DXF group pair");
@@ -47,13 +50,48 @@ export function inspectDxfSourceDocument(document) {
         section.records.push(record);
         records.push(record);
       }
-      (record ? record.groups : section.header).push({ code, value });
+      (record ? record.groups : section.header).push({ code, value, codeStart: offsets[i], valueStart: offsets[i + 1], valueEnd: offsets[i + 1] + value.length, pairEnd: offsets[i + 2] ?? document.source.length });
     } else if (code !== 999) {
       throw new Error("DXF data outside section");
     }
   }
   if (!ended || !sections.length) throw new Error("Missing DXF sections or EOF");
   return { sections, records };
+}
+
+// Replace only existing value spans; all other bytes, including opaque sections
+// and handle/owner links, remain untouched. Missing scalar groups can be added
+// only inside a known INSERT/ATTRIB subclass, never inside opaque records.
+export function patchDxfSourceValues(document, patches) {
+  const { records } = inspectDxfSourceDocument(document);
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const edits = [], used = new Set();
+  for (const { recordId, code, value } of patches) {
+    const record = byId.get(recordId);
+    const allowed = record?.type === "INSERT" ? [10, 20, 41, 42, 43, 50] : record?.type === "ATTRIB" ? [1, 10, 20, 40, 50] : [];
+    if (!record || !allowed.includes(code) || (code !== 1 && !Number.isFinite(Number(value)))) throw new Error("Unsupported DXF source patch");
+    let depth = 0;
+    const groups = record.groups.filter((group) => {
+      if (group.code === 102 && group.value.trim().startsWith("{")) { depth++; return false; }
+      if (group.code === 102 && group.value.trim() === "}") { depth = Math.max(0, depth - 1); return false; }
+      return !depth && group.code === code;
+    });
+    if (groups.length > 1 || used.has(`${recordId}:${code}`) || /[\r\n]/.test(String(value))) throw new Error("Ambiguous or invalid DXF source patch");
+    used.add(`${recordId}:${code}`);
+    if (groups.length) edits.push({ start: groups[0].valueStart, end: groups[0].valueEnd, value: String(value) });
+    else {
+      const subclass = record.type === "INSERT" ? "AcDbBlockReference" : record.type === "ATTRIB" ? "AcDbText" : null;
+      const index = record.groups.findIndex((group) => group.code === 100 && group.value === subclass);
+      if (!subclass || !allowed.includes(code) || index < 0) throw new Error("Cannot insert DXF group outside supported subclass");
+      const boundary = record.groups.slice(index + 1).find((group) => [100, 102, 1001].includes(group.code));
+      const at = boundary?.codeStart ?? record.groups.at(-1).pairEnd;
+      const eol = document.source.match(/\r\n|\n|\r/)?.[0] ?? "\n";
+      edits.push({ start: at, end: at, value: `${code}${eol}${value}${eol}` });
+    }
+  }
+  let result = document.source;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) result = result.slice(0, edit.start) + edit.value + result.slice(edit.end);
+  return result;
 }
 
 export function dxfGroup(record, code, fallback = undefined) {

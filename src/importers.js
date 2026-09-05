@@ -241,7 +241,7 @@ function normalizeJsonEntity(entity, layerId, index) {
     return hatchEntity(layerId, entity.points.map(coordinate), { ...options, pattern: entity.pattern, spacing: entity.spacing, angle: entity.angle });
   }
   if (entity.type === "block") {
-    if (entity.definitionId) return blockReference(layerId, entity.definitionId, coordinate(entity.insertion), { ...options, rotation: entity.rotation, scale: entity.scale, scaleZ: entity.scaleZ, attributeReferences: entity.attributeReferences });
+    if (entity.definitionId) return blockReference(layerId, entity.definitionId, coordinate(entity.insertion), { ...options, dxfRecordId: entity.dxfRecordId, rotation: entity.rotation, scale: entity.scale, scaleZ: entity.scaleZ, attributeReferences: entity.attributeReferences });
     if (!Array.isArray(entity.children) || entity.children.length === 0) throw new Error("blockにchildrenがありません。");
     const children = entity.children.map((child, childIndex) => normalizeJsonEntity(child, layerId, index * 100 + childIndex));
     return blockEntity(layerId, entity.name, coordinate(entity.insertion), children, entity.attributes, {
