@@ -9,6 +9,7 @@ import { inspectDxfBlocks, createDxfSourceDocument } from "../src/dxf-source-doc
 import { nativeBlockDrawing } from "./fixtures/native-block.js";
 import { compareDrawings } from "../src/drawing-compare.js";
 import { TOLERANCE_V0 } from "../src/compat-score.js";
+import { importUnits } from "../src/import-units.js";
 
 const importDrawing = (content, filename = "test.dxf") => {
   const drawing = createDrawing();
@@ -120,4 +121,43 @@ test("constant ATTDEF with a corresponding ATTRIB is rendered only once", () => 
   drawing.entities[1].attributeReferences = [{ ...drawing.entities[1].attributeReferences[0], flags: 2 }];
   resolveBlocks(drawing);
   assert.equal(drawing.entities[1].children.filter((entity) => entity.type === "text").length, 1);
+});
+
+test("unreferenced definitions retain their units when importing into an entity-empty drawing", () => {
+  const drawing = nativeBlockDrawing();
+  drawing.entities = [];
+  const units = importUnits(drawing, "m");
+  assert.equal(units.targetUnit, "mm");
+  assert.equal(units.factor, 1000);
+  assert.equal(applyTransaction(drawing, { commands: [{ op: "set_empty_drawing_unit", unit: "m" }] }).ok, false);
+});
+
+test("reserved block names and zero-layer renames/duplicates are rejected", () => {
+  const drawing = nativeBlockDrawing();
+  for (const name of ["*Model_Space", "*pApEr_sPaCe", "*Paper_Space1"]) {
+    const definitions = structuredClone(drawing.blockDefinitions);
+    definitions[0].name = name;
+    assert.equal(applyTransaction(drawing, { commands: [{ op: "set_block_resources", definitions, sources: [] }] }).ok, false);
+  }
+  assert.equal(applyTransaction(drawing, { commands: [{ op: "update_layer", id: "zero", patch: { name: "renamed" } }] }).ok, false);
+  assert.equal(applyTransaction(drawing, { commands: [{ op: "update_layer", id: "layer-frame", patch: { name: "0" } }] }).ok, false);
+  assert.equal(applyTransaction(drawing, { commands: [{ op: "add_layer", layer: { id: "duplicate-zero", name: "0" } }] }).ok, false);
+});
+
+test("Japanese block name collisions remain decoded and references target the renamed definitions", () => {
+  const drawing = nativeBlockDrawing();
+  drawing.blockDefinitions[0].name = "測点";
+  resolveBlocks(drawing);
+  const content = exportDxf(drawing).content;
+  const parsed = parseCadImport({ filename: "duplicate.dxf", content, drawing, currentLayerId: "layer-structure" });
+  const imported = applyTransaction(drawing, { commands: parsed.commands });
+  assert.equal(imported.ok, true, imported.error);
+  assert.ok(imported.drawing.blockDefinitions.some((definition) => definition.name === "測点_1"));
+});
+
+test("equivalent wrapped block angles compare equally", () => {
+  const drawing = nativeBlockDrawing(), actual = structuredClone(drawing);
+  actual.entities[1].rotation += 360;
+  actual.entities[1].attributeReferences[0].rotation += 360;
+  assert.equal(compareDrawings(drawing, actual, TOLERANCE_V0).axes.block.score, 1);
 });

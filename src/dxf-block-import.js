@@ -27,8 +27,9 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
   const definitions = sourceDefinitions.map((source) => {
     if (source.flags & (4 | 8 | 16 | 32 | 64) || source.xrefPath) throw new Error("XREFブロックは未対応です。");
     if (source.basePoint.z !== 0) throw new Error("3D BLOCK基点は未対応です。");
-    let name = decodeDxfText(source.name), suffix = 1;
-    while (names.has(name.toUpperCase())) name = `${source.name.slice(0, 240)}_${suffix++}`;
+    const baseName = decodeDxfText(source.name);
+    let name = baseName, suffix = 1;
+    while (names.has(name.toUpperCase())) name = `${baseName.slice(0, 240)}_${suffix++}`;
     names.add(name.toUpperCase());
     return { id: `block_${crypto.randomUUID()}`, name, basePoint: { x: source.basePoint.x, y: source.basePoint.y }, entities: [], attributeDefinitions: [] };
   });

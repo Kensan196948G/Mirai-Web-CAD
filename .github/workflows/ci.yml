@@ -41,6 +41,7 @@ jobs:
             DXF-Test-Corpus/00_manifest/verification.json
             artifacts/dxf-source-archive/report.json
             artifacts/native-block-corpus/report.json
+            artifacts/native-block-corpus/audit.json
           retention-days: 14
 
   application:

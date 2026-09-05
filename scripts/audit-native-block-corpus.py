@@ -49,11 +49,29 @@ def signature(entity):
     return result
 
 
+def reachable_blocks(document):
+    pending = [e.dxf.name for e in document.modelspace().query("INSERT")]
+    result = {}
+    while pending:
+        name = pending.pop()
+        key = name.casefold()
+        if key in result:
+            continue
+        block = document.blocks[name]
+        result[key] = block
+        pending.extend(e.dxf.name for e in block.query("INSERT"))
+    return result
+
+
 checked = 0
+excluded = []
 for entry in report["results"]:
     if not entry["accepted"]:
         continue
     source = ezdxf.readfile(source_dir / entry["source"])
+    original_blocks = reachable_blocks(source)
+    excluded.append({"file": entry["file"], "unreferencedDefinitions": [block.name for block in source.blocks
+                     if not block.name.lower().startswith(("*model_space", "*paper_space")) and block.name.casefold() not in original_blocks]})
     for phase in ("before", "after"):
         actual = ezdxf.readfile(output_dir / f"{phase}-{entry['file']}")
         audit = actual.audit()
@@ -71,12 +89,15 @@ for entry in report["results"]:
         expected = [signature(e) for e in expected_entities]
         observed = [signature(e) for e in actual.modelspace()]
         assert equal(expected, observed), (entry["file"], phase, expected, observed)
-        for block in actual.blocks:
-            if block.name.lower().startswith(("*model_space", "*paper_space")):
-                continue
-            original = source.blocks[block.name]
+        actual_blocks = {block.name.casefold(): block for block in actual.blocks
+                         if not block.name.lower().startswith(("*model_space", "*paper_space"))}
+        assert set(original_blocks) == set(actual_blocks), (entry["file"], phase, "reachable block set differs")
+        for name, original in original_blocks.items():
+            block = actual_blocks[name]
             assert equal(tuple(original.base_point), tuple(block.base_point))
             assert equal([signature(e) for e in original], [signature(e) for e in block]), (entry["file"], block.name)
         checked += 1
 print(f"Independent source geometry/attributes/unit comparison: {checked}/36; zero audit errors/fixes. Not full compatibility.")
 assert checked == 36
+(output_dir / "audit.json").write_text(json.dumps({"scope": "reachable-blocks-only", "fullCompatibility": False,
+                                                "checked": checked, "excluded": excluded}, indent=2))

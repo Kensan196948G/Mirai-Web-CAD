@@ -28,11 +28,16 @@
 ## 検証
 
 ```sh
+python3 -m venv artifacts/corpus-venv
+artifacts/corpus-venv/bin/pip install -r DXF-Test-Corpus/requirements.txt
+artifacts/corpus-venv/bin/python DXF-Test-Corpus/build_corpus.py
 node --test tests/cad-block.test.js
 node scripts/check-native-block-corpus.mjs
 artifacts/corpus-venv/bin/python scripts/audit-native-block-corpus.py
 npx playwright test tests/e2e/native-block.spec.js
 ```
+
+上記はローカル用。CIは隔離した `/tmp/corpus-venv` を作成し、同じrequirementsからインストールする。
 
 合成BLOCK10件・属性10件のうち18件が限定取込・書出し可能。鏡像を含む2件は拒否。
 18件の未編集/編集後、計36出力を別実装ezdxfで元DXFと比較した。

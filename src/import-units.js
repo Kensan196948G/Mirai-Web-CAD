@@ -3,7 +3,7 @@ import { transformEntity } from "./cad-advanced.js";
 export function importUnits(drawing, sourceUnit) {
   if (!["mm", "m"].includes(drawing.unit)) throw new Error("取込先の単位はmm/mのみ対応しています。");
   if (sourceUnit != null && !["mm", "m"].includes(sourceUnit)) throw new Error("取込元の単位はmm/mのみ対応しています。");
-  const targetUnit = drawing.entities.length === 0 && sourceUnit ? sourceUnit : drawing.unit;
+  const targetUnit = drawing.entities.length === 0 && !drawing.blockDefinitions?.length && sourceUnit ? sourceUnit : drawing.unit;
   const meters = { mm: 0.001, m: 1 };
   const factor = sourceUnit ? meters[sourceUnit] / meters[targetUnit] : 1;
   return {

@@ -4,7 +4,7 @@ import { blockEntity, dimensionEntity, hatchEntity } from "./cad-advanced.js";
 import { sourceEntityInventory } from "./dxf-source-inventory.js";
 import { importUnits, dxfUnit } from "./import-units.js";
 import { prepareDxfBlocks, decodeDxfText } from "./dxf-block-import.js";
-import { blockReference, resolveBlocks } from "./cad-block.js";
+import { blockReference, resolveBlocks, BLOCK_RESOURCE_MAX_BYTES } from "./cad-block.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -43,7 +43,9 @@ function parseJsonImport(content, drawing, currentLayerId) {
     const definitions = (parsed.blockDefinitions ?? []).map((definition) => ({ ...definition,
       entities: definition.entities.map(mapEntity),
       attributeDefinitions: definition.attributeDefinitions.map((attribute) => ({ ...attribute, layerId: layers.resolve(attribute.layerId) })) }));
-    commands.push({ op: "set_block_resources", definitions, sources: parsed.dxfSources ?? [] });
+    const resources = { op: "set_block_resources", definitions, sources: parsed.dxfSources ?? [] };
+    if (new TextEncoder().encode(JSON.stringify(resources)).length > BLOCK_RESOURCE_MAX_BYTES) throw new Error("BLOCKリソースが容量上限を超えています。");
+    commands.push(resources);
     sourceEntities.forEach((entity) => { if (entity.attributeReferences) entity.attributeReferences = mapEntity(entity).attributeReferences; });
   }
   const warnings = [];
@@ -78,6 +80,7 @@ function parseJsonImport(content, drawing, currentLayerId) {
     names.add(name);
     commands.push({ op: "save_selection", name, entityIds });
   }
+  if (commands.some((command) => command.op === "set_block_resources") && new TextEncoder().encode(JSON.stringify(commands)).length > 750000) throw new Error("BLOCK取込がAPI容量上限を超えます。");
   return importResult(commands, warnings, sourceEntities.length);
 }
 
@@ -113,6 +116,7 @@ function parseDxfImport(content, drawing, currentLayerId) {
     const definitions = [...(drawing.blockDefinitions ?? []), ...blocks.definitions];
     const sources = [...(drawing.dxfSources ?? []), blocks.document];
     const commands = [...blocks.layers.commands, ...units.commands, { op: "set_block_resources", definitions, sources }, ...blocks.entities.map((entity) => ({ op: "add", entity }))];
+    if (new TextEncoder().encode(JSON.stringify(commands.find((command) => command.op === "set_block_resources"))).length > BLOCK_RESOURCE_MAX_BYTES) throw new Error("BLOCKリソースが容量上限を超えています。");
     if (new TextEncoder().encode(JSON.stringify(commands)).length > 750000) throw new Error("BLOCK取込がAPI容量上限を超えます。図面を分割してください。");
     resolveBlocks({ layers: [...drawing.layers, ...blocks.layers.commands.map((command) => command.layer)], entities: structuredClone(blocks.entities), blockDefinitions: definitions });
     return { ...importResult(commands, [...units.warnings, "BLOCKは2D・正の等方尺度の限定対応です。原本はJSON内に保持し、DXF再生成時の表現属性は限定されます。"], inventory.total), unitConversion: { source: units.sourceUnit, target: units.targetUnit, factor: units.factor } };

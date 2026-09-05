@@ -1742,7 +1742,7 @@ async function updateSelectedProperties(event) {
     patch: {
       layerId: String(data.get("layerId")),
       style: { ...selected.style, strokeWidth },
-      ...(selected.definitionId ? { attributeReferences: selected.attributeReferences.map((attribute, index) => ({ ...attribute, value: String(data.get(`blockAttribute_${index}`) ?? attribute.value) })) }
+      ...(selected.definitionId ? { attributeReferences: (selected.attributeReferences ?? []).map((attribute, index) => ({ ...attribute, value: String(data.get(`blockAttribute_${index}`) ?? attribute.value) })) }
         : selected.type === "block" ? { attributes: parseAttributes(String(data.get("blockAttributes") ?? "")) } : {})
     }
   }]);
@@ -2225,9 +2225,7 @@ async function redoLastTransaction() {
 
 function snapshotCommands(current, target) {
   const commands = [];
-  if (JSON.stringify(current.blockDefinitions ?? []) !== JSON.stringify(target.blockDefinitions ?? []) || JSON.stringify(current.dxfSources ?? []) !== JSON.stringify(target.dxfSources ?? [])) {
-    commands.push({ op: "set_block_resources", definitions: target.blockDefinitions ?? [], sources: target.dxfSources ?? [] });
-  }
+  const resourcesChanged = JSON.stringify(current.blockDefinitions ?? []) !== JSON.stringify(target.blockDefinitions ?? []) || JSON.stringify(current.dxfSources ?? []) !== JSON.stringify(target.dxfSources ?? []);
   for (const set of current.selectionSets ?? []) {
     if (!(target.selectionSets ?? []).some((item) => item.name === set.name)) commands.push({ op: "delete_selection", name: set.name });
   }
@@ -2236,7 +2234,11 @@ function snapshotCommands(current, target) {
   for (const entity of current.entities) {
     if (!targetById.has(entity.id)) commands.push({ op: "delete", id: entity.id });
   }
-  if (current.unit !== target.unit) commands.push({ op: "set_empty_drawing_unit", unit: target.unit });
+  if (current.unit !== target.unit) {
+    if (resourcesChanged) commands.push({ op: "set_block_resources", definitions: [], sources: [] });
+    commands.push({ op: "set_empty_drawing_unit", unit: target.unit });
+  }
+  if (resourcesChanged) commands.push({ op: "set_block_resources", definitions: target.blockDefinitions ?? [], sources: target.dxfSources ?? [] });
   for (const entity of target.entities) {
     const existing = currentById.get(entity.id);
     if (!existing) commands.push({ op: "add", entity: structuredClone(entity) });

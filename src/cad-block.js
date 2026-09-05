@@ -1,6 +1,8 @@
 import { transformEntity } from "./cad-advanced.js";
 import { entityBounds } from "./cad-core.js";
 
+export const BLOCK_RESOURCE_MAX_BYTES = 700000;
+
 export function blockReference(layerId, definitionId, insertion, options = {}) {
   return {
     id: options.id ?? `e_block_${crypto.randomUUID()}`, type: "block", layerId, definitionId,
@@ -23,6 +25,7 @@ export function resolveBlocks(drawing) {
   if (!Array.isArray(definitions) || definitions.length > 1000) throw new Error("BLOCK定義は1000件までです。");
   const byId = new Map(), names = new Set();
   const layers = new Map(drawing.layers.map((layer) => [layer.id, layer]));
+  if (drawing.layers.filter((layer) => layer.name === "0").length > 1) throw new Error("0レイヤーは重複できません。");
   let definitionCount = 0, expandedCount = 0;
   const checkPoint = (p) => {
     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error("BLOCK座標が不正です。");
@@ -36,7 +39,7 @@ export function resolveBlocks(drawing) {
   };
   for (const definition of definitions) {
     if (!definition || typeof definition.id !== "string" || !definition.id || byId.has(definition.id) ||
-        typeof definition.name !== "string" || !definition.name || /[\r\n]/.test(definition.name) || definition.name.length > 255 ||
+        typeof definition.name !== "string" || !definition.name || /[\r\n]/.test(definition.name) || /^\*(Model_Space|Paper_Space\d*)$/i.test(definition.name) || definition.name.length > 255 ||
         names.has(definition.name.toUpperCase()) || !Array.isArray(definition.entities) || !Array.isArray(definition.attributeDefinitions)) {
       throw new Error("BLOCK定義・名称が不正または重複しています。");
     }

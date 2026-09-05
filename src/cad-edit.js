@@ -67,7 +67,11 @@ export function reverseEntity(entity) {
 
 export function unusedLayerIds(drawing, currentLayerId) {
   const used = new Set([currentLayerId]);
-  const visit = (entity) => { used.add(entity.layerId); for (const child of entity.children ?? []) visit(child); };
+  const visit = (entity) => {
+    used.add(entity.layerId);
+    for (const attribute of entity.attributeReferences ?? []) used.add(attribute.layerId);
+    for (const child of entity.children ?? []) visit(child);
+  };
   drawing.entities.forEach(visit);
   for (const definition of drawing.blockDefinitions ?? []) {
     definition.entities.forEach(visit);

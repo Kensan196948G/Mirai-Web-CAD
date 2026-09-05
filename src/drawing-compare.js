@@ -384,7 +384,7 @@ function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, expec
     else findings.push(entityFinding("block", expected, actual, "name"));
     if (distance(expected.insertion, actual.insertion) <= effectiveTolerance) passed += 1;
     else findings.push(entityFinding("block", expected, actual, "insertion"));
-    if (Math.abs(expected.rotation - actual.rotation) <= tolerance.angle) passed += 1;
+    if (angleDelta(expected.rotation, actual.rotation) <= tolerance.angle) passed += 1;
     else findings.push(entityFinding("block", expected, actual, "rotation"));
     if (Math.abs(expected.scale - actual.scale) <= effectiveTolerance) passed += 1;
     else findings.push(entityFinding("block", expected, actual, "scale"));
@@ -404,12 +404,12 @@ function evaluateBlockAxis(pairs, effectiveTolerance, tolerance, findings, expec
 function blockShape(value, layers) {
   if (Array.isArray(value)) return value.map((item) => blockShape(item, layers));
   if (!value || typeof value !== "object") return value;
-  const keys = ["type", "name", "layerId", "x", "y", "points", "center", "at", "radius", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "scaleZ", "tag", "flags", "styleName", "attributeReferences", "children"];
+  const keys = ["type", "name", "layerId", "x", "y", "points", "origin", "width", "height", "center", "at", "radius", "radiusX", "radiusY", "controlPoints", "degree", "knots", "startParameter", "endParameter", "startAngle", "endAngle", "closed", "value", "size", "rotation", "insertion", "scale", "scaleZ", "tag", "flags", "styleName", "attributeReferences", "children"];
   return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, key === "layerId" ? layers.get(value[key]) ?? value[key] : blockShape(value[key], layers)]));
 }
 
 function blockValuesEqual(a, b, coordinateTolerance, angleTolerance, key = "") {
-  if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) <= (/angle|rotation/i.test(key) ? angleTolerance : coordinateTolerance);
+  if (typeof a === "number" && typeof b === "number") return /angle|rotation/i.test(key) ? angleDelta(a, b) <= angleTolerance : Math.abs(a - b) <= coordinateTolerance;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return a === b;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((childKey) => Object.hasOwn(b, childKey) && blockValuesEqual(a[childKey], b[childKey], coordinateTolerance, angleTolerance, childKey));
