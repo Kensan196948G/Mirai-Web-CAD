@@ -14,6 +14,22 @@ permissions:
   contents: read
 
 jobs:
+  synthetic-corpus:
+    name: Synthetic DXF Generation and Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -m venv /tmp/corpus-venv
+      - run: /tmp/corpus-venv/bin/pip install -r DXF-Test-Corpus/requirements.txt
+      - run: /tmp/corpus-venv/bin/python DXF-Test-Corpus/build_corpus.py
+      - name: Upload generation audit (not CAD compatibility certification)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-corpus-audit
+          path: DXF-Test-Corpus/00_manifest/verification.json
+          retention-days: 14
+
   application:
     name: Lint, Test, Build, E2E, A11y
     runs-on: ubuntu-latest

@@ -28,7 +28,7 @@ node scripts/check-dxf-samples.mjs
 node scripts/check-dxf-samples.mjs /path/to/extracted-dxf artifacts/dxf-samples
 ```
 
-直下のDXFを全件検証し、SHA-256、元図形種別/数、レイヤー数、DXF版、往復診断を`artifacts/dxf-samples/report.json`へ生成する。図面内容を含み得るためレポートもローカル保持。失敗が1件でもあれば終了コード1、空フォルダも失敗とする。UTF-8/ASCII以外は文字化けを避けるため拒否し、Shift-JIS判定は後続。
+直下およびサブフォルダのDXFを全件検証し、SHA-256、元図形種別/数、レイヤー数、DXF版、往復診断を`artifacts/dxf-samples/report.json`へ生成する。原本のgroup-code集計とパーサー出力を照合し、パーサー内での未知Entity除外も不合格にする。図面内容を含み得るためレポートもローカル保持。失敗が1件でもあれば終了コード1、空フォルダも失敗とする。UTF-8/ASCII以外は文字化けを避けるため拒否し、Shift-JIS判定は後続。
 
 ## 認定範囲外
 
