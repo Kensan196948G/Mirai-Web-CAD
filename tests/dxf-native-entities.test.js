@@ -81,6 +81,51 @@ test("原本なしのDIMENSION/HATCH/VIEWPORTをネイティブDXFとして生�
   assert.deepEqual(importDxf(exported.content).drawing.entities.map((entity) => entity.type), ["dimension", "hatch", "viewport"]);
 });
 
+test("HATCHのelevation.zとseedPointsが原本なし・限定再生成のいずれでも保持される", () => {
+  const drawing = createDrawing();
+  const layerId = drawing.layers[0].id;
+  const hatch = hatchEntity(layerId, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }]);
+  hatch.elevation = { x: 0, y: 0, z: 15 };
+  hatch.seedPoints = [{ x: 10, y: 10 }, { x: 20, y: 20 }];
+  const added = applyTransaction(drawing, { source: "system", commands: [{ op: "add", entity: hatch }] });
+  assert.equal(added.ok, true, added.error);
+
+  // 原本なし(dxfSources無し)の新規生成経路
+  const exported = exportDxf(added.drawing);
+  assert.match(exported.content, /\n30\n15\n/, "elevation.zがgroup code 30として出力される");
+  assert.match(exported.content, /\n98\n2\n/, "seedPoints 2件がgroup code 98件数として出力される");
+  const reimported = importDxf(exported.content).drawing.entities.find((entity) => entity.type === "hatch");
+  assert.equal(reimported.elevation.z, 15);
+  assert.deepEqual(reimported.seedPoints, [{ x: 10, y: 10 }, { x: 20, y: 20 }]);
+
+  // 限定再生成(原本ありだが変更検知でfallbackする)経路
+  const reimportedDrawing = importDxf(exported.content).drawing;
+  const dimensionStyleChanged = { ...reimportedDrawing, dimensionStyles: [{ ...reimportedDrawing.dimensionStyles[0], precision: 3 }] };
+  const regenerated = exportDxf(dimensionStyleChanged);
+  assert.equal(regenerated.preservation, undefined, "この変更は限定再生成へフォールバックするはず");
+  assert.match(regenerated.content, /\n30\n15\n/, "限定再生成でもelevation.zを出力する");
+  assert.match(regenerated.content, /\n98\n2\n/, "限定再生成でもseedPointsを出力する");
+});
+
+test("VIEWPORTの紙空間移動はcenterのみ動かし、viewCenter/snapBase/viewTarget(モデル空間のカメラ・スナップ基準)は保持する", () => {
+  const viewport = {
+    id: "vp-move", type: "viewport", layerId: "layer-structure",
+    center: { x: 200, y: 150 }, width: 180, height: 100,
+    viewCenter: { x: 50, y: 60 }, snapBase: { x: 5, y: 5 },
+    viewTarget: { x: 10, y: 20, z: 3 }, viewDirection: { x: 0, y: 0, z: 1 }, viewHeight: 100
+  };
+  const moved = transformEntity(viewport, { dx: 7, dy: 9 });
+  assert.deepEqual(moved.center, { x: 207, y: 159 }, "紙空間の枠(center)は移動する");
+  assert.deepEqual(moved.viewCenter, viewport.viewCenter, "viewCenterはモデル空間の概念であり紙空間の移動で変化しない");
+  assert.deepEqual(moved.snapBase, viewport.snapBase, "snapBaseはモデル空間の概念であり紙空間の移動で変化しない");
+  assert.deepEqual(moved.viewTarget, viewport.viewTarget, "viewTarget(zを含む)はモデル空間の概念であり紙空間の移動で変化しない");
+
+  // 単位変換等のscale-onlyな全体変換では、モデル空間座標も一貫して換算されるべき
+  const scaled = transformEntity(viewport, { scale: 2 });
+  assert.deepEqual(scaled.viewCenter, { x: 100, y: 120 }, "scale-onlyの全体変換ではviewCenterも換算される");
+  assert.equal(scaled.viewTarget.z, 3, "viewTarget.zは2D変換の対象外のまま保持される");
+});
+
 test("非angular寸法のpoints変更を検出し、限定パッチではなく再生成へフォールバックする", () => {
   const drawing = createDrawing();
   const layerId = drawing.layers[0].id;

@@ -20,6 +20,19 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
       y: base.y + x * Math.sin(radians) + y * Math.cos(radians) + dy
     };
   };
+  // VIEWPORTのviewCenter/snapBase/viewTargetは紙空間の枠(center)とは別の、モデル空間側の
+  // カメラ・スナップ基準点(DXF group 12/13/17)。MOVE/COPYでVIEWPORTの枠を紙面上で動かしても
+  // 表示中のモデル範囲は変わらないため、平行移動(dx/dy)は適用せず回転・倍率だけを適用する
+  // (単位変換等のscale-onlyな全体変換では、他の座標と同様に一貫して換算する)。
+  const transformWithoutTranslation = (point) => {
+    const x = (point.x - base.x) * scale;
+    const y = (point.y - base.y) * scale;
+    const radians = (angle * Math.PI) / 180;
+    return {
+      x: base.x + x * Math.cos(radians) - y * Math.sin(radians),
+      y: base.y + x * Math.sin(radians) + y * Math.cos(radians)
+    };
+  };
   if (next.type === "block") {
     next.insertion = transform(next.insertion);
     next.rotation = (next.rotation ?? 0) + angle;
@@ -27,18 +40,24 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
     if (next.definitionId) next.scaleZ = (next.scaleZ ?? 1) * scale;
     return next;
   }
-  for (const key of ["origin", "center", "at", "insertion", "elevation"]) {
+  for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = transform(next[key]);
   }
+  // HATCHのelevationはx/y(常に0)とZ標高を持つ。x/yは他の点と同様に変換するが、
+  // Zは平面内の平行移動・回転の影響を受けない値なので倍率だけを適用して保持する。
+  if (next.elevation) next.elevation = { ...transform(next.elevation), z: (next.elevation.z ?? 0) * scale };
   if (next.points) next.points = next.points.map(transform);
   if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
-  for (const key of ["dimensionLinePoint", "textPoint", "viewCenter", "snapBase"]) {
+  for (const key of ["dimensionLinePoint", "textPoint"]) {
     if (next[key]) next[key] = transform(next[key]);
+  }
+  for (const key of ["viewCenter", "snapBase"]) {
+    if (next[key]) next[key] = transformWithoutTranslation(next[key]);
   }
   for (const key of ["snapSpacing", "gridSpacing"]) {
     if (next[key]) next[key] = rotateScaleVector(next[key], angle, scale);
   }
-  if (next.viewTarget) next.viewTarget = { ...next.viewTarget, ...transform(next.viewTarget) };
+  if (next.viewTarget) next.viewTarget = { ...next.viewTarget, ...transformWithoutTranslation(next.viewTarget) };
   if (next.definitionPoints) next.definitionPoints = Object.fromEntries(Object.entries(next.definitionPoints).map(([key, value]) => [key, transform(value)]));
   if (next.seedPoints) next.seedPoints = next.seedPoints.map(transform);
   if (next.boundaries) next.boundaries = next.boundaries.map((boundary) => ({

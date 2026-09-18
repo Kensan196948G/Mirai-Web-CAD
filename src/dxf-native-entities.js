@@ -203,7 +203,8 @@ export function parseDxfHatch(record, layerId, index = 0, resolveLayoutName) {
     patternAngle: numeric(record, 52, 0),
     patternScale: scale,
     patternDouble: numeric(record, 77, 0) === 1,
-    elevation: point(record, 10),
+    // group 10/20(x/y)は仕様上常に0で、group 30がZ標高を表す。
+    elevation: { ...point(record, 10), z: numeric(record, 30, 0) },
     seedPoints: seedCount ? allX.slice(-seedCount).map((x, seedIndex) => ({ x: number(x), y: number(allY.at(-seedCount + seedIndex)) })) : []
   });
 }

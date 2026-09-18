@@ -380,7 +380,7 @@ function encodeHatch(entity, base, skipped, limitedRegeneration = false) {
   // 関連付け(71)が指す原本ハンドルが新しい文書中で解決不能になる。無効な参照を出力しないよう、
   // 限定再生成時は関連付けを0、boundaryのsourceHandles件数を0として書出す。
   const associative = limitedRegeneration ? false : entity.associative;
-  const groups = ["0", "HATCH", ...base, "10", "0", "20", "0", "30", "0", "210", "0", "220", "0", "230", "1",
+  const groups = ["0", "HATCH", ...base, "10", "0", "20", "0", "30", num(entity.elevation?.z ?? 0), "210", "0", "220", "0", "230", "1",
     "2", dxfText(entity.pattern ?? "SOLID"), "70", entity.solidFill || entity.pattern === "SOLID" ? "1" : "0", "71", associative ? "1" : "0", "91", String(boundaries.length)];
   try {
     for (const boundary of boundaries) encodeHatchBoundary(groups, boundary, limitedRegeneration);
@@ -389,7 +389,9 @@ function encodeHatch(entity, base, skipped, limitedRegeneration = false) {
   }
   groups.push("75", String(entity.hatchStyle ?? 0), "76", String(entity.patternType ?? 1), "52", num(entity.patternAngle ?? entity.angle ?? 0), "41", num(entity.patternScale ?? 1), "77", entity.patternDouble ? "1" : "0");
   if (!(entity.solidFill || entity.pattern === "SOLID")) groups.push("78", "1", "53", num(entity.patternAngle ?? entity.angle ?? 45), "43", "0", "44", "0", "45", num(entity.patternScale ?? 1), "46", "0", "79", "0");
-  groups.push("98", "0");
+  const seeds = Array.isArray(entity.seedPoints) ? entity.seedPoints.filter((seed) => finitePoint(seed)) : [];
+  groups.push("98", String(seeds.length));
+  for (const seed of seeds) groups.push("10", num(seed.x), "20", num(seed.y));
   return groups;
 }
 

@@ -65,15 +65,23 @@ export function dimensionGeometry(entity) {
     const firstStart = definitions["13"] ?? a, firstEnd = definitions["14"] ?? b;
     const secondStart = definitions["15"] ?? a, secondEnd = definitions["16"] ?? b;
     const center = lineIntersection(firstStart, firstEnd, secondStart, secondEnd) ?? a;
+    const anchor = entity.dimensionLinePoint ?? entity.textPoint ?? b;
     const firstAngle = Math.atan2(firstEnd.y - center.y, firstEnd.x - center.x);
-    let secondAngle = Math.atan2(secondEnd.y - center.y, secondEnd.x - center.x);
-    while (secondAngle <= firstAngle) secondAngle += Math.PI * 2;
-    const radius = Math.max(1e-9, Math.hypot((entity.dimensionLinePoint ?? entity.textPoint ?? b).x - center.x, (entity.dimensionLinePoint ?? entity.textPoint ?? b).y - center.y));
+    const secondAngleRaw = Math.atan2(secondEnd.y - center.y, secondEnd.x - center.x);
+    const twoPi = Math.PI * 2;
+    // firstAngleからCCW方向にsecondAngleへ達するまでの掃引角(0〜2πの範囲)。
+    const ccwSweep = ((secondAngleRaw - firstAngle) % twoPi + twoPi) % twoPi;
+    // dimensionLinePoint(なければtextPoint、それも無ければ計測線の終点)がCCW側の弧
+    // (0〜ccwSweep)に含まれるかどうかで、実際に表示すべき弧(鋭角側/劣角側)を選ぶ。
+    // 含まれない場合は補角側(CW方向、負の掃引)を採用する。
+    const anchorOffset = ((Math.atan2(anchor.y - center.y, anchor.x - center.x) - firstAngle) % twoPi + twoPi) % twoPi;
+    const sweep = anchorOffset <= ccwSweep ? ccwSweep : ccwSweep - twoPi;
+    const radius = Math.max(1e-9, Math.hypot(anchor.x - center.x, anchor.y - center.y));
     const arcPoints = Array.from({ length: 17 }, (_unused, index) => {
-      const current = firstAngle + (secondAngle - firstAngle) * index / 16;
+      const current = firstAngle + sweep * index / 16;
       return { x: center.x + radius * Math.cos(current), y: center.y + radius * Math.sin(current) };
     });
-    const value = (secondAngle - firstAngle) * 180 / Math.PI;
+    const value = Math.abs(sweep) * 180 / Math.PI;
     const numeric = (value * options.measurementScale).toFixed(options.precision);
     const label = entity.associationStatus === "broken" ? "[?]" : entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", numeric) : `${options.prefix}${numeric}${options.suffix}`;
     return { segments: [[center, arcPoints[0]], ...arcPoints.slice(1).map((point, index) => [arcPoints[index], point]), [center, arcPoints.at(-1)]], start: arcPoints[0], end: arcPoints.at(-1),
@@ -95,7 +103,15 @@ export function dimensionGeometry(entity) {
     end = { x: anchor.x + axis.x * (projection(b) - projection(anchor)), y: anchor.y + axis.y * (projection(b) - projection(anchor)) };
     value = Math.abs(projection(b) - projection(a));
   } else if (options.dimensionType === "ordinate") {
-    start = a; end = b; value = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? Math.abs(b.x) : Math.abs(b.y);
+    // DXF: 13=feature location(=a)、14=leader endpoint(=b)、10=作成時のUCS原点
+    // (entity.dimensionLinePointとして保持)。70のbit 64(0x40)がX軸かY軸かを示す
+    // (未設定時はa/bの変位が大きい軸を推定、DXF由来でない場合の防御)。測定値は
+    // 選択軸についてfeature locationと原点の差の絶対値(leader endpointの絶対座標
+    // ではない)。
+    const origin = entity.dimensionLinePoint ?? { x: 0, y: 0 };
+    const xAxis = Number.isInteger(entity.dxfDimensionType) ? Boolean(entity.dxfDimensionType & 64) : Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+    start = a; end = b;
+    value = xAxis ? Math.abs(a.x - origin.x) : Math.abs(a.y - origin.y);
   } else {
     start = { x: a.x - unit.y * options.offset, y: a.y + unit.x * options.offset };
     end = { x: b.x - unit.y * options.offset, y: b.y + unit.x * options.offset }; value = length;
