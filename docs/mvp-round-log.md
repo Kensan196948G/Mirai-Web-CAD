@@ -481,3 +481,14 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 根拠 | PR #89/#90の`Deploy Preview`失敗ログが`CLOUDFLARE_API_TOKEN`空による`wrangler`エラーであることを実測。Dependabot起点のワークフローにはシークレットが渡らないというGitHubの仕様による(P0-21と同種の「恒常的な赤が真の異常を覆い隠す」問題) |
 | 18項目 | CI/CD・リリース83→84、運用保守性72→73、文書81→82。**総合63.3→63.4**。判定は依然PoC |
 | 残課題 | P0-82〜P0-88の実装(いずれもmigration版管理・保存済みハッシュの段階移行・デプロイ手順書更新・契約プラン確認・DB管理者作業を伴うため人間の判断が必要) |
+
+## Round 20 / 2026-09-18 復元不能なバックアップの検出と修復(P0-89)・運用と供給網の統制
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | P0-83(テーブル数固定でデプロイ恒久失敗)、P0-84(対象DB名の未検証)、P0-88の一部(SBOM)を実装する |
+| 検出した重大事象 | P0-84の検証としてバックアップ→復元の往復を実行したところ復元が失敗。原因は**サーバPostgreSQL 16に対しPATHの`pg_config`が18を指しており、`PG_BIN`未設定のドリル手順ではpg_dump(18)の出力を16のサーバへ復元できない**こと(`unrecognized configuration parameter "transaction_timeout"`)。定時バックアップはunitが`PG_BIN`を明示しているため無事だが、**手順どおりの復元訓練が成立しない=「バックアップは成功するが復元できない」**状態だった |
+| 実装 | `scripts/lib/pg-bin.sh`(サーバのメジャー版からクライアントを解決。aptレイアウト優先、無ければpg_configの版一致を要求し、不一致はexit 5)。`backup-database.sh`/`restore-database.sh`を同解決へ変更し、manifestへ`database=`と`pg_client=`を記録。`EXPECTED_DATABASE`をbackup/restoreと4 unitへ導入。`verify-database.sh`のテーブル検証を名前ベースへ。CIへ`sbom`ジョブ(CycloneDX生成・検証・artifact保存)を追加 |
+| 検証 | 修正前は復元exit 1・復元先0テーブル → 修正後はPG_BIN未設定でも`pg_client=16.14`で復元exit 0・復元先**9テーブル**・`manifest_match=yes`・図面1/版1/監査1。`pg-bin.sh`の4分岐を偽psqlで個別検証。バックアップ拒否exit 4、restoreのmanifest不一致exit 4、manifestの`database=`記録を実測。名前ベース検証は10テーブルで成功・欠落は`db:check`が検知。SBOMは131コンポーネント生成・検証成功。`npm run verify`全成功(ESLint 0 errors、unit 413件=412 pass/0 fail/1 skip、E2E 78/78)。検証用DB・ロールは削除済み |
+| 18項目 | 可用性・バックアップ59→62、テスト89→90、運用保守性73→74、CI/CD・リリース84→85。**総合63.4→63.8**。判定は依然PoC |
+| 残課題 | P0-83残(`schema_migrations`)、P0-88残(ライセンス方針・CODEOWNERS・ActionsのSHA固定)、P0-82/85/86/87、P0-70〜P0-72/P1-13/P0-75(いずれも要判断・要契約・要実機作業) |

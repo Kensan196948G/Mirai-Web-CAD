@@ -12,6 +12,8 @@ EnvironmentFile=/home/kensan/.config/mirai-web-cad/mvp-backup.env
 Environment=PG_BIN=/usr/lib/postgresql/16/bin
 Environment=BACKUP_DIR=/var/backups/mirai-web-cad/mvp-postgres
 Environment=EXPECTED_RESTORE_DATABASE=mirai_web_cad_mvp_recovery
+# 復元元(manifestのdatabase=)の検証(改善台帳P0-84)。
+Environment=EXPECTED_DATABASE=mirai_web_cad_mvp
 Environment=PATH=/home/kensan/.npm-global/bin:/home/kensan/.nvm/versions/node/v22.22.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/bash scripts/restore-drill-local.sh
 
