@@ -16,7 +16,11 @@
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
-    <div id="app" class="app-shell" aria-label="Mirai Web CAD"></div>
+    <!-- スクリーンリーダー向けの通知領域。#app の外に置くことで、render() が #app の
+         中身を innerHTML で作り直しても破棄されない。live region を再挿入すると
+         中のメッセージは読み上げられないため、エラーが支援技術に伝わらない。 -->
+    <div id="sr-announcer" class="sr-only" role="status" aria-live="polite"></div>
+    <div id="app" class="app-shell"></div>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>

@@ -545,3 +545,34 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 10. **職務分離の欠如**(提出者と承認者の同一性を検査しない。cad_adminは提出と承認を1人で行える)
 11. テストの実効性: axeは`violations`のみで`incomplete`を無視、`app.js`(3046行)のユニットテストが存在しない、E2Eは共有`dwg_demo_001`を`fullyParallel`で触る(「74件」は37ケース×2プロジェクト)
 12. 本番配信物が`sourcemap: true`・minify無しでソース全公開
+
+## 18. 2026-09-18 追加ラウンド(アクセシビリティ通知とレイヤ保護、PR #107)
+
+§17.5の未解決項目のうち、**承認不要で効果が明確なもの**に着手した(本番反映は依然P0-58待ち)。
+
+### 18.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `render()`が`#app`の中身を`innerHTML`で毎回作り直すため、コマンドログの`aria-live`領域が**描画ごとに破棄**され、エラー(権限拒否・Import失敗・保存失敗)が支援技術に伝わらなかった | High(アクセシビリティ) | `index.html`の`#app`**外**に`#sr-announcer`(`role="status" aria-live="polite"`、`.sr-only`)を追加し、`render()`後に最新のログを流す |
+| 2 | `#app`・`.drawing-meta`・`.ribbon`・`.command-history`・`.status-bar`は`role`がgenericなのに`aria-label`を付けており、`aria-prohibited-attr`(axe impact: serious)に該当 | Medium(アクセシビリティ) | `#app`は`aria-label`を削除、他は意味に合う明示的なrole(`group`/`toolbar`/`log`)を付与 |
+| 3 | **ロック中のレイヤーを削除できた**(ロックの意味が失われる) | Medium(データ保全) | `delete_layer`がロック中レイヤを拒否 |
+| 4 | 用紙範囲(12000×7000mm)が`cad-core.js`と`ai-proposal.js`に**重複定義**され、片方だけ変わると「検査では用紙内なのにAIは提案しない」等の不整合が生じ得た | Low | `MODEL_EXTENT`として単一の出所にまとめ、両者で共有 |
+
+### 18.2 反証した指摘(採用しなかった)
+
+- 「用紙境界が**A3横mm固定**で、A1/A2/A4やm単位で誤検知する」→ `12000×7000`はA3実寸ではなく、**このアプリ全体の仮想シート**(デモ図面の図枠4辺がまさに12000×7000、`app.js`のモデル→画面変換もこの値を使用)。物理用紙寸法に置き換えると**正常な図面が全て用紙外と誤判定される**ため採用しなかった。真の問題は定数の重複(上記#4)であり、そちらを解消した。
+
+### 18.3 検証Evidence
+
+- `tests/accessibility-and-integrity.test.js`(新規4件): ロック中レイヤの削除拒否／ロック無しの空レイヤ削除は維持／`MODEL_EXTENT`が凍結された単一定数／用紙外判定が境界を含めて定数と一致
+- `tests/e2e/cad-workflow.spec.js`に1件追加: `#sr-announcer`が`aria-live="polite"`を持ち、権限拒否メッセージが**live regionにも入る**ことを実ブラウザで検証
+- `npm run verify:fast`: unit **383件中382 pass・1 skip**、ESLint 0 errors／E2E **76/76**(デスクトップ/モバイル)
+
+### 18.4 18項目への影響
+
+アクセシビリティ 42→**44**、データ品質 67→68、コード品質 75→76、テスト 87→88。他は据え置き。**総合 61.8 → 62.0**(1116/18)。判定は依然PoC。
+
+### 18.5 残る未解決(据え置き)
+
+§17.5の1〜8のうち、複数タブ保護、`checkApiHealth`の未保存編集保護、`render()`の全DOM再構築そのもの(フォーカス移動・dialog保持)、Canvas内容の代替とキーボード作図、平文LocalStorageのPII/生DXF原本とTTL・削除導線、`content_hash`の強ハッシュ化、`migrations/0006`の監査トリガ一時解除、AI runと監査の非原子、職務分離、axeの`incomplete`対応、`app.js`のユニットテスト化、E2Eの共有図面依存、`sourcemap`/minifyは**未着手**。

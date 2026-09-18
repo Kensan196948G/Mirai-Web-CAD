@@ -15,6 +15,11 @@ export const DEFAULT_LAYERS = [
   { id: "layer-annotation", name: "注記", color: "#a26a1d", visible: true, locked: false, printable: true }
 ];
 
+// モデル空間(=用紙)の範囲(mm)。これはA3の実寸ではなく、このアプリが扱う仮想シート
+// 12000×7000mmであり、デモ図面の図枠・レイアウト・AI提案の範囲と一致させておく必要がある。
+// 以前はcad-core.jsとai-proposal.jsに同じ数値が重複していたため、単一の出所にまとめた。
+export const MODEL_EXTENT = Object.freeze({ minX: 0, minY: 0, maxX: 12000, maxY: 7000 });
+
 export const ROLE_POLICIES = {
   viewer: { label: "閲覧者", canEdit: false, canApprove: false, canRunAi: false, canComment: false },
   drafter: { label: "作図者", canEdit: true, canApprove: false, canRunAi: true, canComment: true },
@@ -290,6 +295,9 @@ export function applyTransaction(drawing, transaction) {
         continue;
       }
       if (next.layers.length === 1) return fail("最後のレイヤーは削除できません。", drawing);
+      // ロック中のレイヤは削除できない(AutoCAD等と同じ扱い)。ロックは「誤操作防止」の
+      // 意思表示であり、削除を許すと保護の意味が無くなる。
+      if (target.locked) return fail(`ロック中のレイヤーは削除できません: ${target.name}`, drawing);
       if (next.entities.some((entity) => entity.layerId === command.id)) {
         return fail(`図形が残るレイヤーは削除できません: ${target.name}`, drawing);
       }
@@ -488,7 +496,15 @@ export function validateDrawing(drawing) {
       issues.push(issue("major", "invalid-geometry", `図形の形状が不正です: ${entity.id}`, entity.id));
       continue;
     }
-    if (bounds.minX < -1 || bounds.minY < -1 || bounds.maxX > 12001 || bounds.maxY > 7001) {
+    // 用紙外判定はモデル空間の範囲(MODEL_EXTENT)で行う。これはアプリ全体で使う
+    // 仮想シート(12000×7000mm)であり、A3実寸ではない。ai-proposal.jsの提案範囲と
+    // 同じ値を使うため定数を共有する(ドリフト防止)。
+    if (
+      bounds.minX < MODEL_EXTENT.minX - 1 ||
+      bounds.minY < MODEL_EXTENT.minY - 1 ||
+      bounds.maxX > MODEL_EXTENT.maxX + 1 ||
+      bounds.maxY > MODEL_EXTENT.maxY + 1
+    ) {
       issues.push(issue("major", "outside-paper", `用紙外の図形です: ${entity.id}`, entity.id));
     }
     if (entity.type === "line" && distance(entity.points[0], entity.points[1]) < EPSILON) {
