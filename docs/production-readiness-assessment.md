@@ -481,6 +481,7 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 - `tests/api-hardening.test.js`に5件追加(未知opの400、非オブジェクトコマンドの400、op非文字列の400、`points`超過の413、SPAが送る13 opの正常適用)
 - `tests/http-bridge.test.js`に4件追加(既存ファイル解決、欠落ファイルはnull=404、拡張子無しパスはindex.html、上位ディレクトリへ抜けるパスは不解決)
 - **実行時検証**(`serve-local`を一時ポートで起動): `/`=200 html、`/index.html`=200 html、**`/missing.js`=404**、**`/missing.txt`=404**、`/deep/client/route`=200 html(フォールバック維持)、`/src/app.js`=200 js
+- **Preview実測の限界**: `pr-105.mirai-web-cad.pages.dev`では`/missing.js`が**依然200(text/html)**である。これはCloudflare Pages側のSPAフォールバック(404.htmlが無い場合に未一致パスを`/index.html`へ返す挙動)であり、本修正が対象とするのは**自ホストの本番サーバー(`serve-production.mjs`、実際の本番ドメイン)**である。Pages経路はCloudflare側の設定であり、本ラウンドの修正対象外(下記16.4)。
 - `npm run verify:fast`: unit **366件中365 pass・1 skip**、ESLint 0 errors、lint/typecheck/a11y/build 成功／E2E **74/74**
 - CI全ジョブ、Preview実測、マージ後main CI/Production verify
 
@@ -491,4 +492,5 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 ### 16.4 未解決(据え置き)
 
 - MVPドメインはCloudflare Accessで保護されているため、**欠落アセットの404を外形監視へ組み込むにはAccess経由の監視設計が必要**(現状の`check-mvp-health.sh`は`/`の302を検査している)。
+- **Cloudflare Pages側のSPAフォールバックは未解消**。`pr-105.mirai-web-cad.pages.dev`の実測で`/missing.js`=200(text/html)。Pagesは404.htmlが無い場合に未一致パスを`/index.html`へ返すため、404を返させるには`404.html`の追加等が必要だが、それは`/deep/client/route`のようなSPA側のパスも404にしてしまう。ローカル常駐サーバー(実際の本番ドメイン)は本ラウンドで404化済みであり、Pagesは「参考・ロールバック用」の位置づけであるため、対応は方針判断とする。
 - 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限。
