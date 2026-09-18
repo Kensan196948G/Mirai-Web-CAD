@@ -6,6 +6,7 @@ import { developmentServerUrls } from "./lib/network-addresses.mjs";
 import {
   CONTENT_TYPES,
   RequestBodyTooLargeError,
+  applyEdgeHeaders,
   loadHeaderRules,
   makeHeadersResolver,
   nodeRequestToFetchRequest,
@@ -60,6 +61,10 @@ const server = createServer(async (req, res) => {
       ENTRA_GROUP_ROLE_MAP: process.env.ENTRA_GROUP_ROLE_MAP,
       ENTRA_GROUP_CACHE_TTL_MINUTES: process.env.ENTRA_GROUP_CACHE_TTL_MINUTES
     });
+    // 開発サーバーはHTTP配信のためHSTSは付与しない(`_headers`由来の値も除去する)。
+    // CSP等のエッジヘッダは本番と同じく付与し、E2Eで継続的に検証できるようにする。
+    applyEdgeHeaders(response.headers, headersForPath(url.pathname), "");
+    response.headers.delete("strict-transport-security");
     await writeFetchResponse(res, response);
     return;
   }

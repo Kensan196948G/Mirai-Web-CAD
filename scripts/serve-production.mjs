@@ -12,6 +12,8 @@ import { DEPLOY_PROVENANCE, evaluateDeployProvenance } from "./lib/deploy-info.m
 import {
   CONTENT_TYPES,
   RequestBodyTooLargeError,
+  STRICT_TRANSPORT_SECURITY,
+  applyEdgeHeaders,
   loadHeaderRules,
   makeHeadersResolver,
   nodeRequestToFetchRequest,
@@ -25,6 +27,14 @@ const staticRoot = path.join(root, "dist");
 const port = Number(process.env.PORT ?? 18812);
 const host = "127.0.0.1"; // 0.0.0.0にしない。インバウンドはCloudflare Tunnelのみを経由させる
 const shutdownTimeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10000);
+
+// 環境変数ファイルをシェルで`source`すると、bashは代入値の引用符を除去するため
+// JSON値(ACCESS_ROLE_MAP/ENTRA_GROUP_ROLE_MAP)が壊れる(実測: 36文字→32文字、
+// `{"a@b":"cad_viewer"}`が`{a@b:cad_viewer}`になる)。systemdのEnvironmentFileは
+// 引用符を保持するため通常運用では問題ないが、手動起動時にこの失敗が起きやすい。
+// 起動拒否はfail-closedとして正しいので変更せず、原因に気づけるヒントだけ添える。
+const ENV_SOURCING_HINT =
+  "環境変数ファイルをシェルでsourceするとJSON値の引用符が除去されます。systemdのEnvironmentFileを使うか、DATABASE_URL等の必要な変数だけを個別に取り出してください(docs/deployment-local.md参照)。";
 
 const env = validateEnv();
 
@@ -60,6 +70,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname.startsWith("/api")) {
       const request = await nodeRequestToFetchRequest(req, url);
       const response = await handleApiRequest(request, env);
+      // `_headers`の`/*`ルール(CSP等)はこれまで静的応答にしか適用されておらず、
+      // API応答はCSP/HSTSが付いていなかった。APIが自前で設定したヘッダを優先し、
+      // 不足分だけエッジ相当のヘッダで補う。
+      applyEdgeHeaders(response.headers, headersForPath(url.pathname));
       await writeFetchResponse(res, response);
       logRequest(req, url, response.status, startedAt);
       return;
@@ -67,7 +81,7 @@ const server = createServer(async (req, res) => {
 
     const file = await resolveStaticFile(staticRoot, url.pathname);
     if (!file) {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "strict-transport-security": STRICT_TRANSPORT_SECURITY });
       res.end("not found");
       logRequest(req, url, 404, startedAt);
       return;
@@ -77,20 +91,20 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, {
       "content-type": CONTENT_TYPES[ext] ?? "application/octet-stream",
       "x-content-type-options": "nosniff",
-      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "strict-transport-security": STRICT_TRANSPORT_SECURITY,
       ...headersForPath(resolvedPathname)
     });
     res.end(await readFile(file));
     logRequest(req, url, 200, startedAt);
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
-      if (!res.headersSent) res.writeHead(413, { "content-type": "text/plain; charset=utf-8" });
+      if (!res.headersSent) res.writeHead(413, { "content-type": "text/plain; charset=utf-8", "strict-transport-security": STRICT_TRANSPORT_SECURITY });
       res.end("payload too large");
       logRequest(req, url, 413, startedAt);
       return;
     }
     log("error", "unhandled request error", { path: url.pathname, error: errorMessage(error) });
-    if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain; charset=utf-8", "strict-transport-security": STRICT_TRANSPORT_SECURITY });
     res.end("internal error");
   }
 });
@@ -171,7 +185,7 @@ function validateEnv() {
   try {
     accessRoleMap = JSON.parse(accessRoleMapRaw);
   } catch (error) {
-    log("error", "ACCESS_ROLE_MAP is not valid JSON, refusing to start", { error: errorMessage(error) });
+    log("error", "ACCESS_ROLE_MAP is not valid JSON, refusing to start", { error: errorMessage(error), hint: ENV_SOURCING_HINT });
     process.exit(78);
   }
   if (!accessRoleMap || typeof accessRoleMap !== "object" || Array.isArray(accessRoleMap)) {
@@ -194,7 +208,7 @@ function validateEnv() {
     try {
       entraGroupRoleMap = JSON.parse(entraGroupRoleMapRaw);
     } catch (error) {
-      log("error", "ENTRA_GROUP_ROLE_MAP is not valid JSON, refusing to start", { error: errorMessage(error) });
+      log("error", "ENTRA_GROUP_ROLE_MAP is not valid JSON, refusing to start", { error: errorMessage(error), hint: ENV_SOURCING_HINT });
       process.exit(78);
     }
     if (!entraGroupRoleMap || typeof entraGroupRoleMap !== "object" || Array.isArray(entraGroupRoleMap)) {

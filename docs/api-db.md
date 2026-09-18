@@ -72,6 +72,15 @@ curl http://127.0.0.1:4176/api/health
 
 5xxの応答本文は、ローカル開発(`demo`かつ`APP_ENV!=="production"`)以外では`{"ok":false,"error":"internal error"}`へ丸め、DB接続エラー等の内部詳細を未認証クライアントへ返さない(詳細はサーバーログにのみ記録)。
 
+### API応答のセキュリティヘッダ
+
+API応答(`JSON_HEADERS`)は`src/api-handler.js`の`API_SECURITY_HEADERS`を単一の出所とし、CSP・`Strict-Transport-Security`・`X-Frame-Options`・`X-Content-Type-Options`・`Referrer-Policy`・`Permissions-Policy`を付与する。
+
+- **Cloudflare Pages Functionsの応答には`_headers`のルールが適用されない**(2026-09-18の実測: `pr-102`の`/api/health`にCSP/HSTSが付かない)。そのためヘッダは`_headers`ではなくAPI側に持たせ、`_headers`との値の一致をテスト(`tests/api-hardening.test.js`)で固定してドリフトを防ぐ。
+- `scripts/serve-production.mjs`は、これに加えて`_headers`の`/*`ルールのうち不足しているものを`applyEdgeHeaders`で補う(アプリが設定したヘッダは上書きしない)。404/413/500のエラー応答にもHSTSを付与する。
+- ローカル開発サーバー(`scripts/serve-local.mjs`)はHTTP配信のためHSTSのみ除去し、CSP等は本番と同じものを付与する(E2Eで検証される)。
+- Pages Functionsの`AUTH_MODE!=access`による503応答にも同じヘッダを付与する。
+
 ## Migration
 
 | File | 内容 |
