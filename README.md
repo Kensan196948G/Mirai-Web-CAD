@@ -126,7 +126,8 @@ npm run verify
 
 実行内容:
 
-- `npm run lint`: 必須ファイル存在、JS構文、未解決マーカーを検査
+- `npm run lint`: 必須ファイル存在、JS構文、未解決マーカー、`_headers`の書式を検査
+- `npm run lint:static`: ESLintで未定義参照・重複キー・到達不能コード・未使用変数等、実行時バグに直結する規則を検査(整形規則は入れず、`require-atomic-updates`のみ警告)
 - `npm run typecheck`: TypeScriptの`checkJs`でブラウザ/Core/API/DB層を型検査
 - `npm run a11y`: lang、viewport、aria、focus-visible、Responsive CSS等を静的検査
 - `npm test`: CAD Core、コマンド解析、JSON/DXF Import、公開境界、API認証/権限、JWT fail-closed、Idempotency、原子更新、AI承認を検査

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "npm run build && node scripts/serve-local.mjs",
     "lint": "node scripts/lint.mjs",
+    "lint:static": "eslint .",
     "typecheck": "tsc -p tsconfig.check.json",
     "a11y": "node scripts/a11y-static.mjs",
     "test": "node --test tests/*.test.js",
@@ -27,7 +28,7 @@
     "corpus:stats": "node scripts/corpus-ledger.mjs stats",
     "corpus:render": "node scripts/corpus-ledger.mjs render",
     "infra:check": "node scripts/check-cloudflare-iac.mjs",
-    "verify:fast": "npm run lint && npm run typecheck && npm run a11y && npm test && npm run build",
+    "verify:fast": "npm run lint && npm run lint:static && npm run typecheck && npm run a11y && npm test && npm run build",
     "verify": "npm run verify:fast && npm run test:e2e"
   },
   "engines": {
@@ -43,6 +44,7 @@
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "esbuild": "0.28.2",
+    "eslint": "^10.10.0",
     "hcl2-parser": "^1.0.3",
     "typescript": "^7.0.2",
     "wrangler": "^4.131.0"

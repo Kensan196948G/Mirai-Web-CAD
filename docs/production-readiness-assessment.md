@@ -439,3 +439,29 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 - エッジ(WAF)側のレート制限は未設定(プロセス内制限のみ)。
 - 監査ログの一覧取得(CSV以外)は`audit.exported`を記録しない。監査ログのハッシュチェーン/改ざん検知は未実装。
 - SPAフォールバックの200、ESLint等の静的解析(P0-59)、`/transactions`の1コマンドあたりの配列長検証。
+
+## 15. 2026-09-18 追加ラウンド(静的解析の導入、PR #104)
+
+### 15.1 実施内容
+
+改善台帳で唯一「未着手」として残っていたP1項目**P0-59(実質的な静的解析の導入)**を完了した。ESLint 10のflat config(`eslint.config.mjs`)を追加し、`npm run lint:static`として`verify:fast`(=CIのLintジョブ)へ組み込んだ。
+
+- **errorとする規則は実行時バグに直結するものだけ**: 未定義参照、重複キー/引数/クラスメンバ、到達不能コード、未使用変数、定数条件、`no-fallthrough`、`valid-typeof`、`use-isnan`、`no-self-assign`、`no-unsafe-negation`、`no-unsafe-optional-chaining`、`no-async-promise-executor`、`no-obj-calls`等。整形・命名の規則は一切入れていない。
+- `require-atomic-updates`はブラウザUIのイベントハンドラで誤検知が多いため**warnのみ(21件)**とし、CIをブロックしない(改善台帳の完了基準「warn中心で、CIをブロックしない範囲」に一致)。
+- スコープは`src/`・`scripts/`・`functions/`・`tests/`(E2Eスペックはブラウザコールバックを考慮してブラウザ/Node両方のグローバルを宣言)。
+- 実際に検出されたのは`src/app.js`の`FormData`未定義8件で、原因はグローバル定義の不足であり実バグではなかった(定義を追加して解消)。`scripts/check-cloudflare-iac.mjs`の`no-template-curly-in-string`は「HCL中の`${var.…}`という文字列そのもの」を探す検査のため誤検知として無効化した。
+
+### 15.2 検証Evidence
+
+- `npm run verify:fast`: `lint` → `lint:static`(**0 errors / 21 warnings**)→ `typecheck` → `a11y` → unit **357件中356 pass・1 skip** → `build` すべて成功
+- `npm audit --omit=dev --audit-level=high`: 0件(依存追加はdevのみ)
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 15.3 18項目への影響
+
+コード品質 72→73、CI/CD・リリース 81→82。他は据え置き。**総合 61.0 → 61.1**(1100/18)。判定は依然PoC。
+
+### 15.4 未解決(据え置き)
+
+- `require-atomic-updates`の21件は「ブラウザUIでは誤検知」と判断してwarnに留めている。将来、状態管理を見直す際の確認対象として残る。
+- 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限、SPAフォールバックの200、`/transactions`の1コマンドあたりの配列長検証。

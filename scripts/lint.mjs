@@ -53,7 +53,8 @@ const required = [
   "_headers",
   "seeds/demo.sql",
   "playwright.config.js",
-  "tsconfig.check.json"
+  "tsconfig.check.json",
+  "eslint.config.mjs"
 ];
 
 const failures = [];
