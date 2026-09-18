@@ -742,7 +742,7 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 
 | 文書 | 誤 | 正(実測根拠) |
 | --- | --- | --- |
-| `README.md` | `db:verify`は`0001`〜`0006`を適用し**8テーブル**、監査トリガーは**UPDATE/DELETE**を検証 | `scripts/verify-database.sh`は`0001`〜**`0008`**を適用し**9テーブル**、トリガー**3件**(UPDATE/DELETE/**TRUNCATE**)を検証。読み取り専用の`db:check`にも言及 |
+| `README.md` | `db:verify`は`0001`〜`0006`を適用し**8テーブル**、監査トリガーは**UPDATE/DELETE**を検証 | `scripts/verify-database.sh`は`0001`〜**`0008`**を適用し**9テーブル**、トリガー**3件**(UPDATE/DELETE/**TRUNCATE**)を検証。読み取り専用の`db:check`(手動確認用。デプロイ手順は現時点で`db:verify`を実行)にも言及 |
 | `docs/testing.md` | 監査トリガーの検証はUPDATE/DELETE。**PostgreSQL 18**空DBでPASS | トリガー3件(TRUNCATE含む)。CIは**`postgres:16-alpine`**(本番もPostgreSQL 16) |
 
 ### 22.3 所見台帳の補完(独立監査の未記録分8件)
