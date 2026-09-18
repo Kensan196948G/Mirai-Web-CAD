@@ -31,6 +31,9 @@ const JSON_HEADERS = {
 };
 
 const MAX_JSON_BYTES = 1_048_576;
+// 1リクエストで適用できるコマンド数の上限。ユーザー経路にはLLM経路(MAX_LLM_COMMANDS)の
+// ような上限が無く、巨大な配列を1回で送ると全利用者の描画・保存が遅くなるため設ける。
+const MAX_TRANSACTION_COMMANDS = 500;
 const AI_RATE_LIMIT_WINDOW_MS = 60_000;
 const aiRateLimitState = new Map();
 
@@ -123,6 +126,7 @@ export async function handleApiRequest(request, env = {}) {
       await requireDrawingAccess(store, actor.actor, transactionMatch[1]);
       const drawing = withActor(await getDrawing(store, transactionMatch[1]), actor.actor);
       const body = await readJson(request);
+      const commands = requireTransactionCommands(body);
       const idempotencyKey = requireIdempotency(request);
       await rejectClaimedIdempotency(store, idempotencyKey);
       requireExpectedVersion(request, drawing);
@@ -130,7 +134,7 @@ export async function handleApiRequest(request, env = {}) {
         source: "user",
         actor: actor.actor.id,
         label: body.label ?? "API transaction",
-        commands: body.commands ?? []
+        commands
       });
       if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
       await saveMutationAtomically(store, result.drawing, actor.actor, "drawing.transaction", drawing.id, { label: body.label }, idempotencyKey, route);
@@ -312,12 +316,15 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "POST" && route === "/projects") {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      // 冪等キーの予約は本文検証の「後」に行う。先に予約すると、本文不備で400を返した
+      // リクエストがキーを焼き切ってしまい、同じキーでの正しい再送が恒久的に409になる。
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (!body || typeof body.name !== "string" || !body.name.trim()) {
         throw httpError("案件名(name)が必要です。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const id = typeof body.id === "string" && /^prj_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `prj_${cryptoSafeId()}`;
       const accessScope = body.accessScope === "restricted" ? "restricted" : "open";
@@ -338,12 +345,13 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "PATCH" && projectMatch) {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (body.accessScope !== "open" && body.accessScope !== "restricted") {
         throw httpError("accessScopeはopenまたはrestrictedである必要があります。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const project = await store.updateProjectAccessScope(projectMatch[1], body.accessScope);
       if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
@@ -355,12 +363,13 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "POST" && projectMembersMatch) {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (typeof body.member !== "string" || !body.member.includes("@")) {
         throw httpError("member(メールアドレス)が必要です。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const project = await store.getProject(projectMembersMatch[1]);
       if (!project) throw httpError(`案件が見つかりません: ${projectMembersMatch[1]}`, 404);
@@ -572,14 +581,34 @@ function requireIdempotency(request) {
 }
 
 function requireExpectedVersion(request, drawing) {
-  const expected = Number(request.headers.get("expected-version"));
-  if (!Number.isFinite(expected)) {
-    throw httpError("expected-versionが必要です。", 428);
+  // 楽観ロックの比較は整数の完全一致で行う。Number()は"1e0"・"0x1"・"1.0"を
+  // いずれも1として通してしまい、表記ゆれで競合検知の挙動が変わるため、
+  // 10進整数のリテラルだけを受理する。
+  const raw = request.headers.get("expected-version");
+  if (raw === null || !/^\d+$/.test(raw.trim())) {
+    throw httpError("expected-versionが必要です(10進整数)。", 428);
   }
+  const expected = Number.parseInt(raw.trim(), 10);
   const actual = drawing.revision ?? 1;
   if (expected !== actual) {
     throw httpError(`リビジョンが競合しています。expected=${expected}, actual=${actual}`, 409);
   }
+}
+
+// 図面更新コマンドの入力検証。配列以外を受け取るとapplyTransaction内の
+// commands.every()が例外を投げて500になるため、ここで400として拒否する。
+function requireTransactionCommands(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw httpError("JSON本文はオブジェクトである必要があります。", 400);
+  }
+  const commands = body.commands ?? [];
+  if (!Array.isArray(commands)) {
+    throw httpError("commandsは配列である必要があります。", 400);
+  }
+  if (commands.length > MAX_TRANSACTION_COMMANDS) {
+    throw httpError(`1回の更新で送信できるコマンドは${MAX_TRANSACTION_COMMANDS}件までです。`, 413);
+  }
+  return commands;
 }
 
 async function rejectClaimedIdempotency(store, key) {
@@ -739,10 +768,16 @@ function auditLogsToCsv(entries) {
   return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
 }
 
-function csvEscape(value) {
+// 監査CSVのセル無害化。純関数として単体テストから直接検証するためexportする
+// (現行の到達経路ではHTTPヘッダはトリムされ、detailはJSON文字列化されるため
+// 先頭空白のケースは届きにくいが、汎用のエスケープ関数として正しく保つ)。
+export function csvEscape(value) {
   const text = String(value ?? "");
-  // 先頭が =, +, -, @ の場合は表計算ソフトの数式注入を防ぐため単一引用符を前置する。
-  const guarded = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  // 表計算ソフトは先頭の空白・タブ・改行を読み飛ばしてから数式として解釈するため、
+  // 「先頭の制御文字・空白を除いた最初の文字」が =,+,-,@ の場合に無害化する。
+  // 先頭一致だけで判定すると " =cmd|..." が素通りしてしまう。
+  const firstMeaningful = text.replace(/^[\s\u0000-\u001f]*/, "");
+  const guarded = /^[=+\-@]/.test(firstMeaningful) ? `'${text}` : text;
   if (/[",\r\n]/.test(guarded)) {
     return `"${guarded.replace(/"/g, '""')}"`;
   }

@@ -341,7 +341,13 @@ class PostgresDataStore {
     `;
   }
 
+  // 注意: 現行のアプリケーション経路は saveDrawingAtomically を使用しており、この
+  // メソッドは未使用(レガシー)である。かつて project_id を 'prj_demo_road_001' に
+  // 固定していたため、将来ここを呼ぶと図面がデモ案件へ混入し、案件単位のアクセス
+  // 制御(requireProjectAccess)が意図しない判定になる。呼び出し側が明示した
+  // projectId を優先し、無い場合のみレガシー既定値へフォールバックする。
   async saveDrawing(drawing) {
+    const projectId = typeof drawing.projectId === "string" && drawing.projectId ? drawing.projectId : LEGACY_PROJECT_ID;
     const content = this.sql.json(drawing);
     const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
@@ -351,7 +357,7 @@ class PostgresDataStore {
       with drawing_write as (
         insert into drawings (id, project_id, name, unit, current_version, revision, state)
         values (
-          ${drawing.id}, 'prj_demo_road_001', ${drawing.name}, ${drawing.unit},
+          ${drawing.id}, ${projectId}, ${drawing.name}, ${drawing.unit},
           ${drawing.version}, ${drawing.revision}, ${drawing.state}
         )
         on conflict (id) do update set
