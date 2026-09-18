@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { findMalformedHeaderLines } from "./lib/http-bridge.mjs";
 
 const root = process.cwd();
 const required = [
@@ -78,6 +79,12 @@ const css = await readFile(path.join(root, "src/styles.css"), "utf8");
 const forbidden = ["TODO", "FIXME"];
 for (const token of forbidden) {
   if (css.includes(token)) failures.push(`src/styles.css: unresolved marker ${token}`);
+}
+
+// `_headers`の書式違反は、パーサが該当行を黙って捨てるためCSP等が無言で
+// 欠落したまま配信され得る。配信前に検出する。
+for (const problem of findMalformedHeaderLines(await readFile(path.join(root, "_headers"), "utf8"))) {
+  failures.push(`_headers:${problem.line}: ${problem.reason}`);
 }
 
 const iacCheck = spawnSync(process.execPath, ["scripts/check-cloudflare-iac.mjs"], {

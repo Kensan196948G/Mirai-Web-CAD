@@ -15,6 +15,45 @@ export const CONTENT_TYPES = {
 };
 
 /**
+ * `_headers`の書式違反行を検出する。`loadHeaderRules`は解釈できない行を黙って
+ * 捨てるため、コロンの打ち忘れ等があるとCSPが無言で欠落したまま配信され得る。
+ * lintから呼び、配信前に気づけるようにする。
+ * @param {string} text
+ * @returns {{ line: number, reason: string }[]}
+ */
+export function findMalformedHeaderLines(text) {
+  const problems = [];
+  let hasPattern = false;
+  text.split("\n").forEach((rawLine, index) => {
+    const line = rawLine.replace(/\r$/, "");
+    const lineNumber = index + 1;
+    if (!line.trim()) return;
+    if (!line.startsWith(" ") && !line.startsWith("\t")) {
+      hasPattern = true;
+      const pattern = line.trim();
+      if (!pattern.startsWith("/")) {
+        problems.push({ line: lineNumber, reason: `パスパターンは/で始まる必要があります: ${pattern}` });
+      }
+      return;
+    }
+    if (!hasPattern) {
+      problems.push({ line: lineNumber, reason: "ヘッダー行の前に対象パスがありません" });
+      return;
+    }
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1) {
+      problems.push({ line: lineNumber, reason: `ヘッダー行にコロンがありません: ${line.trim()}` });
+      return;
+    }
+    const name = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!name) problems.push({ line: lineNumber, reason: "ヘッダー名が空です" });
+    else if (!value) problems.push({ line: lineNumber, reason: `ヘッダー ${name} の値が空です` });
+  });
+  return problems;
+}
+
+/**
  * Cloudflare Pages形式の`_headers`ファイルをパースする。
  * 読み込み失敗時はfail-open(空ルールで継続)ではなく例外を投げる。呼び出し側で
  * 明示的にfail-open運用を選びたい場合(既定値のあるローカル開発サーバー等)は
