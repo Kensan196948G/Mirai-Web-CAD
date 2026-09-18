@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDrawing, applyTransaction, entityBounds, hitTest } from "../src/cad-core.js";
-import { resolveBlocks } from "../src/cad-block.js";
-import { transformEntity, mirrorEntity } from "../src/cad-advanced.js";
+import { createDrawing, applyTransaction, entityBounds, hitTest, ellipse, spline } from "../src/cad-core.js";
+import { resolveBlocks, blockReference } from "../src/cad-block.js";
+import { transformEntity, mirrorEntity, dimensionEntity, hatchEntity } from "../src/cad-advanced.js";
 import { exportDxf } from "../src/dxf-export.js";
 import { parseCadImport } from "../src/importers.js";
 import { inspectDxfBlocks, createDxfSourceDocument } from "../src/dxf-source-document.js";
@@ -199,4 +199,33 @@ test("mirrored nonuniform BLOCK survives standalone DXF regeneration", () => {
   assert.equal(root.scale.y, -1);
   const reloaded = importDrawing(output.content);
   assert.deepEqual(reloaded.entities[0].axisScale, { x: 2, y: -1 });
+});
+
+test("resolveBlocks accepts DIMENSION/HATCH/VIEWPORT/ELLIPSE/SPLINE inside a BLOCK definition", () => {
+  const drawing = createDrawing();
+  const layerId = drawing.layers[0].id;
+  const dimension = dimensionEntity(layerId, { x: 0, y: 0 }, { x: 100, y: 0 }, { offset: 20 });
+  const hatch = hatchEntity(layerId, [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }]);
+  const viewport = { id: "vp1", type: "viewport", layerId, center: { x: 200, y: 0 }, width: 80, height: 60 };
+  const shape = ellipse(layerId, { x: 300, y: 0 }, 40, 20);
+  const curve = spline(layerId, [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 0 }, { x: 60, y: 30 }]);
+  drawing.blockDefinitions = [{
+    id: "def1", name: "MULTI", basePoint: { x: 0, y: 0 },
+    entities: [dimension, hatch, viewport, shape, curve],
+    attributeDefinitions: []
+  }];
+  const reference = blockReference(layerId, "def1", { x: 1000, y: 500 }, { id: "ref1" });
+  drawing.entities = [reference];
+  resolveBlocks(drawing);
+  assert.equal(reference.children.length, 5);
+  assert.deepEqual(reference.children.map((child) => child.type), ["dimension", "hatch", "viewport", "ellipse", "spline"]);
+  const bounds = entityBounds(reference);
+  assert.ok(bounds && Object.values(bounds).every(Number.isFinite));
+
+  const invalidViewport = { id: "vp-bad", type: "viewport", layerId, center: { x: 0, y: 0 }, width: -5, height: 10 };
+  const badDefinition = { id: "def2", name: "BAD", basePoint: { x: 0, y: 0 }, entities: [invalidViewport], attributeDefinitions: [] };
+  const badDrawing = createDrawing();
+  badDrawing.blockDefinitions = [badDefinition];
+  badDrawing.entities = [blockReference(badDrawing.layers[0].id, "def2", { x: 0, y: 0 }, { id: "ref2" })];
+  assert.throws(() => resolveBlocks(badDrawing), /ビューポート/);
 });

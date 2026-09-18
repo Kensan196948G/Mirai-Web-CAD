@@ -1,4 +1,5 @@
 import { createDxfSourceDocument, inspectDxfSourceDocument, inspectDxfBlocks, dxfGroup } from "./dxf-source-document.js";
+import { buildLayoutNameResolver } from "./dxf-native-entities.js";
 import { blockReference } from "./cad-block.js";
 import { affineText, blockAffine, inverseAffine } from "./cad-affine.js";
 
@@ -12,6 +13,7 @@ function textOptions(record) {
 
 export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive) {
   const document = createDxfSourceDocument(content);
+  const resolveLayoutName = buildLayoutNameResolver(document);
   const { records } = inspectDxfSourceDocument(document);
   const view = inspectDxfBlocks(document);
   if (view.diagnostics.length) throw new Error(view.diagnostics.join(" / "));
@@ -65,7 +67,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
       const reference = blockReference(layerId, definitionIds.get(source.definitionRecordId), source.position, { rotation: source.rotation, scale: uniform ? source.scale.x : 1,
         axisScale: uniform ? { x: 1, y: 1 } : { x: source.scale.x, y: source.scale.y }, scaleZ: source.scale.z });
       Object.assign(reference, { dxfRecordId: record.id, paperSpace: source.paperSpace === 1,
-        layoutName: source.layout ?? (source.paperSpace === 1 ? "Layout1" : "Model") });
+        layoutName: source.layout ?? resolveLayoutName(dxfGroup(record, 330), source.paperSpace === 1) });
       if (!reference.definitionId) throw new Error(`INSERT定義が未対応です: ${source.name}`);
       reference.attributeReferences = source.attributes.map((sourceAttribute) => {
         const value = attribute(sourceAttribute);
@@ -83,7 +85,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
     const normalized = parsePrimitive(record, layerId);
     normalized.dxfRecordId = record.id;
     normalized.paperSpace = Number(dxfGroup(record, 67, 0)) === 1;
-    normalized.layoutName = dxfGroup(record, 410, normalized.paperSpace ? "Layout1" : "Model");
+    normalized.layoutName = dxfGroup(record, 410) ?? resolveLayoutName(dxfGroup(record, 330), normalized.paperSpace);
     if (normalized.type === "text") {
       normalized.rotation = Number(dxfGroup(record, 50, 0));
       normalized.value = decodeDxfText(normalized.value);

@@ -70,6 +70,25 @@ test("dimension, hatch, block, and measurement expose bounds and quantities", ()
   assert.equal(validateDrawing({ id: "test", layers: [{ id: "layer-structure" }, { id: "layer-annotation" }], entities: [dimension, hatch, block] }).filter((issue) => issue.severity === "critical").length, 0);
 });
 
+test("entityArea adds disjoint outer HATCH boundaries and subtracts only holes (DXF flag bit1=External)", () => {
+  const square = (x, y, size) => [{ x, y }, { x: x + size, y }, { x: x + size, y: y + size }, { x, y: y + size }];
+  const outerA = hatchEntity("layer-structure", square(0, 0, 100).map((p) => [p.x, p.y]));
+  const disjointOuters = { ...outerA, boundaries: [
+    { flags: 1, points: square(0, 0, 100) },
+    { flags: 1, points: square(200, 0, 50) }
+  ] };
+  assert.equal(entityArea(disjointOuters), 100 * 100 + 50 * 50, "分離した2つの外側ループは加算されるべきで、2番目を穴として減算してはならない");
+
+  const withHole = { ...outerA, boundaries: [
+    { flags: 1, points: square(0, 0, 100) },
+    { flags: 0, points: square(20, 20, 10) }
+  ] };
+  assert.equal(entityArea(withHole), 100 * 100 - 10 * 10, "Externalでない(穴)boundaryは引き続き減算される");
+
+  const legacyNoFlags = { ...outerA, boundaries: [{ points: square(0, 0, 30) }] };
+  assert.equal(entityArea(legacyNoFlags), 30 * 30, "flagsを持たない単一boundaryはExternal相当として加算される");
+});
+
 // --- 高精度編集(Round 3): MIRROR / ARRAY / BREAK / JOIN ---
 
 test("mirrorEntity reflects a line about a vertical axis", () => {

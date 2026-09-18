@@ -13,12 +13,28 @@ const point = (record, code) => ({ x: numeric(record, code), y: numeric(record, 
 const values = (record, code) => record.groups.filter((group) => group.code === code).map((group) => group.value);
 const decode = (value) => String(value ?? "").replace(/\\U\+([0-9a-f]{4})/gi, (_match, code) => String.fromCharCode(parseInt(code, 16)));
 
-function metadata(record) {
+// group code 410(レイアウトタブ名)が無いペーパー空間Entityのlayoutnameを解決する。
+// DXFはEntityの所有関係を410ではなく330(所有ハンドル、通常はBLOCK_RECORDを指す)で
+// 表現するため、410が無い場合は330→BLOCK_RECORD→LAYOUTの経路で解決する。複数レイアウトの
+// DXFで410を省略するEntityが混在すると、固定の"Layout1"では誤ったレイアウトへ集約され得る。
+export function buildLayoutNameResolver(document) {
+  const byBlockRecordHandle = new Map(
+    inspectDxfLayouts(document).filter((layout) => layout.blockRecordHandle).map((layout) => [layout.blockRecordHandle, layout.name])
+  );
+  return (ownerHandle, paperSpace) => {
+    if (!paperSpace) return "Model";
+    return (ownerHandle && byBlockRecordHandle.get(ownerHandle)) || "Layout1";
+  };
+}
+
+function metadata(record, resolveLayoutName) {
+  const paperSpace = numeric(record, 67, 0) === 1;
+  const explicitLayoutName = dxfGroup(record, 410);
   return {
     dxfRecordId: record.id,
     dxfHandle: dxfGroup(record, 5),
-    paperSpace: numeric(record, 67, 0) === 1,
-    layoutName: dxfGroup(record, 410, numeric(record, 67, 0) === 1 ? "Layout1" : "Model")
+    paperSpace,
+    layoutName: explicitLayoutName ?? (resolveLayoutName ? resolveLayoutName(dxfGroup(record, 330), paperSpace) : (paperSpace ? "Layout1" : "Model"))
   };
 }
 
@@ -32,7 +48,7 @@ function dimensionKind(baseType, angle) {
   return { 1: "aligned", 2: "angular", 3: "diameter", 4: "radius", 5: "angular", 6: "ordinate" }[baseType] ?? "aligned";
 }
 
-export function parseDxfDimension(record, layerId, index = 0, dimensionStyles = []) {
+export function parseDxfDimension(record, layerId, index = 0, dimensionStyles = [], resolveLayoutName) {
   const rawType = numeric(record, 70, 0);
   const baseType = rawType & 7;
   const angle = numeric(record, 50, 0);
@@ -64,7 +80,7 @@ export function parseDxfDimension(record, layerId, index = 0, dimensionStyles = 
     measurementScale: dimensionStyle?.measurementScale > 0 ? dimensionStyle.measurementScale : 1,
     createdBy: "import"
   });
-  return Object.assign(entity, metadata(record), {
+  return Object.assign(entity, metadata(record, resolveLayoutName), {
     dxfDimensionType: rawType,
     dimensionStyleName: styleName,
     textOverride: decode(dxfGroup(record, 1, "<>")),
@@ -159,7 +175,7 @@ function parseEdgePath(cursor, flags) {
   return { type: "edges", flags, edges, sourceHandles, points };
 }
 
-export function parseDxfHatch(record, layerId, index = 0) {
+export function parseDxfHatch(record, layerId, index = 0, resolveLayoutName) {
   const cursor = pathCursor(record);
   const pathCount = numeric(record, 91, 0);
   const boundaries = [];
@@ -178,7 +194,7 @@ export function parseDxfHatch(record, layerId, index = 0) {
     createdBy: "import"
   });
   const seedCount = numeric(record, 98, 0), allX = values(record, 10), allY = values(record, 20);
-  return Object.assign(entity, metadata(record), {
+  return Object.assign(entity, metadata(record, resolveLayoutName), {
     boundaries,
     solidFill: numeric(record, 70, 0) === 1,
     associative: numeric(record, 71, 0) === 1,
@@ -192,7 +208,7 @@ export function parseDxfHatch(record, layerId, index = 0) {
   });
 }
 
-export function parseDxfViewport(record, layerId, index = 0) {
+export function parseDxfViewport(record, layerId, index = 0, resolveLayoutName) {
   const width = numeric(record, 40, 1), height = numeric(record, 41, 1);
   if (!(width > 0 && height > 0)) throw new Error("VIEWPORTの幅・高さが不正です。");
   const flags = numeric(record, 90, 0);
@@ -217,14 +233,14 @@ export function parseDxfViewport(record, layerId, index = 0) {
     frozenLayerHandles: values(record, 331),
     style: { strokeWidth: 1, lineDash: [8, 5], fill: "transparent" },
     meta: { createdBy: "import", createdAt: new Date().toISOString() },
-    ...metadata(record)
+    ...metadata(record, resolveLayoutName)
   };
 }
 
-export function parseNativeDxfEntity(record, layerId, index = 0, dimensionStyles = []) {
-  if (record.type === "DIMENSION") return parseDxfDimension(record, layerId, index, dimensionStyles);
-  if (record.type === "HATCH") return parseDxfHatch(record, layerId, index);
-  if (record.type === "VIEWPORT") return parseDxfViewport(record, layerId, index);
+export function parseNativeDxfEntity(record, layerId, index = 0, dimensionStyles = [], resolveLayoutName) {
+  if (record.type === "DIMENSION") return parseDxfDimension(record, layerId, index, dimensionStyles, resolveLayoutName);
+  if (record.type === "HATCH") return parseDxfHatch(record, layerId, index, resolveLayoutName);
+  if (record.type === "VIEWPORT") return parseDxfViewport(record, layerId, index, resolveLayoutName);
   return null;
 }
 

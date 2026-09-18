@@ -1,5 +1,5 @@
 import { transformEntity } from "./cad-advanced.js";
-import { entityBounds } from "./cad-core.js";
+import { entityBounds, validSpline } from "./cad-core.js";
 
 export const BLOCK_RESOURCE_MAX_BYTES = 700000;
 
@@ -72,7 +72,8 @@ export function resolveBlocks(drawing) {
     const inherit = (entity) => layers.get(entity.layerId)?.name === "0" ? reference.layerId : entity.layerId;
     const children = [];
     for (const entity of definition.entities) {
-      if (!layers.has(entity.layerId) || !["line", "circle", "arc", "polyline", "text", "block"].includes(entity.type) ||
+      if (!layers.has(entity.layerId) ||
+          !["line", "circle", "arc", "polyline", "text", "block", "dimension", "hatch", "viewport", "ellipse", "spline"].includes(entity.type) ||
           (entity.type === "block" && !entity.definitionId)) throw new Error("BLOCK定義内の図形・レイヤーが未対応です。");
       const child = structuredClone(entity);
       child.layerId = inherit(child);
@@ -90,6 +91,23 @@ export function resolveBlocks(drawing) {
         checkTextTransform(child);
         checkPoint(child.at);
         if (typeof child.value !== "string" || !Number.isFinite(child.size) || child.size <= 0 || !Number.isFinite(child.rotation ?? 0)) throw new Error("BLOCK文字が不正です。");
+      }
+      if (child.type === "ellipse") {
+        checkPoint(child.center);
+        if (!Number.isFinite(child.radiusX) || child.radiusX <= 0 || !Number.isFinite(child.radiusY) || child.radiusY <= 0) throw new Error("BLOCK楕円が不正です。");
+      }
+      if (child.type === "spline" && !validSpline(child)) throw new Error("BLOCKスプラインが不正です。");
+      if (child.type === "dimension") {
+        if (!Array.isArray(child.points) || child.points.length !== 2) throw new Error("BLOCK寸法の定義点が不正です。");
+        child.points.forEach(checkPoint);
+      }
+      if (child.type === "hatch") {
+        if (!Array.isArray(child.points) || child.points.length < 3) throw new Error("BLOCKハッチの境界点が不正です。");
+        child.points.forEach(checkPoint);
+      }
+      if (child.type === "viewport") {
+        checkPoint(child.center);
+        if (!Number.isFinite(child.width) || child.width <= 0 || !Number.isFinite(child.height) || child.height <= 0) throw new Error("BLOCKビューポートが不正です。");
       }
       const bounds = entityBounds(child);
       if (!bounds || !Object.values(bounds).every(Number.isFinite)) throw new Error("BLOCK定義内の形状が不正です。");

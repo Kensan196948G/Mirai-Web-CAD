@@ -307,7 +307,7 @@ function evaluateCoordinateAxis(pairs, effectiveTolerance, tolerance, findings) 
       checked += 1;
       const expectedValue = expectedFacets.scalars[key] ?? 0;
       const actualValue = actualFacets.scalars[key] ?? 0;
-      const angular = ["rotation", "startAngle", "endAngle"].includes(key);
+      const angular = ["rotation", "startAngle", "endAngle", "twistAngle"].includes(key);
       const parameter = ["startParameter", "endParameter"].includes(key);
       const d = angular ? angleDelta(expectedValue, actualValue) : Math.abs(expectedValue - actualValue);
       const scalarTolerance = angular ? tolerance.angle : parameter ? tolerance.angle * Math.PI / 180 : effectiveTolerance;

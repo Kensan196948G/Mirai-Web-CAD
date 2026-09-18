@@ -6,7 +6,7 @@ import { importUnits, dxfUnit } from "./import-units.js";
 import { prepareDxfBlocks, decodeDxfText } from "./dxf-block-import.js";
 import { blockReference, resolveBlocks, BLOCK_RESOURCE_MAX_BYTES } from "./cad-block.js";
 import { createDxfSourceDocument, inspectDxfSourceDocument } from "./dxf-source-document.js";
-import { inspectDxfDimensionStyles, inspectDxfLayouts, NATIVE_DXF_ENTITY_TYPES, parseNativeDxfEntity } from "./dxf-native-entities.js";
+import { buildLayoutNameResolver, inspectDxfDimensionStyles, inspectDxfLayouts, NATIVE_DXF_ENTITY_TYPES, parseNativeDxfEntity } from "./dxf-native-entities.js";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_IMPORT_ENTITIES = 10_000;
@@ -39,7 +39,8 @@ function parseJsonImport(content, drawing, currentLayerId) {
   if (units.factor !== 1) throw new Error("JSONの単位が既存図面と異なります。空図面へ取り込んでください。");
   const layers = createLayerMapping(sourceLayers, drawing, currentLayerId);
   const commands = [...layers.commands, ...units.commands];
-  if (parsed.blockDefinitions?.length || parsed.dxfSources?.length || parsed.dxfLayouts?.length || sourceEntities.some((entity) => entity.definitionId)) {
+  const hasBlockResources = parsed.blockDefinitions?.length || parsed.dxfSources?.length || parsed.dxfLayouts?.length || sourceEntities.some((entity) => entity.definitionId);
+  if (hasBlockResources) {
     if (drawing.entities.length || drawing.blockDefinitions?.length) throw new Error("定義参照BLOCKのJSONは空図面へ取り込んでください。");
     const mapEntity = (entity) => ({ ...entity, layerId: layers.resolve(entity.layerId),
       ...(entity.attributeReferences ? { attributeReferences: entity.attributeReferences.map((attribute) => ({ ...attribute, layerId: layers.resolve(attribute.layerId) })) } : {}) });
@@ -50,6 +51,18 @@ function parseJsonImport(content, drawing, currentLayerId) {
     if (new TextEncoder().encode(JSON.stringify(resources)).length > BLOCK_RESOURCE_MAX_BYTES) throw new Error("BLOCKリソースが容量上限を超えています。");
     commands.push(resources);
     sourceEntities.forEach((entity) => { if (entity.attributeReferences) entity.attributeReferences = mapEntity(entity).attributeReferences; });
+  } else if (parsed.dimensionStyles?.length) {
+    // blockDefinitions/dxfSources/dxfLayoutsを持たない(=空図面制約の対象外の)JSONでも、
+    // dimensionStylesだけが無条件で読み捨てられないようにする。set_block_resourcesは
+    // 4項目を一括置換するため、既存図面の定義・原本・レイアウトはそのまま引き継ぎ
+    // dimensionStylesだけを更新する(空でない図面でも安全に適用できる)。
+    commands.push({
+      op: "set_block_resources",
+      definitions: drawing.blockDefinitions ?? [],
+      sources: drawing.dxfSources ?? [],
+      dxfLayouts: drawing.dxfLayouts ?? [],
+      dimensionStyles: parsed.dimensionStyles
+    });
   }
   const warnings = [];
   const importedIds = new Map();
@@ -107,12 +120,13 @@ function parseDxfImport(content, drawing, currentLayerId) {
   const units = importUnits(drawing, dxfUnit(parsed.header));
   const sourceDocument = createDxfSourceDocument(content);
   const dimensionStyles = inspectDxfDimensionStyles(sourceDocument);
+  const resolveLayoutName = buildLayoutNameResolver(sourceDocument);
   if (inventory.types.INSERT) {
     if (units.factor !== 1) throw new Error("異なる単位のBLOCKは空図面へ取り込んでください。");
     const blocks = prepareDxfBlocks(content, drawing,
       (names) => createLayerMapping(names.map((name) => ({ id: name, name: decodeDxfText(name) })), drawing, currentLayerId),
       (record, layerId) => {
-        const native = parseNativeDxfEntity(record, layerId, 0, dimensionStyles);
+        const native = parseNativeDxfEntity(record, layerId, 0, dimensionStyles, resolveLayoutName);
         if (native) return native;
         const source = ["0", "SECTION", "2", "ENTITIES", ...record.groups.flatMap((group) => [String(group.code), group.value]), "0", "ENDSEC", "0", "EOF"].join("\n");
         const entity = new DxfParser().parseSync(source)?.entities?.[0];
@@ -152,11 +166,11 @@ function parseDxfImport(content, drawing, currentLayerId) {
     try {
       const sourceLayer = record.groups.find((group) => group.code === 8)?.value ?? "0";
       const parsedEntity = NATIVE_DXF_ENTITY_TYPES.has(record.type) ? null : parserQueues.get(record.type)?.shift();
-      const normalized = parseNativeDxfEntity(record, layers.resolve(sourceLayer), index, dimensionStyles) ?? (parsedEntity && normalizeDxfEntity(parsedEntity, layers.resolve(sourceLayer), index));
+      const normalized = parseNativeDxfEntity(record, layers.resolve(sourceLayer), index, dimensionStyles, resolveLayoutName) ?? (parsedEntity && normalizeDxfEntity(parsedEntity, layers.resolve(sourceLayer), index));
       if (normalized) {
         const paperSpace = Number(record.groups.find((group) => group.code === 67)?.value ?? 0) === 1;
-        commands.push({ op: "add", entity: units.convert({ ...normalized, dxfRecordId: record.id, paperSpace,
-          layoutName: record.groups.find((group) => group.code === 410)?.value ?? (paperSpace ? "Layout1" : "Model") }) });
+        const layoutName = record.groups.find((group) => group.code === 410)?.value ?? resolveLayoutName(record.groups.find((group) => group.code === 330)?.value, paperSpace);
+        commands.push({ op: "add", entity: units.convert({ ...normalized, dxfRecordId: record.id, paperSpace, layoutName }) });
       }
       else warnings.push(`${record.type ?? "UNKNOWN"}は未対応のためスキップしました。`);
     } catch (error) {
@@ -276,7 +290,21 @@ function normalizeJsonEntity(entity, layerId, index) {
   if (entity.type === "viewport") {
     const center = coordinate(entity.center);
     const width = positive(entity.width), height = positive(entity.height);
-    return { ...structuredClone(entity), ...options, type: "viewport", layerId, center, width, height };
+    const viewport = { ...structuredClone(entity), ...options, type: "viewport", layerId, center, width, height };
+    if (entity.viewCenter !== undefined) viewport.viewCenter = coordinate(entity.viewCenter);
+    if (entity.viewTarget !== undefined) viewport.viewTarget = coordinate(entity.viewTarget);
+    if (entity.viewDirection !== undefined) {
+      const value = entity.viewDirection ?? {};
+      viewport.viewDirection = { x: finiteOr(value.x, 0, "viewDirection.x"), y: finiteOr(value.y, 0, "viewDirection.y"), z: finiteOr(value.z, 1, "viewDirection.z") };
+    }
+    viewport.lensLength = finiteOr(entity.lensLength, 50, "lensLength");
+    viewport.frontClip = finiteOr(entity.frontClip, 0, "frontClip");
+    viewport.rearClip = finiteOr(entity.rearClip, 0, "rearClip");
+    viewport.viewHeight = finiteOr(entity.viewHeight, height, "viewHeight");
+    viewport.snapAngle = finiteOr(entity.snapAngle, 0, "snapAngle");
+    viewport.twistAngle = finiteOr(entity.twistAngle, 0, "twistAngle");
+    viewport.flags = finiteOr(entity.flags, 0, "flags");
+    return viewport;
   }
   if (entity.type === "block") {
     if (entity.definitionId) return Object.assign(blockReference(layerId, entity.definitionId, coordinate(entity.insertion), { ...options, dxfRecordId: entity.dxfRecordId, rotation: entity.rotation, scale: entity.scale, axisScale: entity.axisScale, scaleZ: entity.scaleZ, attributeReferences: entity.attributeReferences }),
@@ -384,6 +412,13 @@ function coordinate(value) {
 }
 
 function finite(value, label) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}が数値ではありません。`);
+  return parsed;
+}
+
+function finiteOr(value, fallback, label) {
+  if (value === undefined || value === null) return fallback;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${label}が数値ではありません。`);
   return parsed;

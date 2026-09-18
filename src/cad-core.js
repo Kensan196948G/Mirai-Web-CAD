@@ -719,7 +719,11 @@ export function entityArea(entity) {
   if (entity.type === "circle") return Math.PI * entity.radius * entity.radius;
   if (entity.type === "ellipse" && ellipseSweepRadians(entity) >= Math.PI * 2 - EPSILON) return Math.PI * entity.radiusX * entity.radiusY;
   if (entity.type === "polyline" && entity.closed) return polygonArea(entity.points);
-  if (entity.type === "hatch") return (entity.boundaries ?? [{ points: entity.points }]).reduce((sum, boundary, index) => sum + (index ? -1 : 1) * polygonArea(boundary.points ?? []), 0);
+  // DXF group code 92のboundary path type flag: bit1(External、既定値扱い)が外側ループを示す。
+  // Externalでないboundary(bit1未設定、DerivedやDefaultの穴)だけを減算する。単一boundary
+  // (flagsなし)は常にExternal相当として加算する。これにより、分離した複数の外側ループを
+  // 持つHATCHで穴として誤減算されず、面積がA+Bとして正しく合算される。
+  if (entity.type === "hatch") return (entity.boundaries ?? [{ points: entity.points }]).reduce((sum, boundary) => sum + (((boundary.flags ?? 1) & 1) ? 1 : -1) * polygonArea(boundary.points ?? []), 0);
   if (entity.type === "viewport") return entity.width * entity.height;
   if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityArea(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityArea(child) * (entity.scale ?? 1) ** 2, 0);
   return 0;
@@ -879,7 +883,7 @@ function clampedUniformKnots(pointCount, degree) {
   });
 }
 
-function validSpline(entity) {
+export function validSpline(entity) {
   const points = entity.controlPoints;
   const degree = Number(entity.degree);
   const knots = entity.knots;

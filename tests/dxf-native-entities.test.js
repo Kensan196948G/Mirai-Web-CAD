@@ -81,6 +81,50 @@ test("原本なしのDIMENSION/HATCH/VIEWPORTをネイティブDXFとして生�
   assert.deepEqual(importDxf(exported.content).drawing.entities.map((entity) => entity.type), ["dimension", "hatch", "viewport"]);
 });
 
+test("非angular寸法のpoints変更を検出し、限定パッチではなく再生成へフォールバックする", () => {
+  const drawing = createDrawing();
+  const layerId = drawing.layers[0].id;
+  const dimension = dimensionEntity(layerId, { x: 0, y: 0 }, { x: 100, y: 0 }, { offset: 20 });
+  const added = applyTransaction(drawing, { source: "system", commands: [{ op: "add", entity: dimension }] });
+  assert.equal(added.ok, true, added.error);
+  const exportedFirst = exportDxf(added.drawing);
+  const reimported = importDxf(exportedFirst.content).drawing;
+  const importedDimension = reimported.entities.find((entity) => entity.type === "dimension");
+  assert.equal(importedDimension.dimensionType, "aligned");
+
+  // 参照解除・グリップ編集等でpointsだけが変化し、dimensionLinePoint/textPoint/
+  // definitionPointsは追従しないシナリオを再現する。
+  const moved = applyTransaction(reimported, { source: "system", commands: [
+    { op: "update", id: importedDimension.id, patch: { points: [{ x: 0, y: 30 }, { x: 100, y: 30 }] } }
+  ] });
+  assert.equal(moved.ok, true, moved.error);
+  const exportedSecond = exportDxf(moved.drawing);
+  assert.notEqual(exportedSecond.preservation?.mode, "source-patch", "pointsのみの変更を限定パッチで見逃してはならない");
+  const reexported = importDxf(exportedSecond.content).drawing.entities.find((entity) => entity.type === "dimension");
+  assert.deepEqual(reexported.points, [{ x: 0, y: 30 }, { x: 100, y: 30 }], "再生成後のDXFは新しいpointsを反映する");
+});
+
+const multiLayoutFixture = [
+  "0", "SECTION", "2", "HEADER", "9", "$ACADVER", "1", "AC1015", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+  "0", "SECTION", "2", "ENTITIES",
+  // group 410(レイアウトタブ名)を持たないpaper-space HATCH。所有ハンドル330はSheet-Bの
+  // BLOCK_RECORDハンドル(51)を指す。410が無いため、330→LAYOUT解決に頼るしかない。
+  "0", "HATCH", "5", "60", "330", "51", "8", "HATCH", "67", "1", "10", "0", "20", "0", "30", "0", "210", "0", "220", "0", "230", "1",
+  "2", "SOLID", "70", "1", "71", "0", "91", "1", "92", "1", "93", "1", "72", "2", "10", "20", "20", "20", "40", "10", "50", "0", "51", "360", "73", "1", "97", "0", "75", "0", "76", "1", "52", "0", "41", "1", "77", "0", "98", "0",
+  "0", "ENDSEC",
+  "0", "SECTION", "2", "OBJECTS",
+  "0", "LAYOUT", "5", "40", "330", "D", "100", "AcDbPlotSettings", "1", "", "4", "A3", "44", "420", "45", "297", "100", "AcDbLayout", "1", "Sheet-A", "70", "1", "71", "1", "330", "41", "331", "32",
+  "0", "LAYOUT", "5", "45", "330", "D", "100", "AcDbPlotSettings", "1", "", "4", "A3", "44", "420", "45", "297", "100", "AcDbLayout", "1", "Sheet-B", "70", "1", "71", "2", "330", "51", "331", "52",
+  "0", "ENDSEC", "0", "EOF"
+].join("\n");
+
+test("410を持たないEntityのlayoutNameを330所有ハンドル経由でLAYOUTから解決する(複数レイアウト)", () => {
+  const { drawing } = importDxf(multiLayoutFixture);
+  const hatch = drawing.entities.find((entity) => entity.type === "hatch");
+  assert.equal(hatch.paperSpace, true);
+  assert.equal(hatch.layoutName, "Sheet-B", "固定の'Layout1'ではなく、330が指すBLOCK_RECORDが属するSheet-Bへ正しく解決されるべき");
+});
+
 test("DIMSTYLE/Layoutモデルの変更を未変更原本として黙って書出さない", () => {
   const { drawing } = importDxf(nativeFixture);
   drawing.dimensionStyles[0].precision = 4;
@@ -88,4 +132,11 @@ test("DIMSTYLE/Layoutモデルの変更を未変更原本として黙って書�
   assert.equal(exported.preservation, undefined);
   assert.match(exported.warnings.join(" "), /限定再生成/);
   assert.match(exported.content, /\n271\n4\n/);
+  // 限定再生成では原本のTABLES/OBJECTSを保持しないため、原本の330/331ハンドル参照
+  // (HATCH boundaryのsourceHandles、VIEWPORTのfrozenLayerHandles)は解決不能になる。
+  // 無効な参照を出力してはならない(HATCHの関連付け71も0へ落とす)。
+  assert.doesNotMatch(exported.content, /\n330\n99\n/, "限定再生成でHATCHの原本sourceHandle参照(330)を出力してはならない");
+  assert.doesNotMatch(exported.content, /\n331\n32\n/, "限定再生成でVIEWPORTの原本frozenLayerHandle参照(331)を出力してはならない");
+  const hatchSection = exported.content.slice(exported.content.indexOf("\nHATCH\n"));
+  assert.match(hatchSection, /\n71\n0\n/, "限定再生成ではHATCHの関連付け(71)を0にする");
 });

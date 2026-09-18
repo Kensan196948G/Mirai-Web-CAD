@@ -98,6 +98,15 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
   };
   const patchDimension = (entity, before, recordId) => {
     if (entity.dxfDimensionType !== before.dxfDimensionType) return false;
+    // pointsは、angular以外ではgroup code 13/14そのもの、angularでもdefinitionPoints
+    // (13-16)のいずれかが未指定ならそのcodeのfallback値になる(encodeDimension参照)。
+    // dimensionLinePoint/textPoint/definitionPointsの限定パッチだけではこれらのcodeに
+    // 追従できないため、pointsの変化がDXF出力へ影響し得る場合は限定パッチを諦め、
+    // 原本非保持の再生成へ委ねる。angularでdefinitionPoints 13-16が全て明示されている
+    // 場合に限り、pointsはencode・ジオメトリ計算のいずれにも使われないため無視してよい。
+    const kind = entity.dimensionType ?? before.dimensionType ?? "aligned";
+    const definitionPointsCoverAllCodes = kind === "angular" && [13, 14, 15, 16].every((code) => entity.definitionPoints?.[String(code)] && before.definitionPoints?.[String(code)]);
+    if (!definitionPointsCoverAllCodes && JSON.stringify(entity.points) !== JSON.stringify(before.points)) return false;
     patchPoint(recordId, 10, entity.dimensionLinePoint, before.dimensionLinePoint);
     patchPoint(recordId, 11, entity.textPoint, before.textPoint);
     for (const code of [12, 13, 14, 15, 16]) {
@@ -139,6 +148,7 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
   const patchViewport = (entity, before, recordId) => {
     for (const [code, key] of [[10, "center"], [12, "viewCenter"], [13, "snapBase"], [14, "snapSpacing"], [15, "gridSpacing"], [17, "viewTarget"]]) patchPoint(recordId, code, entity[key], before[key]);
     for (const [code, value, previous] of [[16, entity.viewDirection?.x, before.viewDirection?.x], [26, entity.viewDirection?.y, before.viewDirection?.y], [36, entity.viewDirection?.z, before.viewDirection?.z],
+      [37, entity.viewTarget?.z, before.viewTarget?.z],
       [40, entity.width, before.width], [41, entity.height, before.height], [42, entity.lensLength, before.lensLength], [43, entity.frontClip, before.frontClip], [44, entity.rearClip, before.rearClip],
       [45, entity.viewHeight, before.viewHeight], [50, entity.snapAngle, before.snapAngle], [51, entity.twistAngle, before.twistAngle], [68, entity.status, before.status], [69, entity.viewportId, before.viewportId],
       [90, viewportFlags(entity), viewportFlags(before)]]) if (value !== previous) add(recordId, code, value);

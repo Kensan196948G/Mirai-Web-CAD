@@ -27,13 +27,16 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
     if (next.definitionId) next.scaleZ = (next.scaleZ ?? 1) * scale;
     return next;
   }
-  for (const key of ["origin", "center", "at", "insertion"]) {
+  for (const key of ["origin", "center", "at", "insertion", "elevation"]) {
     if (next[key]) next[key] = transform(next[key]);
   }
   if (next.points) next.points = next.points.map(transform);
   if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
-  for (const key of ["dimensionLinePoint", "textPoint", "viewCenter", "snapBase", "snapSpacing", "gridSpacing"]) {
+  for (const key of ["dimensionLinePoint", "textPoint", "viewCenter", "snapBase"]) {
     if (next[key]) next[key] = transform(next[key]);
+  }
+  for (const key of ["snapSpacing", "gridSpacing"]) {
+    if (next[key]) next[key] = rotateScaleVector(next[key], angle, scale);
   }
   if (next.viewTarget) next.viewTarget = { ...next.viewTarget, ...transform(next.viewTarget) };
   if (next.definitionPoints) next.definitionPoints = Object.fromEntries(Object.entries(next.definitionPoints).map(([key, value]) => [key, transform(value)]));

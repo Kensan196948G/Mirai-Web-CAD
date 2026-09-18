@@ -75,7 +75,7 @@ export function exportDxf(drawing) {
   let exported = 0;
   lines.push("0", "SECTION", "2", "ENTITIES");
   for (const entity of drawing.entities ?? []) {
-    const encoded = encodeEntity(entity, layerNameById, warnings, skipped, definitions);
+    const encoded = encodeEntity(entity, layerNameById, warnings, skipped, definitions, true);
     if (!encoded) continue;
     lines.push(...encoded);
     exported += 1;
@@ -140,7 +140,7 @@ function appendBlocks(lines, drawing, layers, warnings, skipped, definitions) {
     const owner = (4096 + index).toString(16);
     lines.push("0", "BLOCK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockBegin", "2", sanitizeName(definition.name), "70", definition.attributeDefinitions.length ? "2" : "0", ...point(definition.basePoint, 10), "3", sanitizeName(definition.name), "1", "");
     for (const entity of definition.entities) {
-      const encoded = encodeEntity(entity, layers, warnings, skipped, definitions);
+      const encoded = encodeEntity(entity, layers, warnings, skipped, definitions, true);
       if (encoded) lines.push(...encoded);
     }
     for (const attribute of definition.attributeDefinitions) lines.push(...encodeAttribute(attribute, "ATTDEF", layers));
@@ -172,8 +172,8 @@ function textTransformGroups(entity) {
  * @param skipped
  * @returns {string[] | null}
  */
-function encodeEntity(entity, layerNameById, warnings, skipped, definitions = new Map()) {
-  const encoded = encodeEntityBody(entity, layerNameById, warnings, skipped, definitions);
+function encodeEntity(entity, layerNameById, warnings, skipped, definitions = new Map(), limitedRegeneration = false) {
+  const encoded = encodeEntityBody(entity, layerNameById, warnings, skipped, definitions, limitedRegeneration);
   if (!encoded || !definitions.size || entity.type === "block") return encoded;
   const subclass = { LINE: "AcDbLine", CIRCLE: "AcDbCircle", ARC: "AcDbCircle", LWPOLYLINE: "AcDbPolyline", TEXT: "AcDbText", ELLIPSE: "AcDbEllipse", SPLINE: "AcDbSpline", DIMENSION: "AcDbDimension", HATCH: "AcDbHatch", VIEWPORT: "AcDbViewport" }[encoded[1]];
   if (!subclass) return encoded;
@@ -210,7 +210,7 @@ export function encodeDxfBlockDefinition(definition, drawing, owner) {
   return lines.map(dxfText).join("\n") + "\n";
 }
 
-function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions) {
+function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions, limitedRegeneration = false) {
   if (!entity || typeof entity !== "object" || typeof entity.id !== "string" || typeof entity.type !== "string") {
     return null;
   }
@@ -344,9 +344,9 @@ function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions)
     case "dimension":
       return encodeDimension(entity, base, skipped);
     case "hatch":
-      return encodeHatch(entity, base, skipped);
+      return encodeHatch(entity, base, skipped, limitedRegeneration);
     case "viewport":
-      return encodeViewport(entity, base, skipped);
+      return encodeViewport(entity, base, skipped, limitedRegeneration);
     default:
       return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です");
   }
@@ -364,7 +364,7 @@ function encodeDimension(entity, base, skipped) {
   const definitions = entity.definitionPoints ?? {};
   if (kind === "angular") {
     groups.push("100", "AcDb2LineAngularDimension");
-    for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)] ?? entity.points[code % 2], code));
+    for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)] ?? entity.points[(code + 1) % 2], code));
   } else if (["radius", "diameter"].includes(kind)) {
     groups.push("100", kind === "radius" ? "AcDbRadialDimension" : "AcDbDiametricDimension", ...point(entity.points[1], 15));
   } else {
@@ -373,13 +373,17 @@ function encodeDimension(entity, base, skipped) {
   return groups;
 }
 
-function encodeHatch(entity, base, skipped) {
+function encodeHatch(entity, base, skipped, limitedRegeneration = false) {
   if (!Array.isArray(entity.points) || entity.points.length < 3 || entity.points.some((value) => !finitePoint(value))) return skipEntity(entity, skipped, "ハッチ境界が不正です");
   const boundaries = Array.isArray(entity.boundaries) && entity.boundaries.length ? entity.boundaries : [{ type: "polyline", flags: 3, closed: true, vertices: entity.points }];
+  // 限定再生成(原本のTABLES/OBJECTSを保持しない再構成)では、boundaryのsourceHandles(330参照)や
+  // 関連付け(71)が指す原本ハンドルが新しい文書中で解決不能になる。無効な参照を出力しないよう、
+  // 限定再生成時は関連付けを0、boundaryのsourceHandles件数を0として書出す。
+  const associative = limitedRegeneration ? false : entity.associative;
   const groups = ["0", "HATCH", ...base, "10", "0", "20", "0", "30", "0", "210", "0", "220", "0", "230", "1",
-    "2", dxfText(entity.pattern ?? "SOLID"), "70", entity.solidFill || entity.pattern === "SOLID" ? "1" : "0", "71", entity.associative ? "1" : "0", "91", String(boundaries.length)];
+    "2", dxfText(entity.pattern ?? "SOLID"), "70", entity.solidFill || entity.pattern === "SOLID" ? "1" : "0", "71", associative ? "1" : "0", "91", String(boundaries.length)];
   try {
-    for (const boundary of boundaries) encodeHatchBoundary(groups, boundary);
+    for (const boundary of boundaries) encodeHatchBoundary(groups, boundary, limitedRegeneration);
   } catch (error) {
     return skipEntity(entity, skipped, error instanceof Error ? error.message : "ハッチ境界を書出せません");
   }
@@ -389,7 +393,7 @@ function encodeHatch(entity, base, skipped) {
   return groups;
 }
 
-function encodeHatchBoundary(groups, boundary) {
+function encodeHatchBoundary(groups, boundary, limitedRegeneration = false) {
   if (boundary.type === "polyline") {
     const vertices = boundary.vertices ?? boundary.points;
     if (!Array.isArray(vertices) || vertices.length < 3) throw new Error("ポリラインハッチ境界が不正です");
@@ -408,19 +412,21 @@ function encodeHatchBoundary(groups, boundary) {
       else throw new Error(`HATCH edge ${edge.type}は書出せません`);
     }
   } else throw new Error("不明なHATCH境界です");
-  const handles = boundary.sourceHandles ?? [];
+  const handles = limitedRegeneration ? [] : (boundary.sourceHandles ?? []);
   groups.push("97", String(handles.length));
   for (const handle of handles) groups.push("330", String(handle));
 }
 
-function encodeViewport(entity, base, skipped) {
+function encodeViewport(entity, base, skipped, limitedRegeneration = false) {
   const center = finitePoint(entity.center);
   if (!center || !Number.isFinite(entity.width) || entity.width <= 0 || !Number.isFinite(entity.height) || entity.height <= 0) return skipEntity(entity, skipped, "VIEWPORTの位置または寸法が不正です");
   const groups = ["0", "VIEWPORT", ...base, "67", "1", "410", dxfText(entity.layoutName ?? "Layout1"), ...point(center, 10), "40", num(entity.width), "41", num(entity.height),
     "68", String(entity.status ?? 1), "69", String(entity.viewportId ?? 1), ...point(entity.viewCenter ?? { x: 0, y: 0 }, 12), ...point(entity.viewTarget ?? { x: 0, y: 0 }, 17),
     "16", num(entity.viewDirection?.x ?? 0), "26", num(entity.viewDirection?.y ?? 0), "36", num(entity.viewDirection?.z ?? 1), "42", num(entity.lensLength ?? 50), "43", num(entity.frontClip ?? 0), "44", num(entity.rearClip ?? 0),
     "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384)];
-  for (const handle of entity.frozenLayerHandles ?? []) groups.push("331", String(handle));
+  // 限定再生成では原本のLAYERテーブルのハンドルが新しい文書と一致する保証がないため、
+  // frozenLayerHandles(331参照)は出力しない(entityArea等と異なりgroup 331自体を省略する)。
+  if (!limitedRegeneration) for (const handle of entity.frozenLayerHandles ?? []) groups.push("331", String(handle));
   return groups;
 }
 

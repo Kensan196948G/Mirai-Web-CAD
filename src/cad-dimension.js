@@ -75,7 +75,7 @@ export function dimensionGeometry(entity) {
     });
     const value = (secondAngle - firstAngle) * 180 / Math.PI;
     const numeric = (value * options.measurementScale).toFixed(options.precision);
-    const label = entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", numeric) : `${options.prefix}${numeric}${options.suffix}`;
+    const label = entity.associationStatus === "broken" ? "[?]" : entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", numeric) : `${options.prefix}${numeric}${options.suffix}`;
     return { segments: [[center, arcPoints[0]], ...arcPoints.slice(1).map((point, index) => [arcPoints[index], point]), [center, arcPoints.at(-1)]], start: arcPoints[0], end: arcPoints.at(-1),
       textPoint: entity.textPoint ?? arcPoints[Math.floor(arcPoints.length / 2)], label, value, ...options };
   }
@@ -102,7 +102,7 @@ export function dimensionGeometry(entity) {
   }
   const radial = ["radius", "diameter"].includes(options.dimensionType);
   const segments = radial ? [[start, end]] : [[a, start], [start, end], [b, end]];
-  const textPoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - options.textSize * 0.25 };
+  const textPoint = entity.textPoint ?? { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - options.textSize * 0.25 };
   const numeric = (value * options.measurementScale).toFixed(options.precision);
   const symbol = options.dimensionType === "radius" ? "R" : options.dimensionType === "diameter" ? "DIA " : "";
   const generated = `${options.prefix}${symbol}${numeric}${options.suffix}`;
