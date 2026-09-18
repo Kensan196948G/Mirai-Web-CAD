@@ -20,19 +20,15 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
       y: base.y + x * Math.sin(radians) + y * Math.cos(radians) + dy
     };
   };
-  // VIEWPORTのviewCenter/snapBase/viewTargetは紙空間の枠(center)とは別の、モデル空間側の
-  // カメラ・スナップ基準点(DXF group 12/13/17)。MOVE/COPYでVIEWPORTの枠を紙面上で動かしても
-  // 表示中のモデル範囲は変わらないため、平行移動(dx/dy)は適用せず回転・倍率だけを適用する
-  // (単位変換等のscale-onlyな全体変換では、他の座標と同様に一貫して換算する)。
-  const transformWithoutTranslation = (point) => {
-    const x = (point.x - base.x) * scale;
-    const y = (point.y - base.y) * scale;
-    const radians = (angle * Math.PI) / 180;
-    return {
-      x: base.x + x * Math.cos(radians) - y * Math.sin(radians),
-      y: base.y + x * Math.sin(radians) + y * Math.cos(radians)
-    };
-  };
+  // VIEWPORTのviewCenter/snapBase/snapSpacing/gridSpacing/viewTarget/viewHeightは、紙空間の枠
+  // (center)とは別の、モデル空間(DCS)側のカメラ・スナップ設定(DXF group 12/13/14/15/17/45)。
+  // 紙面上で枠を移動・回転・尺度変更しても表示中のモデル範囲やスナップ設定は変わらないため、
+  // 対話編集(MOVE/COPY/ROTATE/SCALE)ではこれらを一切変更しない。紙空間のcenterを基準(base)に
+  // 回転・倍率を適用すると、モデル空間の座標を別空間の原点で動かすことになり不正な値になる
+  // (その値はpatchViewport経由で原本DXFへ書き戻される)。
+  // 一方、単位変換は scale factor / angle=0 / base=原点 で呼ばれる図面全体の座標系変換なので、
+  // モデル空間の値も同じ倍率で一貫して換算する必要がある。
+  const documentScale = angle === 0 && scale !== 1 && base.x === 0 && base.y === 0;
   if (next.type === "block") {
     next.insertion = transform(next.insertion);
     next.rotation = (next.rotation ?? 0) + angle;
@@ -54,13 +50,13 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   for (const key of ["dimensionLinePoint", "textPoint"]) {
     if (next[key]) next[key] = transform(next[key]);
   }
-  for (const key of ["viewCenter", "snapBase"]) {
-    if (next[key]) next[key] = transformWithoutTranslation(next[key]);
+  if (documentScale) {
+    const scaleOnly = (value) => ({ x: value.x * scale, y: value.y * scale });
+    for (const key of ["viewCenter", "snapBase", "snapSpacing", "gridSpacing"]) {
+      if (next[key]) next[key] = scaleOnly(next[key]);
+    }
+    if (next.viewTarget) next.viewTarget = { ...next.viewTarget, x: next.viewTarget.x * scale, y: next.viewTarget.y * scale };
   }
-  for (const key of ["snapSpacing", "gridSpacing"]) {
-    if (next[key]) next[key] = rotateScaleVector(next[key], angle, scale);
-  }
-  if (next.viewTarget) next.viewTarget = { ...next.viewTarget, ...transformWithoutTranslation(next.viewTarget) };
   if (next.definitionPoints) next.definitionPoints = Object.fromEntries(Object.entries(next.definitionPoints).map(([key, value]) => [key, transform(value)]));
   if (next.seedPoints) next.seedPoints = next.seedPoints.map(transform);
   if (next.boundaries) next.boundaries = next.boundaries.map((boundary) => ({
@@ -80,7 +76,9 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   if (typeof next.radiusY === "number") next.radiusY = Math.abs(next.radiusY * scale);
   if (typeof next.width === "number") next.width *= scale;
   if (typeof next.height === "number") next.height *= scale;
-  if (typeof next.viewHeight === "number") next.viewHeight = Math.abs(next.viewHeight * scale);
+  // viewHeightはviewCenter等と同じモデル空間(DCS)の量なので、対話編集では変更せず
+  // 単位変換(documentScale)のときだけ換算する。
+  if (documentScale && typeof next.viewHeight === "number") next.viewHeight = Math.abs(next.viewHeight * scale);
   if (typeof next.patternScale === "number") next.patternScale = Math.abs(next.patternScale * scale);
   if (typeof next.spacing === "number") next.spacing = Math.abs(next.spacing * scale);
   if (typeof next.size === "number") next.size = Math.abs(next.size * scale);

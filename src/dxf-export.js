@@ -373,6 +373,14 @@ function encodeDimension(entity, base, skipped) {
     for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)], code));
   } else if (["radius", "diameter"].includes(kind)) {
     groups.push("100", kind === "radius" ? "AcDbRadialDimension" : "AcDbDiametricDimension", ...point(entity.points[1], 15));
+  } else if (kind === "ordinate") {
+    // 座標寸法は他種別と別のサブクラス(AcDbOrdinateDimension)を持ち、13=フィーチャ位置、
+    // 14=引出線端点で表す。X軸(type flag bit 64)なら両点のYを、Y軸ならXを一致させる。
+    // aligned/rotated用のサブクラスを流用するとAutoCAD側で寸法が解釈できない。
+    const feature = entity.points[0];
+    const xAxis = Number.isInteger(entity.dxfDimensionType) ? Boolean(entity.dxfDimensionType & 64) : Math.abs(entity.points[1].x - feature.x) >= Math.abs(entity.points[1].y - feature.y);
+    const leader = xAxis ? { x: entity.points[1].x, y: feature.y } : { x: feature.x, y: entity.points[1].y };
+    groups.push("100", "AcDbOrdinateDimension", ...point(feature, 13), ...point(leader, 14));
   } else {
     groups.push("100", kind === "aligned" ? "AcDbAlignedDimension" : "AcDbRotatedDimension", ...point(entity.points[0], 13), ...point(entity.points[1], 14), "50", num(entity.dimensionLineAngle ?? (kind === "vertical" ? 90 : 0)));
   }
@@ -402,9 +410,21 @@ function encodeHatch(entity, base, skipped, limitedRegeneration = false) {
 }
 
 function encodeHatchBoundary(groups, boundary, limitedRegeneration = false) {
+  // boundaryの座標はencodeHatch側では検証されないため、ここで有限値を強制する。
+  // 検証しないとnum()が非有限値を文字列"NaN"として出力し、例外も起きないため
+  // skippedにも載らず、壊れたDXFが「成功」として書き出される。
+  const required = (value, label) => {
+    if (!finitePoint(value)) throw new Error(`HATCH境界の${label}が不正です`);
+    return value;
+  };
+  const requiredNumber = (value, label, { positive = false } = {}) => {
+    if (!Number.isFinite(value) || (positive && !(value > 0))) throw new Error(`HATCH境界の${label}が不正です`);
+    return value;
+  };
   if (boundary.type === "polyline") {
     const vertices = boundary.vertices ?? boundary.points;
     if (!Array.isArray(vertices) || vertices.length < 3) throw new Error("ポリラインハッチ境界が不正です");
+    vertices.forEach((vertex) => { required(vertex, "頂点座標"); if (vertex.bulge !== undefined) requiredNumber(vertex.bulge, "bulge"); });
     groups.push("92", String(boundary.flags ?? 3), "72", vertices.some((vertex) => vertex.bulge) ? "1" : "0", "73", boundary.closed === false ? "0" : "1", "93", String(vertices.length));
     for (const vertex of vertices) {
       groups.push(...point(vertex, 10));
@@ -414,10 +434,15 @@ function encodeHatchBoundary(groups, boundary, limitedRegeneration = false) {
     if (!Array.isArray(boundary.edges) || !boundary.edges.length) throw new Error("edgeハッチ境界が不正です");
     groups.push("92", String(boundary.flags ?? 1), "93", String(boundary.edges.length));
     for (const edge of boundary.edges) {
-      if (edge.type === "line") groups.push("72", "1", ...point(edge.start, 10), ...point(edge.end, 11));
-      else if (edge.type === "arc") groups.push("72", "2", ...point(edge.center, 10), "40", num(edge.radius), "50", num(edge.startAngle), "51", num(edge.endAngle), "73", edge.ccw === false ? "0" : "1");
-      else if (edge.type === "ellipse") groups.push("72", "3", ...point(edge.center, 10), ...point(edge.majorAxis, 11), "40", num(edge.ratio), "50", num(edge.startParameter), "51", num(edge.endParameter), "73", edge.ccw === false ? "0" : "1");
-      else throw new Error(`HATCH edge ${edge.type}は書出せません`);
+      if (edge.type === "line") {
+        groups.push("72", "1", ...point(required(edge.start, "線分始点"), 10), ...point(required(edge.end, "線分終点"), 11));
+      } else if (edge.type === "arc") {
+        groups.push("72", "2", ...point(required(edge.center, "円弧中心"), 10), "40", num(requiredNumber(edge.radius, "円弧半径", { positive: true })),
+          "50", num(requiredNumber(edge.startAngle, "円弧開始角")), "51", num(requiredNumber(edge.endAngle, "円弧終了角")), "73", edge.ccw === false ? "0" : "1");
+      } else if (edge.type === "ellipse") {
+        groups.push("72", "3", ...point(required(edge.center, "楕円中心"), 10), ...point(required(edge.majorAxis, "楕円長軸")), "40", num(requiredNumber(edge.ratio, "楕円比率", { positive: true })),
+          "50", num(requiredNumber(edge.startParameter, "楕円開始パラメータ")), "51", num(requiredNumber(edge.endParameter, "楕円終了パラメータ")), "73", edge.ccw === false ? "0" : "1");
+      } else throw new Error(`HATCH edge ${edge.type}は書出せません`);
     }
   } else throw new Error("不明なHATCH境界です");
   const handles = limitedRegeneration ? [] : (boundary.sourceHandles ?? []);

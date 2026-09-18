@@ -62,12 +62,25 @@ export function dimensionGeometry(entity) {
   let start, end, value;
   if (options.dimensionType === "angular") {
     const definitions = entity.definitionPoints ?? {};
-    const firstStart = definitions["13"] ?? a, firstEnd = definitions["14"] ?? b;
-    const secondStart = definitions["15"] ?? a, secondEnd = definitions["16"] ?? b;
-    const center = lineIntersection(firstStart, firstEnd, secondStart, secondEnd) ?? a;
+    // DXFの角度寸法は2種類ある。type 2(2線角度)はgroup 13/14と15/16がそれぞれ角度線の
+    // 両端点で、両直線の交点が中心になる。type 5(3点角度)はgroup 15が頂点、13と14が各
+    // 延長線上の点で、頂点から見た2方向の角が測定対象になる。type 5をtype 2として交差
+    // 計算すると中心と掃引角を誤るため、頂点基準の分岐に切り替える。
+    const threePoint = (Number(entity.dxfDimensionType) & 7) === 5;
+    let center, firstAngle, secondAngleRaw;
+    if (threePoint) {
+      center = definitions["15"] ?? a;
+      const firstPoint = definitions["13"] ?? a, secondPoint = definitions["14"] ?? b;
+      firstAngle = Math.atan2(firstPoint.y - center.y, firstPoint.x - center.x);
+      secondAngleRaw = Math.atan2(secondPoint.y - center.y, secondPoint.x - center.x);
+    } else {
+      const firstStart = definitions["13"] ?? a, firstEnd = definitions["14"] ?? b;
+      const secondStart = definitions["15"] ?? a, secondEnd = definitions["16"] ?? b;
+      center = lineIntersection(firstStart, firstEnd, secondStart, secondEnd) ?? a;
+      firstAngle = Math.atan2(firstEnd.y - center.y, firstEnd.x - center.x);
+      secondAngleRaw = Math.atan2(secondEnd.y - center.y, secondEnd.x - center.x);
+    }
     const anchor = entity.dimensionLinePoint ?? entity.textPoint ?? b;
-    const firstAngle = Math.atan2(firstEnd.y - center.y, firstEnd.x - center.x);
-    const secondAngleRaw = Math.atan2(secondEnd.y - center.y, secondEnd.x - center.x);
     const twoPi = Math.PI * 2;
     // firstAngleからCCW方向にsecondAngleへ達するまでの掃引角(0〜2πの範囲)。
     const ccwSweep = ((secondAngleRaw - firstAngle) % twoPi + twoPi) % twoPi;
@@ -84,8 +97,9 @@ export function dimensionGeometry(entity) {
     const value = Math.abs(sweep) * 180 / Math.PI;
     const numeric = (value * options.measurementScale).toFixed(options.precision);
     const label = entity.associationStatus === "broken" ? "[?]" : entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", numeric) : `${options.prefix}${numeric}${options.suffix}`;
+    // 戻り値のvalueも他の寸法分岐と同様にmeasurementScale適用後を返し、返却契約を揃える。
     return { segments: [[center, arcPoints[0]], ...arcPoints.slice(1).map((point, index) => [arcPoints[index], point]), [center, arcPoints.at(-1)]], start: arcPoints[0], end: arcPoints.at(-1),
-      textPoint: entity.textPoint ?? arcPoints[Math.floor(arcPoints.length / 2)], label, value, ...options };
+      textPoint: entity.textPoint ?? arcPoints[Math.floor(arcPoints.length / 2)], label, value: value * options.measurementScale, ...options };
   }
   if (options.dimensionType === "horizontal") {
     start = { x: a.x, y: a.y + options.offset }; end = { x: b.x, y: start.y }; value = Math.abs(dx);

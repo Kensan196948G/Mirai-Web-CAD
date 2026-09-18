@@ -715,3 +715,42 @@ test("ELLIPSE/SPLINEをネイティブ図形として作図・保存できる", 
   await expect(page.getByRole("button", { name: "スプライン", exact: true })).toBeVisible();
   await expect(page.getByLabel("コマンドログ")).toContainText("SPLINE");
 });
+
+test("塗りつぶしHATCH(solidFill)はキャンバスで面として描画される", async ({ page }) => {
+  // DXF group 70=1(solidFill)のHATCHは斜線ではなく面で塗る。斜線描画のままだと
+  // 境界ボックスに対する塗りピクセル比が小さくなるため、比率で判別する。
+  const imported = {
+    layers: [{ id: "fill", name: "塗装", color: "#2244cc" }],
+    entities: [{ type: "hatch", layerId: "fill", pattern: "SOLID", solidFill: true, spacing: 400,
+      points: [{ x: 500, y: 500 }, { x: 3500, y: 500 }, { x: 3500, y: 2500 }, { x: 500, y: 2500 }] }]
+  };
+  const before = Number(await quantityLocator(page).textContent());
+  await page.locator("#importFile").setInputFiles({
+    name: "solid-hatch.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(imported))
+  });
+  await expect(quantityLocator(page)).toHaveText(String(before + 1));
+
+  const coverage = await page.getByLabel("作図キャンバス").evaluate((canvas) => {
+    const ctx = canvas.getContext("2d");
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const target = [0x22, 0x44, 0xcc];
+    let count = 0, minX = width, minY = height, maxX = -1, maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4;
+        if (Math.abs(data[i] - target[0]) > 10 || Math.abs(data[i + 1] - target[1]) > 10 || Math.abs(data[i + 2] - target[2]) > 10) continue;
+        count += 1;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const box = (maxX - minX + 1) * (maxY - minY + 1);
+    return { count, ratio: box > 0 ? count / box : 0 };
+  });
+  expect(coverage.count).toBeGreaterThan(2000);
+  expect(coverage.ratio).toBeGreaterThan(0.6);
+});

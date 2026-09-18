@@ -11,6 +11,13 @@ const number = (value, fallback = 0) => {
 const numeric = (record, code, fallback = 0) => number(dxfGroup(record, code, fallback), fallback);
 const point = (record, code) => ({ x: numeric(record, code), y: numeric(record, code + 10) });
 const values = (record, code) => record.groups.filter((group) => group.code === code).map((group) => group.value);
+// 必須の数値group。欠落を0で補うと、本来拒否すべき壊れたレコードを「原点にある図形」として
+// 黙って受け入れてしまうため、存在しない場合は例外にする(取込は warning 経由で中止される)。
+const requiredNumeric = (record, code) => {
+  if (!values(record, code).length) throw new Error(`必須のgroup code ${code}がありません。`);
+  return numeric(record, code);
+};
+const requiredPoint = (record, code) => ({ x: requiredNumeric(record, code), y: requiredNumeric(record, code + 10) });
 const decode = (value) => String(value ?? "").replace(/\\U\+([0-9a-f]{4})/gi, (_match, code) => String.fromCharCode(parseInt(code, 16)));
 
 // group code 410(レイアウトタブ名)が無いペーパー空間Entityのlayoutnameを解決する。
@@ -53,12 +60,12 @@ export function parseDxfDimension(record, layerId, index = 0, dimensionStyles = 
   const baseType = rawType & 7;
   const angle = numeric(record, 50, 0);
   let points;
-  if ([0, 1, 6].includes(baseType)) points = [point(record, 13), point(record, 14)];
+  if ([0, 1, 6].includes(baseType)) points = [requiredPoint(record, 13), requiredPoint(record, 14)];
   else if (baseType === 3) {
-    const first = point(record, 10), second = point(record, 15);
+    const first = requiredPoint(record, 10), second = requiredPoint(record, 15);
     points = [{ x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }, second];
-  } else if (baseType === 4) points = [point(record, 10), point(record, 15)];
-  else points = [point(record, 13), point(record, 14)];
+  } else if (baseType === 4) points = [requiredPoint(record, 10), requiredPoint(record, 15)];
+  else points = [requiredPoint(record, 13), requiredPoint(record, 14)];
   const kind = dimensionKind(baseType, angle);
   const styleName = decode(dxfGroup(record, 3, "STANDARD"));
   const dimensionStyle = dimensionStyles.find((style) => style.name.toUpperCase() === styleName.toUpperCase());
@@ -177,7 +184,9 @@ function parseEdgePath(cursor, flags) {
 
 export function parseDxfHatch(record, layerId, index = 0, resolveLayoutName) {
   const cursor = pathCursor(record);
-  const pathCount = numeric(record, 91, 0);
+  // group 91は境界パス数。欠落を0で補うと境界の無いHATCHとして扱われ、本来の境界が
+  // 黙って失われるため必須にする(0が明示されている場合は境界なしとして扱う)。
+  const pathCount = requiredNumeric(record, 91);
   const boundaries = [];
   for (let pathIndex = 0; pathIndex < pathCount; pathIndex += 1) {
     const flags = number(take(cursor, 92, 0));
@@ -210,14 +219,16 @@ export function parseDxfHatch(record, layerId, index = 0, resolveLayoutName) {
 }
 
 export function parseDxfViewport(record, layerId, index = 0, resolveLayoutName) {
-  const width = numeric(record, 40, 1), height = numeric(record, 41, 1);
+  // group 40/41は紙空間の枠寸法。既定値で補うと「幅1×高さ1のビューポート」を黙って作って
+  // しまうため、存在と正値を必須にする。
+  const width = requiredNumeric(record, 40), height = requiredNumeric(record, 41);
   if (!(width > 0 && height > 0)) throw new Error("VIEWPORTの幅・高さが不正です。");
   const flags = numeric(record, 90, 0);
   return {
     id: `e_import_${index + 1}_${crypto.randomUUID().slice(0, 8)}`,
     type: "viewport",
     layerId,
-    center: point(record, 10), width, height,
+    center: requiredPoint(record, 10), width, height,
     status: numeric(record, 68, 0),
     viewportId: numeric(record, 69, 0),
     viewCenter: point(record, 12),

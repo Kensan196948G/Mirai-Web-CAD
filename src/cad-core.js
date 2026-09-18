@@ -733,7 +733,9 @@ export function entityLength(entity) {
   if (entity.type === "ellipse") return sampledLength(sampleEllipse(entity), false);
   if (entity.type === "spline") return sampledLength(sampleSpline(entity), Boolean(entity.closed));
   if (entity.type === "dimension") return distance(entity.points[0], entity.points[1]);
-  if (entity.type === "hatch") return entityLength({ type: "polyline", points: entity.points, closed: true });
+  // ハッチは複数の境界(外側ループと穴)を持ち得るため、entity.pointsだけでなく全boundaryの
+  // 周長を合算する(面積・境界・ヒットテストと同じ扱いに揃える)。
+  if (entity.type === "hatch") return (entity.boundaries ?? [{ points: entity.points }]).reduce((sum, boundary) => sum + entityLength({ type: "polyline", points: boundary.points ?? [], closed: true }), 0);
   if (entity.type === "viewport") return 2 * (entity.width + entity.height);
   if (entity.type === "block") return entity.definitionId ? blockWorldEntities(entity).reduce((sum, child) => sum+entityLength(child), 0) : (entity.children ?? []).reduce((sum, child) => sum + entityLength(child) * Math.abs(entity.scale ?? 1), 0);
   return 0;

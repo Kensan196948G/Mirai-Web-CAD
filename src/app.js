@@ -2642,13 +2642,20 @@ function drawEntity(ctx, entity, overrideColor = null, preview = false) {
     const paths = (entity.boundaries ?? [{ points: entity.points }]).map((boundary) => (boundary.points ?? []).map(worldToScreen)).filter((points) => points.length >= 3);
     ctx.beginPath();
     for (const points of paths) { ctx.moveTo(points[0].x, points[0].y); for (const pointValue of points.slice(1)) ctx.lineTo(pointValue.x, pointValue.y); ctx.closePath(); }
-    ctx.stroke(); ctx.clip("evenodd");
-    const bounds = entityBounds(entity);
-    const a = worldToScreen({ x: bounds.minX, y: bounds.minY });
-    const b = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
-    const spacing = Math.max(5, entity.spacing * state.camera.scale);
-    for (let x = a.x - Math.abs(b.y - a.y); x < b.x + Math.abs(b.y - a.y); x += spacing) {
-      ctx.beginPath(); ctx.moveTo(x, b.y); ctx.lineTo(x + (b.y - a.y), a.y); ctx.stroke();
+    // 塗りつぶしハッチ(DXF group 70=1 または pattern=SOLID)は面で塗る。斜線を重ねても
+    // 不透明な塗りに隠れるだけなので、solidの場合は斜線描画そのものを行わない。
+    if (entity.solidFill || entity.pattern === "SOLID") {
+      ctx.fillStyle = overrideColor ?? layer.color;
+      ctx.fill("evenodd");
+    } else {
+      ctx.stroke(); ctx.clip("evenodd");
+      const bounds = entityBounds(entity);
+      const a = worldToScreen({ x: bounds.minX, y: bounds.minY });
+      const b = worldToScreen({ x: bounds.maxX, y: bounds.maxY });
+      const spacing = Math.max(5, entity.spacing * state.camera.scale);
+      for (let x = a.x - Math.abs(b.y - a.y); x < b.x + Math.abs(b.y - a.y); x += spacing) {
+        ctx.beginPath(); ctx.moveTo(x, b.y); ctx.lineTo(x + (b.y - a.y), a.y); ctx.stroke();
+      }
     }
   }
   if (entity.type === "viewport") {
