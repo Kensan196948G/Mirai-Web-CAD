@@ -18,11 +18,11 @@ jobs:
     name: Synthetic DXF Generation and Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: python3 -m venv /tmp/corpus-venv
       - run: /tmp/corpus-venv/bin/pip install -r DXF-Test-Corpus/requirements.txt
       - run: /tmp/corpus-venv/bin/python DXF-Test-Corpus/build_corpus.py
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
       - name: Verify original DXF archive byte equality (not editable compatibility)
@@ -34,7 +34,7 @@ jobs:
         run: /tmp/corpus-venv/bin/python scripts/audit-native-block-corpus.py
       - name: Upload generation audit (not CAD compatibility certification)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: synthetic-corpus-audit
           path: |
@@ -48,8 +48,8 @@ jobs:
     name: Lint, Test, Build, E2E, A11y
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -58,7 +58,7 @@ jobs:
       - run: npm run verify
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -85,7 +85,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: npm run db:verify
 
   postgres-integration:
@@ -109,10 +109,10 @@ jobs:
       DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_test
       TEST_DATABASE_URL: postgresql://mirai:mirai_ci_only@127.0.0.1:5432/mirai_web_cad_test
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -143,7 +143,7 @@ jobs:
       BACKUP_FILE: artifacts/mirai-web-cad.dump
       ALLOW_DATABASE_RESTORE: "yes"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: npm run db:verify
       - name: Create empty recovery database
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "create database mirai_web_cad_recovery"
@@ -162,7 +162,7 @@ jobs:
     name: Secret Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Scan repository
         run: >-
           docker run --rm
@@ -174,8 +174,8 @@ jobs:
     name: Dependency Vulnerability Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -193,10 +193,10 @@ jobs:
     name: SBOM (CycloneDX)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -214,7 +214,7 @@ jobs:
           if (!Array.isArray(bom.components) || bom.components.length === 0) throw new Error('components is empty');
           console.log('SBOM ok: components=' + bom.components.length);
           "
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom-cyclonedx
           path: artifacts/sbom.cdx.json
@@ -223,10 +223,10 @@ jobs:
     name: Terraform Format and Validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -255,8 +255,8 @@ jobs:
       name: preview
       url: https://pr-${{ github.event.number }}.mirai-web-cad.pages.dev
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm

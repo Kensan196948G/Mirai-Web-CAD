@@ -48,7 +48,8 @@ sudo systemctl restart mirai-web-cad.service
 echo "health checkと稼働commit確認の待機中..."
 ok=0
 for _ in $(seq 1 30); do
-  health="$(curl -fsS "http://127.0.0.1:${PORT:-18812}/api/health" 2>/dev/null || true)"
+  # --max-timeなしでhealthループがハングし得るため(改善台帳P0-86)、タイムアウトを必須にする。
+  health="$(curl -fsS --max-time 5 "http://127.0.0.1:${PORT:-18812}/api/health" 2>/dev/null || true)"
   if printf '%s' "$health" | grep -qE '"ok":[[:space:]]*true'; then
     # healthがokでも、応答しているプロセスが今回のデプロイ対象commitを読み込んでいるとは限らない。
     # 再起動漏れ・別プロセスの応答・未レビューコードの稼働(Issue #98)をここで検出する。
