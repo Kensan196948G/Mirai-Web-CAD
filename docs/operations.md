@@ -82,6 +82,60 @@ DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" n
 
 「mainへのマージが成功した」「CIが緑だった」「healthが200だった」のいずれか単独をもって本番正常と報告しないでください。
 
+## デプロイ素性(稼働commit)と乖離検知
+
+### 何が起きたか
+
+2026-09-18、本番ホストのチェックアウトでローカル`main`がGitHub `main`より4コミット先行し、**未レビューのPR #87(`feat/native-dimension-hatch-viewport`)のコードが本番で稼働している**状態が、人手の調査で初めて判明しました(Issue #98 / [改善台帳P0-58](improvement-register.md))。`branch protection`の`required_conversation_resolution`によりPR #87は正規手順ではマージできない状態のまま、セキュリティ修正を届けるためにローカルでのみ`git merge --no-ff`が行われていました。
+
+原因は「本番が今どのコミットで動いているか」を記録・比較する仕組みが無く、確認が人の記憶と目視に依存していたことです。
+
+### 運用ルール(必須)
+
+- **本番ホストのチェックアウトへ直接コミットしない。** 変更は必ずPR経由でGitHub `main`へ入れ、本番は`scripts/deploy-local.sh`の`git merge --ff-only origin/main`だけで更新する。
+- 本番ホストのローカル`main`を先行させない。`ff-only`が失敗した場合は、回避策を探すのではなく分岐の原因を解消する(Issue #98と同じ判断を繰り返さない)。
+- やむを得ず暫定措置を取る場合は、Issue起票・コミットメッセージへの理由記載・解消期限の3点を同時に残す。
+
+### 検知の仕組み
+
+`GET /api/health`は稼働中のコミットを`deploy`ブロックで返します(公開リポジトリのcommit/branchのみ。パス・資格情報・環境変数の値は含みません)。
+
+```json
+"deploy": { "commit": "89a25fe...", "branch": "main", "dirty": false }
+```
+
+`scripts/check-deploy-drift.mjs`は、作業ツリーのcommit・`origin/main`・(指定時は)稼働APIの報告値を突き合わせて判定します。
+
+```bash
+npm run deploy:drift                    # 作業ツリーのみ(どこでも実行可)
+npm run deploy:drift:live               # 稼働API(http://127.0.0.1:18812)も突き合わせる
+npm run deploy:drift:live -- --json     # 機械可読
+node scripts/check-deploy-drift.mjs --url http://127.0.0.1:18812 --remote
+```
+
+- **デプロイ後の必須確認は`deploy:drift:live`**です。`deploy:drift`は作業ツリーしか見ないため、再起動漏れ(プロセスが古いコードのまま)を検出できません。
+- `--url`を指定したのに稼働APIから`deploy.commit`を取得できない場合は「判定不能」として扱います。**比較できないことを「一致」とは報告しません。**
+- `--remote`は`git ls-remote`でリモートの`main`を確認します。リモートが進んでいるだけ(ローカルrefが古い)の場合は情報提供に留め、失敗扱いにしません。
+
+判定と終了コード:
+
+| 判定 | 意味 | 終了コード |
+| --- | --- | --- |
+| `verified` | `origin/main`と一致し、未コミット変更もない | 0 |
+| `behind` | 本番が`origin/main`より遅れている(デプロイ待ち) | 0 |
+| `ahead` | `origin/main`に無いコミットが稼働している(**未レビューコード**) | 1 |
+| `dirty` | 未コミット変更が混ざった状態で稼働している | 1 |
+| (乖離要因あり) | 稼働APIのcommit不一致など。`--json`の`ok`が`false` | 1 |
+| `unknown` | `origin/main`未取得・稼働commit取得失敗など、**判定できない** | 2 |
+
+`scripts/deploy-local.sh`も、health確認時に稼働APIが報告する`deploy.commit`が今回のデプロイ対象`$new_sha`と一致することを必須とし、一致しない場合は自動ロールバックします。
+
+定期実行用に`deploy/systemd/mirai-web-cad-deploy-drift.service`と`.timer`(30分間隔)を用意しています。配置手順は[ローカルデプロイ運用メモ](deployment-local.md)の「systemdユニット配置」と同じです。乖離時はユニットが失敗し、journalに理由が残ります(通知連携はIssue #8)。
+
+### 起動時のガード(任意)
+
+`scripts/serve-production.mjs`は起動時に同じ判定を行い、乖離があれば`error`ログを出します。既定は可用性優先で**起動を継続**します。乖離状態での起動そのものを拒否したい場合は、本番の環境変数ファイルに`DEPLOY_GUARD=strict`を追加して再起動してください(`strict`では`origin/main`に無いコミットが稼働している状態での起動を拒否します)。有効化する前に`npm run deploy:drift`が`verified`を返すことを確認してください。
+
 ## Rollback
 
 本番はこのホスト(kensan1969)上のsystemdサービスです。ロールバック手順:
@@ -95,7 +149,11 @@ curl -fsS http://127.0.0.1:18812/api/health
 
 `scripts/deploy-local.sh`はhealth確認に失敗すると直前コミットへ自動ロールバックします。DB migrationは破壊的変更を含めていないため、ロールバック時も既存テーブルを削除しません。
 
-Cloudflare Tunnel/DNS自体に問題がある場合(Tunnel停止、証明書失効等)は、Cloudflare Pages Custom Domainを再アタッチして`mirai-web-cad.pages.dev`相当の配信へ一時的に切り戻せます(Pagesプロジェクト・`functions/`・`wrangler.toml`はこのためにロールバック手段として残置しています)。ただしPages側のコードは移行前時点のもので、Neon接続を試みるため`/api`は機能しません。SPA表示のみの緊急避難的な切り戻しです。
+Cloudflare Tunnel/DNS自体に問題がある場合(Tunnel停止、証明書失効等)は、Cloudflare Pages Custom Domainを再アタッチして`mirai-web-cad.pages.dev`相当の配信へ一時的に切り戻せます(Pagesプロジェクト・`functions/`・`wrangler.toml`はこのためにロールバック手段として残置しています)。
+
+ただしPages側は**「移行前のコード」ではありません**(2026-09-18に実測して訂正)。`functions/api/[[path]].js`が現行の`src/api-handler.js`を読み込むため、`/api`は現行コードで動作します。接続先が失効済みのNeonを指しているため、実測では`GET /api/health`が500を返して図面データは取得できません。SPA表示のみの緊急避難的な切り戻しであり、APIの代替にはなりません。
+
+なおPages(preview含む)はCloudflare Accessの外側の公開オリジンであるため、本リポジトリでは`functions/api/[[path]].js`が`AUTH_MODE=access`以外を503で拒否するようにし、`wrangler.toml`にも`AUTH_MODE = "access"`を明示しています。`wrangler.toml`の設定が反映されている環境では通常のaccess判定(未認証401、DB接続不可500など)が行われ、503はダッシュボード側の設定漏れでdemoモードになり得る場合のガードとして働きます。5xxの内部エラー詳細も、ローカルdemoモード以外では応答へ含めません(2026-09-18の実測では、Pagesが内部のDB接続ユーザー名を未認証で返していました)。
 
 ## 監査ログの追記専用化(0005)
 
@@ -107,6 +165,19 @@ drop trigger audit_logs_no_delete on audit_logs;
 ```
 
 監査データの棚卸は承認者権限で`GET /api/audit-logs?format=csv`(export操作自体が`audit.exported`として記録されます)。
+
+### 既存の検証用残留行の削除(要承認)
+
+2026-09-18より前の`db:verify`は、検証対象DBへ`audit_trigger_verify_probe`(actor `verify`、action `probe.insert`)をコミットしていました。**本番`mirai_web_cad`および検証用`mirai_web_cad_test`に1件ずつ残留しています**(2026-09-18実測)。現在の`db:verify`は検査をトランザクション内で行い必ずROLLBACKするため、新たな残留は発生しません([改善台帳P0-63](improvement-register.md))。
+
+この行の削除は追記専用保護を一時的に外す操作であり、**本番データを対象とする破壊的操作のため、実施前に承認が必要です**。手順:
+
+1. 対象DBと対象行(`id = 'audit_trigger_verify_probe'`)を確認し、削除対象がこの1行だけであることを記録する。
+2. 上記「トリガーを無効化する場合」の手順で保護を外し、当該行を削除する。
+3. **同一トランザクション内で**migration 0005のトリガー定義を再適用する。再適用後に`pg_trigger`の`tgenabled='O'`が2件であることを確認する。
+4. `npm run db:verify`を実行し、追記専用保護が有効であり、かつ新たな残留が発生しないことを確認する。
+
+削除を実施しない場合でも業務上の実害は限定的ですが、「監査証跡に検証用の合成行が1件残ることを受容する」という判断として記録してください。
 
 ## Backup / Restore
 

@@ -21,18 +21,59 @@ import { createEntraGroupResolver } from "./entra-graph.js";
 // ACCESS_ROLE_MAPによる個別メール指定は常にこれより優先される(resolveActor参照)。
 const ROLE_PRECEDENCE = ["cad_admin", "approver", "reviewer", "drafter", "viewer"];
 
-const JSON_HEADERS = {
-  "content-type": "application/json; charset=utf-8",
-  "cache-control": "no-store",
+// API応答でも使うセキュリティヘッダ。Cloudflare Pages Functionsの応答には
+// `_headers`のルールが適用されない(実測: pr-102の/api/healthにCSP/HSTSが付かない)ため、
+// API側でも同じ値を持つ必要がある。`_headers`との値の一致はテストで検証する
+// (tests/api-hardening.test.js)。
+export const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
+
+export const API_SECURITY_HEADERS = {
+  "content-security-policy": CONTENT_SECURITY_POLICY,
+  "strict-transport-security": STRICT_TRANSPORT_SECURITY,
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
   "x-frame-options": "DENY"
 };
 
+const JSON_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  "cache-control": "no-store",
+  ...API_SECURITY_HEADERS
+};
+
 const MAX_JSON_BYTES = 1_048_576;
-const AI_RATE_LIMIT_WINDOW_MS = 60_000;
-const aiRateLimitState = new Map();
+// 1リクエストで適用できるコマンド数の上限。ユーザー経路にはLLM経路(MAX_LLM_COMMANDS)の
+// ような上限が無く、巨大な配列を1回で送ると全利用者の描画・保存が遅くなるため設ける。
+const MAX_TRANSACTION_COMMANDS = 500;
+// applyTransaction(cad-core.js)が解釈するopの一覧。ここに無いopは「未知の操作として
+// 黙って無視される」ため、入力境界で拒否する(200を返しつつ何も起きない状態を防ぐ)。
+const ALLOWED_TRANSACTION_OPS = new Set([
+  "add",
+  "add_comment",
+  "add_layer",
+  "delete",
+  "delete_layer",
+  "delete_selection",
+  "save_selection",
+  "set_block_resources",
+  "set_empty_drawing_unit",
+  "update",
+  "update_drawing_meta",
+  "update_layer",
+  "update_layout"
+]);
+// 1コマンドあたりの点列長の上限。全体はMAX_JSON_BYTESでも抑えているが、
+// 巨大な点列による計算量増大を入力境界で止める。
+const MAX_COMMAND_POINTS = 10_000;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+// 追跡する利用者数(バケット×利用者)の上限。超えた場合は期限切れ→最も古い順に破棄する。
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
+const WRITE_RATE_LIMIT_PER_MINUTE = 240;
+// 利用者ごとのリクエスト時刻。キーは `${bucket}:${actorId}`。
+const rateLimitState = new Map();
 
 export async function handleApiRequest(request, env = {}) {
   const store = createDataStore(env);
@@ -49,6 +90,14 @@ export async function handleApiRequest(request, env = {}) {
   try {
     const actor = await resolveActor(request, env, isPublicReadRoute(request.method, route));
     if (!actor.ok) return json({ ok: false, error: actor.error }, 401, cors);
+
+    // 更新系の濫用対策。AI提案だけが制限されており、図面更新・案件操作・監査出力は
+    // 無制限だった(暴走クライアントや意図的な連打で全利用者が影響を受ける)。
+    // 公開読み取り(health/demo)とOPTIONSは対象外。
+    if (isMutatingMethod(request.method) && !isPublicReadRoute(request.method, route)) {
+      enforceRateLimit("write", actor.actor.id, writeRateLimit(env),
+        "更新リクエストの回数が上限に達しました。しばらくしてから再試行してください。");
+    }
 
     if (request.method === "GET" && route === "/health") {
       const db = await store.probe();
@@ -67,6 +116,7 @@ export async function handleApiRequest(request, env = {}) {
             anonymous: actor.actor.anonymous === true
           },
           db: actor.actor.anonymous ? sanitizeProbe(db) : db,
+          deploy: deployProvenance(env),
           durationMs: Date.now() - startedAt
         },
         dbHealthy ? 200 : 503,
@@ -122,6 +172,7 @@ export async function handleApiRequest(request, env = {}) {
       await requireDrawingAccess(store, actor.actor, transactionMatch[1]);
       const drawing = withActor(await getDrawing(store, transactionMatch[1]), actor.actor);
       const body = await readJson(request);
+      const commands = requireTransactionCommands(body);
       const idempotencyKey = requireIdempotency(request);
       await rejectClaimedIdempotency(store, idempotencyKey);
       requireExpectedVersion(request, drawing);
@@ -129,7 +180,7 @@ export async function handleApiRequest(request, env = {}) {
         source: "user",
         actor: actor.actor.id,
         label: body.label ?? "API transaction",
-        commands: body.commands ?? []
+        commands
       });
       if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
       await saveMutationAtomically(store, result.drawing, actor.actor, "drawing.transaction", drawing.id, { label: body.label }, idempotencyKey, route);
@@ -311,12 +362,15 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "POST" && route === "/projects") {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      // 冪等キーの予約は本文検証の「後」に行う。先に予約すると、本文不備で400を返した
+      // リクエストがキーを焼き切ってしまい、同じキーでの正しい再送が恒久的に409になる。
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (!body || typeof body.name !== "string" || !body.name.trim()) {
         throw httpError("案件名(name)が必要です。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const id = typeof body.id === "string" && /^prj_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `prj_${cryptoSafeId()}`;
       const accessScope = body.accessScope === "restricted" ? "restricted" : "open";
@@ -337,12 +391,13 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "PATCH" && projectMatch) {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (body.accessScope !== "open" && body.accessScope !== "restricted") {
         throw httpError("accessScopeはopenまたはrestrictedである必要があります。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const project = await store.updateProjectAccessScope(projectMatch[1], body.accessScope);
       if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
@@ -354,12 +409,13 @@ export async function handleApiRequest(request, env = {}) {
     if (request.method === "POST" && projectMembersMatch) {
       requireCadAdmin(actor.actor);
       const idempotencyKey = requireIdempotency(request);
-      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
-        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
-      }
+      await rejectClaimedIdempotency(store, idempotencyKey);
       const body = await readJson(request);
       if (typeof body.member !== "string" || !body.member.includes("@")) {
         throw httpError("member(メールアドレス)が必要です。", 400);
+      }
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
       const project = await store.getProject(projectMembersMatch[1]);
       if (!project) throw httpError(`案件が見つかりません: ${projectMembersMatch[1]}`, 404);
@@ -385,18 +441,31 @@ export async function handleApiRequest(request, env = {}) {
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
     if (status >= 500) console.error(`[${requestId}] API request failed`, error);
-    const message = status >= 500 && env.APP_ENV === "production" ? "internal error" : error instanceof Error ? error.message : "internal error";
+    // 5xx の詳細は「ローカル開発(demo認証)」以外では必ず伏せる。以前は
+    // APP_ENV==="production" のときだけ伏せていたため、preview等の公開環境で
+    // DB接続エラーの原文(接続先ユーザー名など)が未認証クライアントへ返っていた。
+    const mayExposeInternal = authMode(env) === "demo" && env.APP_ENV !== "production";
+    const message = status >= 500 && !mayExposeInternal ? "internal error" : error instanceof Error ? error.message : "internal error";
+
     return json({ ok: false, error: message }, status, cors);
   }
 }
 
 export function resetMemoryStore() {
   resetMemoryStoreData();
+  // レート制限の状態はプロセス内メモリに残るため、テスト用リセットで必ず一緒に消す
+  // (消し忘れるとテスト間で回数が積み上がり、順序依存の失敗になる)。
+  rateLimitState.clear();
 }
 
 async function resolveActor(request, env, allowAnonymous = false) {
   const mode = authMode(env);
   if (mode === "demo") {
+    // APP_ENV=production でdemoが有効なのは設定ミスであり、ヘッダー自己申告で
+    // 任意ロールになれる状態を意味する。可用性より安全側に倒して拒否する。
+    if (env.APP_ENV === "production") {
+      return { ok: false, error: "本番環境ではデモ認証を利用できません。" };
+    }
     const role = request.headers.get("x-demo-role") ?? "drafter";
     if (!ROLE_POLICIES[role]) return { ok: false, error: "不正なデモ権限です。" };
     return { ok: true, actor: { id: request.headers.get("x-demo-actor") ?? "demo@example.com", role } };
@@ -472,20 +541,62 @@ function parseRoleMap(value) {
 }
 
 function authMode(env) {
-  if (env.AUTH_MODE) return env.AUTH_MODE;
-  return env.APP_ENV === "production" ? "access" : "demo";
+  // fail-closed: 明示的に"access"/"demo"が設定されている場合のみその値を使う。
+  // 未設定・タイポ・想定外の値は"access"(Cloudflare Access JWT必須)へ倒す。
+  // 以前は未設定時にAPP_ENV!=="production"なら"demo"へ倒していたため、
+  // AUTH_MODEを設定し忘れた環境(例: Pages preview)が「x-demo-roleヘッダーを
+  // 自己申告するだけで最強ロールになれる」状態で公開され得た。
+  if (env.AUTH_MODE === "demo" || env.AUTH_MODE === "access") return env.AUTH_MODE;
+  return "access";
 }
 
 function checkAiRateLimit(env, actorId) {
+  enforceRateLimit("ai", actorId, aiRateLimit(env), "AI提案のリクエスト回数が上限に達しました。しばらくしてから再試行してください。");
+}
+
+function aiRateLimit(env) {
   const configured = Number(env.AI_RATE_LIMIT_PER_MINUTE);
-  const limit = Number.isFinite(configured) && configured > 0 ? configured : 10;
+  return Number.isFinite(configured) && configured > 0 ? configured : 10;
+}
+
+// 更新系(POST/PATCH/DELETE)の既定上限。1リクエストで最大500コマンドを送れるため、
+// 要求数としては粗い。通常操作で引っかからない値にしつつ、暴走を止められる値にする。
+function writeRateLimit(env) {
+  const configured = Number(env.WRITE_RATE_LIMIT_PER_MINUTE);
+  return Number.isFinite(configured) && configured > 0 ? configured : WRITE_RATE_LIMIT_PER_MINUTE;
+}
+
+function isMutatingMethod(method) {
+  return method === "POST" || method === "PATCH" || method === "DELETE" || method === "PUT";
+}
+
+// 利用者ごとの回数制限。状態はプロセス内メモリに持つ(単一プロセス常駐のため)。
+// キー数には上限を設け、上限を超えたら「期限切れのキー」→「最も古いキー」の順に
+// 破棄する。以前は利用者ごとの配列が無制限に増え続けていた。
+function enforceRateLimit(bucket, actorId, limit, message) {
+  if (!Number.isFinite(limit) || limit <= 0) return;
+  const key = `${bucket}:${actorId}`;
   const now = Date.now();
-  const timestamps = (aiRateLimitState.get(actorId) ?? []).filter((at) => now - at < AI_RATE_LIMIT_WINDOW_MS);
+  const timestamps = (rateLimitState.get(key) ?? []).filter((at) => now - at < RATE_LIMIT_WINDOW_MS);
   if (timestamps.length >= limit) {
-    throw httpError("AI提案のリクエスト回数が上限に達しました。しばらくしてから再試行してください。", 429);
+    throw httpError(message, 429);
   }
   timestamps.push(now);
-  aiRateLimitState.set(actorId, timestamps);
+  // Mapは挿入順を保持するため、再挿入して「最近使ったキー」を後ろへ送る。
+  rateLimitState.delete(key);
+  rateLimitState.set(key, timestamps);
+  pruneRateLimitState(now);
+}
+
+function pruneRateLimitState(now) {
+  if (rateLimitState.size <= RATE_LIMIT_MAX_ENTRIES) return;
+  for (const [key, timestamps] of rateLimitState) {
+    if (rateLimitState.size <= RATE_LIMIT_MAX_ENTRIES) return;
+    if (timestamps.every((at) => now - at >= RATE_LIMIT_WINDOW_MS)) rateLimitState.delete(key);
+  }
+  while (rateLimitState.size > RATE_LIMIT_MAX_ENTRIES) {
+    rateLimitState.delete(rateLimitState.keys().next().value);
+  }
 }
 
 function authorize(actor, capability) {
@@ -556,14 +667,48 @@ function requireIdempotency(request) {
 }
 
 function requireExpectedVersion(request, drawing) {
-  const expected = Number(request.headers.get("expected-version"));
-  if (!Number.isFinite(expected)) {
-    throw httpError("expected-versionが必要です。", 428);
+  // 楽観ロックの比較は整数の完全一致で行う。Number()は"1e0"・"0x1"・"1.0"を
+  // いずれも1として通してしまい、表記ゆれで競合検知の挙動が変わるため、
+  // 10進整数のリテラルだけを受理する。
+  const raw = request.headers.get("expected-version");
+  if (raw === null || !/^\d+$/.test(raw.trim())) {
+    throw httpError("expected-versionが必要です(10進整数)。", 428);
   }
+  const expected = Number.parseInt(raw.trim(), 10);
   const actual = drawing.revision ?? 1;
   if (expected !== actual) {
     throw httpError(`リビジョンが競合しています。expected=${expected}, actual=${actual}`, 409);
   }
+}
+
+// 図面更新コマンドの入力検証。配列以外を受け取るとapplyTransaction内の
+// commands.every()が例外を投げて500になるため、ここで400として拒否する。
+// あわせて op を許可リストで検証する: applyTransactionは未知のopを黙って無視するため、
+// 綴り間違いでも200(成功)が返り「何も起きていないのに成功した」状態になっていた。
+function requireTransactionCommands(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw httpError("JSON本文はオブジェクトである必要があります。", 400);
+  }
+  const commands = body.commands ?? [];
+  if (!Array.isArray(commands)) {
+    throw httpError("commandsは配列である必要があります。", 400);
+  }
+  if (commands.length > MAX_TRANSACTION_COMMANDS) {
+    throw httpError(`1回の更新で送信できるコマンドは${MAX_TRANSACTION_COMMANDS}件までです。`, 413);
+  }
+  commands.forEach((command, index) => {
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+      throw httpError(`commands[${index}]はオブジェクトである必要があります。`, 400);
+    }
+    if (typeof command.op !== "string" || !ALLOWED_TRANSACTION_OPS.has(command.op)) {
+      const shown = typeof command.op === "string" ? command.op.slice(0, 40) : typeof command.op;
+      throw httpError(`commands[${index}]のopが不正です: ${shown}`, 400);
+    }
+    if (Array.isArray(command.points) && command.points.length > MAX_COMMAND_POINTS) {
+      throw httpError(`commands[${index}].pointsが上限(${MAX_COMMAND_POINTS})を超えています。`, 413);
+    }
+  });
+  return commands;
 }
 
 async function rejectClaimedIdempotency(store, key) {
@@ -624,6 +769,23 @@ function sanitizeProbe(db) {
     provider: db.provider,
     mode: db.mode,
     migrated: db.migrated ?? db.mode === "memory-preview"
+  };
+}
+
+// 稼働中APIがどのコミットに由来するかを応答へ含める(Issue #98の再発防止)。
+// 本番は「本番ホストのローカルmainがGitHub mainから分岐したまま稼働していた」事故を
+// 起こしているため、外部から`GET /api/health`だけで稼働commitを確認できるようにする。
+// ここに含めるのは公開リポジトリのcommit/branchのみで、パス・資格情報・環境変数の値は
+// 一切含めない。値が未設定(開発サーバー等)の場合はnullを返す。
+function deployProvenance(env) {
+  const info = env.DEPLOY_INFO;
+  if (!info || typeof info !== "object") {
+    return { commit: null, branch: null, dirty: null };
+  }
+  return {
+    commit: typeof info.commit === "string" ? info.commit : null,
+    branch: typeof info.branch === "string" ? info.branch : null,
+    dirty: typeof info.dirty === "boolean" ? info.dirty : null
   };
 }
 
@@ -706,10 +868,16 @@ function auditLogsToCsv(entries) {
   return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
 }
 
-function csvEscape(value) {
+// 監査CSVのセル無害化。純関数として単体テストから直接検証するためexportする
+// (現行の到達経路ではHTTPヘッダはトリムされ、detailはJSON文字列化されるため
+// 先頭空白のケースは届きにくいが、汎用のエスケープ関数として正しく保つ)。
+export function csvEscape(value) {
   const text = String(value ?? "");
-  // 先頭が =, +, -, @ の場合は表計算ソフトの数式注入を防ぐため単一引用符を前置する。
-  const guarded = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  // 表計算ソフトは先頭の空白・タブ・改行を読み飛ばしてから数式として解釈するため、
+  // 「先頭の制御文字・空白を除いた最初の文字」が =,+,-,@ の場合に無害化する。
+  // 先頭一致だけで判定すると " =cmd|..." が素通りしてしまう。
+  const firstMeaningful = text.replace(/^[\s\u0000-\u001f]*/, "");
+  const guarded = /^[=+\-@]/.test(firstMeaningful) ? `'${text}` : text;
   if (/[",\r\n]/.test(guarded)) {
     return `"${guarded.replace(/"/g, '""')}"`;
   }

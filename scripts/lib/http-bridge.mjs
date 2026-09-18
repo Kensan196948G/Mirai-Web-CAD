@@ -15,6 +15,45 @@ export const CONTENT_TYPES = {
 };
 
 /**
+ * `_headers`の書式違反行を検出する。`loadHeaderRules`は解釈できない行を黙って
+ * 捨てるため、コロンの打ち忘れ等があるとCSPが無言で欠落したまま配信され得る。
+ * lintから呼び、配信前に気づけるようにする。
+ * @param {string} text
+ * @returns {{ line: number, reason: string }[]}
+ */
+export function findMalformedHeaderLines(text) {
+  const problems = [];
+  let hasPattern = false;
+  text.split("\n").forEach((rawLine, index) => {
+    const line = rawLine.replace(/\r$/, "");
+    const lineNumber = index + 1;
+    if (!line.trim()) return;
+    if (!line.startsWith(" ") && !line.startsWith("\t")) {
+      hasPattern = true;
+      const pattern = line.trim();
+      if (!pattern.startsWith("/")) {
+        problems.push({ line: lineNumber, reason: `パスパターンは/で始まる必要があります: ${pattern}` });
+      }
+      return;
+    }
+    if (!hasPattern) {
+      problems.push({ line: lineNumber, reason: "ヘッダー行の前に対象パスがありません" });
+      return;
+    }
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1) {
+      problems.push({ line: lineNumber, reason: `ヘッダー行にコロンがありません: ${line.trim()}` });
+      return;
+    }
+    const name = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!name) problems.push({ line: lineNumber, reason: "ヘッダー名が空です" });
+    else if (!value) problems.push({ line: lineNumber, reason: `ヘッダー ${name} の値が空です` });
+  });
+  return problems;
+}
+
+/**
  * Cloudflare Pages形式の`_headers`ファイルをパースする。
  * 読み込み失敗時はfail-open(空ルールで継続)ではなく例外を投げる。呼び出し側で
  * 明示的にfail-open運用を選びたい場合(既定値のあるローカル開発サーバー等)は
@@ -52,6 +91,28 @@ export function patternToRegExp(pattern) {
   return new RegExp(`^${escaped}$`);
 }
 
+// HSTSはTLS終端がCloudflare(Tunnel)側でも、ブラウザに「以降はHTTPSのみ」を
+// 記憶させるためにアプリ応答へ付与する。静的応答にしか付いていなかったため
+// API応答とエラー応答が抜けていた。
+export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
+
+/**
+ * Fetch APIの`Headers`へ、`_headers`由来のエッジヘッダとHSTSを「不足分のみ」補う。
+ * アプリケーションが自前で設定したヘッダ(`JSON_HEADERS`等)を上書きしないことを
+ * 保証する。API応答にもCSP/HSTSを適用するために使う。
+ * @param {Headers} target 変更対象のヘッダ
+ * @param {Record<string, string>} edgeHeaders `_headers`から解決済みのヘッダ
+ * @param {string} [hsts] HSTS値(空文字を渡すと付与しない)
+ * @returns {Headers} target(同一インスタンス)
+ */
+export function applyEdgeHeaders(target, edgeHeaders = {}, hsts = STRICT_TRANSPORT_SECURITY) {
+  for (const [name, value] of Object.entries(edgeHeaders)) {
+    if (!target.has(name)) target.set(name, value);
+  }
+  if (hsts && !target.has("strict-transport-security")) target.set("strict-transport-security", hsts);
+  return target;
+}
+
 /**
  * loadHeaderRulesの結果を受け取り、pathnameに対して適用すべきheaderをマージして
  * 返す関数を生成する。複数ルールにマッチした場合は後方(より具体的なパターン)が
@@ -69,8 +130,12 @@ export function makeHeadersResolver(headerRules) {
 }
 
 /**
- * distディレクトリ配下から実ファイルを解決する。存在しないパスはSPAフォールバック
- * としてindex.htmlを返す。戻り値のpathはstaticRootからの絶対パス。
+ * distディレクトリ配下から実ファイルを解決する。戻り値のpathはstaticRootからの絶対パス。
+ *
+ * SPAフォールバック(index.html)は**拡張子の無いパス**に限る。以前はどのパスでも
+ * index.htmlを返していたため、`/assets/missing.js`のような欠落アセットや
+ * `/typo/path.txt`まで200(text/html)になり、読み込み失敗の検知も外形監視も
+ * 成立しなかった(2026-09-18の実測: 存在しないパスが200)。
  * @param {string} staticRoot
  * @param {string} pathname
  */
@@ -79,7 +144,9 @@ export async function resolveStaticFile(staticRoot, pathname) {
     .normalize(decodeURIComponent(pathname))
     .replace(/^(\.\.[/\\])+/, "")
     .replace(/^[/\\]+/, "");
-  const candidates = [safePath || "index.html", path.join(safePath, "index.html"), "index.html"];
+  const candidates = [safePath || "index.html", path.join(safePath, "index.html")];
+  const looksLikeFileRequest = path.extname(safePath) !== "";
+  if (!looksLikeFileRequest) candidates.push("index.html");
   for (const candidate of candidates) {
     const full = path.join(staticRoot, candidate);
     if (!full.startsWith(staticRoot)) continue;

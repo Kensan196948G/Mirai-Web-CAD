@@ -52,6 +52,48 @@ wrangler pages dev dist --port=4176
 curl http://127.0.0.1:4176/api/health
 ```
 
+`GET /api/health`の応答には、稼働中のコードの素性を示す`deploy`ブロックが含まれる(公開リポジトリのcommit/branchのみ。パス・資格情報・環境変数の値は含まない)。
+
+```json
+{
+  "ok": true,
+  "status": "ok",
+  "auth": { "mode": "access", "role": "viewer", "anonymous": true },
+  "db": { "provider": "postgres", "mode": "connected", "migrated": true },
+  "deploy": { "commit": "<40桁SHA>", "branch": "main", "dirty": false }
+}
+```
+
+`deploy`は`scripts/serve-production.mjs`が起動時に`env.DEPLOY_INFO`として渡す。`npm run dev`(ローカル開発サーバー)やテストでは未設定のため`null`になる。本番で`origin/main`と乖離していないかの判定は`npm run deploy:drift`が行う([運用・復旧メモ](operations.md)参照)。
+
+### 認証モードのfail-closed
+
+`AUTH_MODE`は`access`または`demo`のみ有効で、**未設定・想定外の値は`access`として扱う**。`demo`は認証をリクエストヘッダー(`x-demo-role`)の自己申告で決めるため、公開環境では使用しない。`APP_ENV=production`で`demo`が設定されている場合、`handleApiRequest`はリクエストを401で拒否する(`serve-production.mjs`はそもそも`AUTH_MODE=access`以外での起動を拒否する)。Cloudflare Pages Functions(`functions/api/[[path]].js`)は`AUTH_MODE=access`以外を503で拒否する。
+
+5xxの応答本文は、ローカル開発(`demo`かつ`APP_ENV!=="production"`)以外では`{"ok":false,"error":"internal error"}`へ丸め、DB接続エラー等の内部詳細を未認証クライアントへ返さない(詳細はサーバーログにのみ記録)。
+
+### API応答のセキュリティヘッダ
+
+API応答(`JSON_HEADERS`)は`src/api-handler.js`の`API_SECURITY_HEADERS`を単一の出所とし、CSP・`Strict-Transport-Security`・`X-Frame-Options`・`X-Content-Type-Options`・`Referrer-Policy`・`Permissions-Policy`を付与する。
+
+- **Cloudflare Pages Functionsの応答には`_headers`のルールが適用されない**(2026-09-18の実測: `pr-102`の`/api/health`にCSP/HSTSが付かない)。そのためヘッダは`_headers`ではなくAPI側に持たせ、`_headers`との値の一致をテスト(`tests/api-hardening.test.js`)で固定してドリフトを防ぐ。
+- `scripts/serve-production.mjs`は、これに加えて`_headers`の`/*`ルールのうち不足しているものを`applyEdgeHeaders`で補う(アプリが設定したヘッダは上書きしない)。404/413/500のエラー応答にもHSTSを付与する。
+- ローカル開発サーバー(`scripts/serve-local.mjs`)はHTTP配信のためHSTSのみ除去し、CSP等は本番と同じものを付与する(E2Eで検証される)。
+- Pages Functionsの`AUTH_MODE!=access`による503応答にも同じヘッダを付与する。
+
+### レート制限
+
+利用者(Cloudflare AccessのJWT email、demo時は`x-demo-actor`)ごとに、60秒窓で回数を数える。超過時は`429`。
+
+| バケット | 対象 | 既定 | 設定 |
+| --- | --- | --- | --- |
+| `write` | `POST`/`PATCH`/`PUT`/`DELETE`(公開読み取りと`OPTIONS`を除く) | 240回/分 | `WRITE_RATE_LIMIT_PER_MINUTE` |
+| `ai` | `POST /api/drawings/:id/agent-runs`のうちLLMフォールバックを使う経路 | 10回/分 | `AI_RATE_LIMIT_PER_MINUTE` |
+
+- 状態はプロセス内メモリに保持し、キー数上限(`10_000`)を超えた場合は期限切れ→最も古い順に破棄する。以前は利用者ごとの配列が無制限に増え続けていた。
+- AI提案経路も更新系に含まれるため`write`バケットも消費する(別バケットのため片方だけでは素通りしない)。
+- 単一プロセス常駐のため、これはプロセス単位の制限である。エッジ(WAF)側の制限は別途の検討事項。
+
 ## Migration
 
 | File | 内容 |

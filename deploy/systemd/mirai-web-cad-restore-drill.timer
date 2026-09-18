@@ -1,0 +1,11 @@
+[Unit]
+Description=Mirai Web CAD production PostgreSQL restore drill timer
+
+[Timer]
+# 週次(日曜04:10 JST)。日次バックアップ(03:10)の直後、鮮度検査(06:00)より前に実行する。
+OnCalendar=Sun *-*-* 04:10:00 Asia/Tokyo
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

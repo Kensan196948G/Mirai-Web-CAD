@@ -87,6 +87,7 @@ OPENAI_API_KEY=sk-...         # AI_PROVIDER=openaiの場合必須
 ANTHROPIC_API_KEY=sk-ant-...  # AI_PROVIDER=anthropicの場合必須
 AI_MODEL=<現行モデルID>        # AI_PROVIDER設定時は必須。値は各社公式ドキュメントで実装時点の現行版を確認しコードにはハードコードしない
 AI_RATE_LIMIT_PER_MINUTE=10   # 任意、既定10。actor単位でLLM呼び出しのみを制限(ルールベース応答は制限しない)
+WRITE_RATE_LIMIT_PER_MINUTE=240 # 任意、既定240。actor単位で更新系API(POST/PATCH/PUT/DELETE)を制限。公開読み取りとOPTIONSは対象外
 ```
 
 APIキーはサーバーの環境変数のみで管理され、ブラウザには一切保存・送信されない(`GET /api/ai/status`は有効状態・プロバイダ名・モデル名のみを返し、鍵自体は返さない)。設定後は各プロバイダの管理コンソールで「学習利用オフ」等のデータガバナンス設定を人手で確認すること(コード外の運用手順)。
@@ -113,9 +114,11 @@ ENTRA_GROUP_CACHE_TTL_MINUTES=15   # 任意、既定15分。グループ変更�
 ### 3. Migration適用
 
 ```bash
-source <(grep -v '^#' ~/.config/mirai-web-cad/production.env)
-DATABASE_URL="$DATABASE_URL" npm run db:verify
+DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' ~/.config/mirai-web-cad/production.env)" npm run db:verify
 ```
+
+> [!WARNING]
+> 環境変数ファイルを**シェルで`source`しないでください**。bashは代入値の引用符を除去するため、`ACCESS_ROLE_MAP`等のJSON値が壊れます(実測: `{"kensan1969@gmail.com":"cad_admin"}` が `{kensan1969@gmail.com:cad_admin}` になり、`serve-production.mjs` が「ACCESS_ROLE_MAP is not valid JSON」で起動を拒否します)。systemdの`EnvironmentFile`は引用符を保持するため通常運用では問題ありません。手動で必要な変数を取り出す場合は、上記のように`sed`で**必要な1変数だけ**を抽出してください。
 
 ### 4. systemdユニット配置
 
@@ -136,6 +139,10 @@ sudo install -o root -g root -m 0644 \
   deploy/systemd/mirai-web-cad-backup.timer \
   deploy/systemd/mirai-web-cad-backup-check.service \
   deploy/systemd/mirai-web-cad-backup-check.timer \
+  deploy/systemd/mirai-web-cad-deploy-drift.service \
+  deploy/systemd/mirai-web-cad-deploy-drift.timer \
+  deploy/systemd/mirai-web-cad-restore-drill.service \
+  deploy/systemd/mirai-web-cad-restore-drill.timer \
   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mirai-web-cad.service
@@ -147,6 +154,8 @@ sudo systemctl enable --now mirai-web-cad-backup.timer mirai-web-cad-backup-chec
 ```
 
 `mirai-web-cad-cloudflared.service`はCloudflare Tunnel作成後に有効化する(下記)。
+
+`mirai-web-cad-deploy-drift.service`/`.timer`(30分間隔)も同じ要領で配置・有効化する。稼働中のcommitがレビュー済み`origin/main`と乖離していないかを定期検査し、乖離時はユニットが失敗してjournalに理由を残す。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。`mirai-web-cad-restore-drill.service`/`.timer`(週次)も同様に配置・有効化する(初回準備は「本番DBの復元ドリル」を参照)。この4ユニットは上の配置一覧・有効化一覧にも含めてある。
 
 ### 5. Cloudflare Tunnel作成
 
@@ -170,12 +179,21 @@ Tunnel登録、本番/MVPのDNS、MVP Access Applicationは`infra/cloudflare/`�
 
 ### デプロイ(手動)
 
+環境変数ファイルを一括で`source`すると、JSON値(`ACCESS_ROLE_MAP`等)の引用符がシェルにより除去され、手動起動時に「ACCESS_ROLE_MAP is not valid JSON」で失敗する。必要な変数だけを`sed`で取り出す(「3. Migration適用」の注意書き参照)。
+
 ```bash
-source <(grep -v '^#' ~/.config/mirai-web-cad/production.env)
-bash scripts/deploy-local.sh
+DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' ~/.config/mirai-web-cad/production.env)" bash scripts/deploy-local.sh
 ```
 
 `mainブランチをfast-forward → npm ci → build → db:verify → systemctl restart → health確認`を行い、health確認に失敗した場合は直前のコミットへ自動ロールバックする。
+
+デプロイ後は必ず**稼働commitの素性確認**を行う。
+
+```bash
+npm run deploy:drift
+```
+
+`verified`(終了コード0)であれば、本番はレビュー済みの`origin/main`と同一である。`ahead`または`dirty`(終了コード1)の場合は未レビューのコードが稼働しているため、業務利用を止めて原因を解消する(2026-09-18のIssue #98と同じ事故)。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。
 
 ### バックアップ
 
@@ -197,6 +215,18 @@ sudo systemctl start mirai-web-cad-backup.service
 sudo systemctl start mirai-web-cad-backup-check.service
 journalctl -u mirai-web-cad-backup.service -n 20
 ```
+
+### 本番DBの復元ドリル(初回セットアップが必要)
+
+MVPは隔離DBへの復元ドリルを週次で実行しているが、**本番DBには同等の自動ドリルが無い**(2026-09-18時点)。`deploy/systemd/mirai-web-cad-restore-drill.service`と`.timer`(日曜04:10 JST)を追加したので、初回のみ次の準備を行えば以降は自動化される。
+
+1. 復元専用の隔離DB`mirai_web_cad_recovery`を作成する。**2026-09-18の実測では、本番の接続ロールにCREATEDB権限が無く`create database`が`permission denied to create database`で失敗した。** DB管理者ロールでの作成が必要(実施者: DB管理者)。
+2. `~/.config/mirai-web-cad/backup.env`へ`RESTORE_DATABASE_URL`(手順1の隔離DBを指す。本番DBと同一にしてはならない)を追加する。
+3. `mirai-web-cad-restore-drill.service`と`.timer`を配置して有効化する。配置手順は「4. systemdユニット配置」と同じ。
+
+`scripts/restore-drill-local.sh`は復元先DB名が`EXPECTED_RESTORE_DATABASE`と完全一致し、かつ元DBと異なる場合のみ初期化を許可する。復元したデータは成功・失敗にかかわらず終了時に隔離DBから消去される。実行結果は`journalctl -u mirai-web-cad-restore-drill.service`で確認する。
+
+完了基準は「週次ドリルが成功し続けること」であり、設定が存在するだけではPASSとしない。復元できた行数・最新版がバックアップ時点と一致することまで確認する。
 
 ### ログ確認
 

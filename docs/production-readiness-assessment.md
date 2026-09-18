@@ -302,6 +302,195 @@
 
 ## 10. 外部基盤の判断
 
-Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで全応答へ適用しており、この制約自体が解消している。
+Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで**静的応答**へ適用している。
+
+**2026-09-18の追加ラウンドで判明した経緯と最終状態**: 一時点では`/api/*`が`_headers`の対象外であり、API応答のヘッダは`src/api-handler.js`の`JSON_HEADERS`(7項目)とCORSヘッダのみで、**CSP/HSTSが付いていなかった**(「移行後にこの制約自体が解消した」という以前の記述は誤りだったため訂正した)。さらに**Cloudflare Pages Functionsの応答には`_headers`のルールが適用されない**ことを実測で確認した(`pr-102`の`/api/health`にCSP/HSTSが付かない)。そのためPR #102では、ヘッダの単一の出所を`src/api-handler.js`の`API_SECURITY_HEADERS`へ移し、配信経路(Pages Functions / `serve-production.mjs` / `serve-local.mjs`)に依らず**API応答にもCSP・HSTS・`X-Frame-Options`・`Referrer-Policy`・`Permissions-Policy`が付く**状態にした。`serve-production.mjs`は加えて`_headers`の不足分を`applyEdgeHeaders`で補い、404/413/500のエラー応答にもHSTSを付与する。ローカル開発サーバーはHTTP配信のためHSTSのみ除去する。
 
 (2026-08-30以前の記録)Neonの履歴保持は復旧窓に依存し、保護branchは削除/reset/compute削除を防ぐ。履歴は1日のため、本番基準の7-35日へ延長するにはプラン・費用・RPO合意が必要だった。[Neon restore window](https://neon.com/docs/manage/projects) / [Protected branches](https://neon.com/docs/guides/protected-branches)。2026-08-30にNeon依存自体を除去したため、この制約は対象外になった。ローカルPostgreSQLのRPO/RTOは`docs/deployment-local.md`・`docs/operations.md`の「Backup / Restore」節を参照。
+
+## 11. 2026-09-18 追加ラウンド(第11回、PR #99)
+
+第10回ラウンドの直後に、**本番稼働環境そのもの**を対象とした追加検証を行った。評価書・READMEの記述ではなく、実環境のHTTP応答とgit状態を証拠とした点が第10回との違いである。第10回の記述のうち2件が実環境と矛盾していたことも判明し、訂正した。
+
+### 11.1 実測で確認した重大/高リスク
+
+| # | 事象 | 重大度 | Evidence |
+| --- | --- | --- | --- |
+| 1 | 公開中のCloudflare Pages(`mirai-web-cad.pages.dev`)が、未認証の`GET /api/health`に対してDB接続エラー原文(接続ユーザー名`neondb_owner`)を返していた | 高(情報漏洩) | `curl`応答本文 `{"ok":false,"error":"password authentication failed for user 'neondb_owner'"}`。旧実装は`APP_ENV==="production"`のときだけ5xx詳細をマスク |
+| 2 | `AUTH_MODE`未設定時に`demo`認証(ヘッダー自己申告)へフォールバックする実装が残り、公開オリジンで設定漏れが起きると未認証者が`cad_admin`相当へ到達し得た | 重大(潜在的) | `authMode()`/`resolveActor()`の実装、および`wrangler.toml`に`AUTH_MODE`が無い状態 |
+| 3 | デプロイ時の`db:verify`が、トリガーにより削除できない合成監査行を本番`audit_logs`へ混入させていた | 高(監査証跡の完全性) | `mirai_web_cad`の`audit_trigger_verify_probe`(actor `verify`、2026-08-30)1件。`mirai_web_cad_test`にも1件 |
+| 4 | 本番ホストのローカル`main`が`origin/main`より4コミット先行し、未レビューのPR #87コードが稼働。稼働commitを確認・比較する手段が存在しなかった | 重大 | `git log origin/main..HEAD`が4件(16ファイル、688 insertions)。Issue #98 |
+| 5 | 文書と実環境の矛盾2件:「Pages側のコードは移行前のもの」は誤り(現行`functions/api/[[path]].js`が現行`src/api-handler.js`を配信)。「`_headers`は全応答へ適用」も誤り(静的応答のみで`/api`は対象外) | 中(文書信頼性) | 実応答が現行ハンドラのJSON形式であること、`scripts/serve-production.mjs`の分岐 |
+| 6 | 本番DBには隔離復元DBが無く、自動復元ドリルも無い。本番接続ロールには`CREATEDB`権限が無い | 高(DR未検証) | `mirai_web_cad_recovery`不存在、`create database`が`permission denied to create database` |
+| 7 | 本番DBに統合/E2Eテスト由来の図面9件(`dwg_it_*`/`dwg_smoke_*`)が残存 | 中(データ品質) | `select id,name from drawings`の実測 |
+
+### 11.2 実施した修正(PR #99、reviewer SubAgentの独立レビュー指摘を反映)
+
+- **認証のfail-closed化**: `AUTH_MODE`は`access`/`demo`のみ受理し、未設定・不正値は`access`へ。`demo`は`APP_ENV=production`で拒否。Pages Functionsは`access`以外を503で拒否。
+- **5xx内部詳細のマスク**: ローカル開発以外では`internal error`へ丸め、原文はサーバーログのみ。
+- **デプロイ素性の可視化と乖離検知**: `GET /api/health`の`deploy`ブロック、`deploy:drift`/`deploy:drift:live`、30分間隔timer、起動時ガード(`DEPLOY_GUARD=strict`)。**判定不能を「一致」と報告しない**(fail-open除去)。
+- **デプロイ時の稼働commit一致確認**: `scripts/deploy-local.sh`が、稼働APIの`deploy.commit`と今回の`$new_sha`の一致を必須化(不一致は自動ロールバック)。
+- **監査probeの残留ゼロ化**: 単一トランザクション+ROLLBACK。例外判定を`errcode 42501`かつメッセージ一致へ厳格化。
+- **本番DB復元ドリルunit**の追加(初回の隔離DB準備は未了)。
+- **文書訂正**: 「本番ホストへ直接コミットしない」運用ルール、Pagesの誤記2件、`_headers`適用範囲、既存残留監査行の削除手順(要承認)。
+
+検証Evidence: ローカル`npm run verify`(unit 333件中332 pass/1 skip、E2E 74/74)、PR #99の全CIジョブ成功(Empty PostgreSQL Migration / Backup and Restore Drill / Data Store Integration / Secret Scan / Dependency Audit / Synthetic DXF / Terraform / Lint・Test・Build・E2E・A11y / Deploy Preview)、**Preview実測**(`pr-99.mirai-web-cad.pages.dev`で`/`=200、未認証`/api/health`=500かつ`internal error`で内部情報なし、`x-demo-role: cad_admin`でも同一応答、不正JWT=401)、監査probeの正常系/負例の実DB検証。
+
+### 11.3 18項目再採点(追加ラウンド後)
+
+| 評価軸 | 第10回後 | 第11回後 | 増分の根拠 |
+| --- | ---: | ---: | --- |
+| 業務適合性 | 18 | 18 | 変化なし(電子納品・座標系・案件モデルの不在は未着手) |
+| 機能完成度 | 30 | 30 | 変化なし(CAD機能は本ラウンドの対象外) |
+| UI/UX | 45 | 45 | 変化なし |
+| アクセシビリティ | 42 | 42 | 変化なし |
+| データ品質 | 62 | 64 | 監査証跡への合成行混入を停止。ただし本番の残留1件とテスト由来図面9件は未解消 |
+| AI有効性 | 58 | 58 | 変化なし |
+| 設計 | 72 | 73 | 認証のfail-closed化、素性情報の分離(`scripts/lib/deploy-info.mjs`) |
+| コード品質 | 68 | 69 | 回帰テスト30件追加・独立レビュー反映。ESLint等の静的解析は未導入(P0-59) |
+| 性能・拡張性 | 70 | 70 | 変化なし |
+| セキュリティ | 74 | **80** | 権限昇格経路の封鎖、未認証への内部エラー漏洩の封鎖、公開オリジンのAPIガード。LocalStorage平文・レート制限の範囲は未解消 |
+| 可用性・バックアップ | 55 | 57 | 本番DB復元ドリルunitを追加。**実行は権限待ち**で、オフサイト・暗号化・単一障害点は未解消 |
+| 監視・障害対応 | 58 | **66** | 稼働commitの外部可視化、30分間隔の乖離検知、起動時ガード、デプロイ時のcommit一致必須化。当番実名は未確定 |
+| テスト | 83 | 84 | unit 333件(第10回305件)+E2E 74件+独立レビュー。カバレッジ計測は未導入 |
+| CI/CD・リリース | 75 | **81** | デプロイ時の稼働commit検証をCI/CD経路へ組込み。Previewの`/api`検証は未追加 |
+| 運用保守性 | 60 | **68** | 「本番ホストへ直接コミットしない」運用ルール、乖離検知手順、復元ドリル手順を明文化 |
+| 文書 | 78 | 79 | 実環境と矛盾する記述2件を訂正。`mvp-traceability.md`等の陳腐化は残存 |
+| 費用対効果 | 50 | 50 | 変化なし |
+| 競合代替性 | 53 | 53 | 変化なし(代替率はCAD機能側の進捗に依存) |
+| **総合(単純平均)** | **58.6** | **60.4** | 18項目単純平均(1087/18) |
+
+**判定は依然PoC。** 本ラウンドは「本番で安全に運用するための統制」を強化したもので、600名・複数案件・公共工事80%という業務前提に対する最大のギャップ(業務適合性18、機能完成度30)には触れていない。Critical残存は、単一ホスト依存(P1-13)、電子納品/座標系の欠落、案件・工区モデルの未成熟、本番稼働コードの分岐(P0-58)。
+
+### 11.4 未解決(次ラウンド以降)
+
+1. **P0-58**: 本番稼働コードと`origin/main`の分岐解消(業務判断が必要)。
+2. **本番復元ドリルの初回準備**: 隔離DB作成の権限が無い(要DB管理者)。
+3. 既存の残留監査行1件の削除(破壊的本番DB操作のため要承認)。
+4. 本番DBのテスト由来図面9件の扱い(削除は業務判断)。
+5. `_headers`が`/api`に適用されない件(CSP/HSTSのAPI応答への付与)。
+6. `AUTH_MODE=demo`のままで公開される自己ホストpreviewがある場合の5xx詳細漏洩(条件付き)。
+
+## 12. 2026-09-18 追加ラウンド(API入力境界の強化、PR #100)
+
+第11回に続き、`src/`の精査で検出した**実害のあるAPI入力境界の弱点**を修正した(PR #100、squash `c7c88f0`)。Criticalは該当なし、High 2件・Medium 3件。
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | 案件系3経路が本文検証より先に冪等キーを予約し、本文不備で400を返したリクエストがキーを消費。同じキーでの正しい再送が**恒久的に409**となり、案件作成・メンバー追加が操作不能 | High | 検証後に予約する順序へ変更(成功後の重複再送は409のまま) |
+| 2 | `/drawings/:id/transactions` にコマンド数上限が無く、`commands`が非配列だと500 | High | 上限500件、非配列400、超過413 |
+| 3 | `expected-version` を`Number()`で解釈し`1e0`/`0x1`/`1.0`が通る | Medium | `/^\d+$/`で10進整数のみ受理 |
+| 4 | 監査CSVの数式注入対策が先頭一致のみで、先頭空白つき`" =cmd\|..."`が素通り | Medium | 最初の有意文字で判定(`csvEscape`を単体テスト対象としてexport) |
+| 5 | 未使用レガシー`saveDrawing`が`project_id`をデモ案件に固定(将来の呼び出しで案件ACLが破綻) | Medium | 呼び出し側の`projectId`を優先 |
+
+検証: `tests/api-hardening.test.js`(新規10件)、`npm run verify:fast`(unit **343件中342 pass・1 skip**)、CI全ジョブ成功、Preview実測(`pr-100`で`/`=200、未認証`/api/health`=500かつ`internal error`、内部情報漏洩0件)、マージ後のmain CI/Production verify ともにsuccess。PostgreSQL統合テストのローカル実行はローカル認証方式(peer)の制約で不可のため、CIの`PostgreSQL Data Store Integration`で検証した。
+
+**18項目への影響**: セキュリティ 80→81、コード品質 69→71、テスト 84→85、運用保守性 68→69。他は据え置き。**総合 60.4 → 60.6**(1091/18)。判定は依然PoC。
+
+**未解決(据え置き)**: `appendAudit`の`on conflict (id) do nothing`(ID衝突時に監査行を黙って落とし得る)、`/transactions`の1コマンドあたりの配列長検証、レート制限がAI経路限定、監査ログの保持期間・削除手段の不在、`/api`応答へのCSP/HSTS付与。
+
+## 13. 2026-09-18 追加ラウンド(API応答ヘッダと運用footgun、PR #102)
+
+### 13.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `/api/*`応答にCSP/HSTS等のセキュリティヘッダが付いていなかった(`_headers`は静的応答にのみ適用)。404/413/500のエラー応答も同様。加えて**Cloudflare Pages Functionsの応答には`_headers`が適用されない**ため、`_headers`への追加だけではPages側が直らない | Medium | ヘッダの単一の出所を`src/api-handler.js`の`API_SECURITY_HEADERS`(CSP/HSTS/XFO/XCTO/Referrer-Policy/Permissions-Policy)とし、全API応答とPages Functionsの503応答へ付与。`scripts/lib/http-bridge.mjs`の`applyEdgeHeaders`(不足分のみ補い、アプリ設定ヘッダは上書きしない)を`serve-production.mjs`の`/api/*`と全エラー応答へ適用。`_headers`にもHSTSを追加し、3箇所の値の一致をテストで固定 |
+| 2 | **環境変数ファイルをシェルで`source`するとJSON値の引用符が除去され**、`ACCESS_ROLE_MAP`が不正JSONになる。手動起動時に「refusing to start」で復旧作業が止まる(実測: 36文字→32文字) | Medium(運用) | `docs/deployment-local.md`の手順を「必要な1変数のみ`sed`で抽出」へ変更し、注意書きを追加。`serve-production.mjs`の起動拒否ログに原因を示す`hint`を追加(起動拒否そのものはfail-closedとして維持) |
+
+### 13.2 検証Evidence
+
+- `tests/http-bridge.test.js`に4件追加(HSTSの全パス付与、API応答への補完とアプリ設定ヘッダ優先、HSTS無効化)
+- **実行時検証**: `scripts/serve-local.mjs`を一時ポートで起動し`/api/health`がCSP/XFO付き・HSTSなしを確認。`scripts/serve-production.mjs`を本番`EnvironmentFile`相当の環境で**別ポート(24139)**で起動し(DBは読み取りprobeのみ)、`/api/health`(200)・`/api/nope`(401)・`/definitely-missing.txt`(SPAフォールバック200)の**すべて**でCSP・HSTS・XFO・XCTO・Referrer-Policy・Permissions-Policyを確認
+- `npm run verify:fast`(unit **346件中345 pass・1 skip**)、CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 13.3 18項目への影響
+
+セキュリティ 81→82、運用保守性 69→71、文書 79→80。他は据え置き。**総合 60.6 → 60.8**(1095/18)。判定は依然PoC。
+
+### 13.4 新たに判明した未解決事項
+
+- SPAフォールバックにより、存在しないパスも**200 + index.html**を返す(`/definitely-missing.txt`=200)。外形監視が誤ったパスを監視した場合に異常を検知できないため、監視対象パスの設計または404返却の検討が必要。
+- Cloudflare Pages(`mirai-web-cad.pages.dev`)は`main`マージでは更新されない(preview jobは`pull_request`のみ)。**PR #99/#100/#102のコード修正はPages本番へ届かない**ため、公開APIの情報漏洩はCloudflare側の操作まで残る。
+
+## 14. 2026-09-18 追加ラウンド(濫用対策・監査完全性、PR #103)
+
+### 14.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | レート制限がAI提案経路のみで、**図面更新・案件操作・監査出力は無制限**だった。暴走クライアントや連打で全利用者が影響を受ける | Medium | `write`バケットを追加(`POST`/`PATCH`/`PUT`/`DELETE`、既定240回/分、`WRITE_RATE_LIMIT_PER_MINUTE`で変更可)。公開読み取りと`OPTIONS`は対象外 |
+| 2 | レート制限の状態(利用者ごとの配列)が**無制限に増え続けていた** | Low | キー数上限`10_000`を設け、期限切れ→最も古い順に破棄。`resetMemoryStore`でテスト時にも消去 |
+| 3 | `appendAudit`が`on conflict (id) do nothing`のため、**ID衝突時に監査行を黙って落としていた**(戻り値も例外も無し) | High(監査証跡) | 挿入行数を確認し、0行なら例外にして操作を失敗させる(承認判断の根拠が欠けた状態で成功を返さない)。メモリストアも重複IDを検出 |
+| 4 | `_headers`の書式違反行がパーサに**黙って捨てられ**、CSP等が無言で欠落したまま配信され得た | Medium | `findMalformedHeaderLines`を追加し`npm run lint`で検出。実際の`_headers`に違反が無いこともテストで固定 |
+
+### 14.2 検証Evidence
+
+- `tests/abuse-and-audit.test.js`(新規8件): 更新系の429、読み取りが数えられないこと、バケット分離、リセット、監査重複IDの例外、`_headers`の書式検出/非検出
+- `npm run verify:fast`: unit **357件中356 pass・1 skip**、lint/typecheck/a11y/build 成功／E2E 74/74
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 14.3 18項目への影響
+
+セキュリティ 82→83、コード品質 71→72、テスト 85→86。他は据え置き。**総合 60.8 → 61.0**(1098/18)。判定は依然PoC。
+
+### 14.4 未解決(据え置き)
+
+- エッジ(WAF)側のレート制限は未設定(プロセス内制限のみ)。
+- 監査ログの一覧取得(CSV以外)は`audit.exported`を記録しない。監査ログのハッシュチェーン/改ざん検知は未実装。
+- SPAフォールバックの200、ESLint等の静的解析(P0-59)、`/transactions`の1コマンドあたりの配列長検証。
+
+## 15. 2026-09-18 追加ラウンド(静的解析の導入、PR #104)
+
+### 15.1 実施内容
+
+改善台帳で唯一「未着手」として残っていたP1項目**P0-59(実質的な静的解析の導入)**を完了した。ESLint 10のflat config(`eslint.config.mjs`)を追加し、`npm run lint:static`として`verify:fast`(=CIのLintジョブ)へ組み込んだ。
+
+- **errorとする規則は実行時バグに直結するものだけ**: 未定義参照、重複キー/引数/クラスメンバ、到達不能コード、未使用変数、定数条件、`no-fallthrough`、`valid-typeof`、`use-isnan`、`no-self-assign`、`no-unsafe-negation`、`no-unsafe-optional-chaining`、`no-async-promise-executor`、`no-obj-calls`等。整形・命名の規則は一切入れていない。
+- `require-atomic-updates`はブラウザUIのイベントハンドラで誤検知が多いため**warnのみ(21件)**とし、CIをブロックしない(改善台帳の完了基準「warn中心で、CIをブロックしない範囲」に一致)。
+- スコープは`src/`・`scripts/`・`functions/`・`tests/`(E2Eスペックはブラウザコールバックを考慮してブラウザ/Node両方のグローバルを宣言)。
+- 実際に検出されたのは`src/app.js`の`FormData`未定義8件で、原因はグローバル定義の不足であり実バグではなかった(定義を追加して解消)。`scripts/check-cloudflare-iac.mjs`の`no-template-curly-in-string`は「HCL中の`${var.…}`という文字列そのもの」を探す検査のため誤検知として無効化した。
+
+### 15.2 検証Evidence
+
+- `npm run verify:fast`: `lint` → `lint:static`(**0 errors / 21 warnings**)→ `typecheck` → `a11y` → unit **357件中356 pass・1 skip** → `build` すべて成功
+- `npm audit --omit=dev --audit-level=high`: 0件(依存追加はdevのみ)
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 15.3 18項目への影響
+
+コード品質 72→73、CI/CD・リリース 81→82。他は据え置き。**総合 61.0 → 61.1**(1100/18)。判定は依然PoC。
+
+### 15.4 未解決(据え置き)
+
+- `require-atomic-updates`の21件は「ブラウザUIでは誤検知」と判断してwarnに留めている。将来、状態管理を見直す際の確認対象として残る。
+- 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限、SPAフォールバックの200、`/transactions`の1コマンドあたりの配列長検証。
+
+## 16. 2026-09-18 追加ラウンド(コマンド検証とSPAフォールバック、PR #105)
+
+### 16.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `POST /drawings/:id/transactions` の`op`が無検証で、**未知のopは`applyTransaction`に黙って無視され200(成功)が返っていた**。綴り間違いや将来の誤実装が「何も起きないのに成功」になる | High(誤判定) | `applyTransaction`が解釈する13種のopを許可リスト化し、未知のopは400で拒否(該当opを応答に含める)。コマンドが非オブジェクトの場合も400 |
+| 2 | 1コマンドあたりの`points`長に上限が無く、巨大な点列で計算量が増大し得た | Medium | `MAX_COMMAND_POINTS = 10_000`を追加(超過は413) |
+| 3 | **SPAフォールバックが拡張子の有無を問わずindex.htmlを返していた**ため、`/missing.js`のような欠落アセットや誤ったパスが**200(text/html)**になり、読み込み失敗の検知も外形監視も成立しなかった(実測: `/definitely-missing.txt`=200) | Medium(監視) | フォールバックを**拡張子の無いパスに限定**。`/missing.js`等は404、`/deep/client/route`は従来どおりindex.html |
+
+### 16.2 検証Evidence
+
+- `tests/api-hardening.test.js`に5件追加(未知opの400、非オブジェクトコマンドの400、op非文字列の400、`points`超過の413、SPAが送る13 opの正常適用)
+- `tests/http-bridge.test.js`に4件追加(既存ファイル解決、欠落ファイルはnull=404、拡張子無しパスはindex.html、上位ディレクトリへ抜けるパスは不解決)
+- **実行時検証**(`serve-local`を一時ポートで起動): `/`=200 html、`/index.html`=200 html、**`/missing.js`=404**、**`/missing.txt`=404**、`/deep/client/route`=200 html(フォールバック維持)、`/src/app.js`=200 js
+- **Preview実測の限界**: `pr-105.mirai-web-cad.pages.dev`では`/missing.js`が**依然200(text/html)**である。これはCloudflare Pages側のSPAフォールバック(404.htmlが無い場合に未一致パスを`/index.html`へ返す挙動)であり、本修正が対象とするのは**自ホストの本番サーバー(`serve-production.mjs`、実際の本番ドメイン)**である。Pages経路はCloudflare側の設定であり、本ラウンドの修正対象外(下記16.4)。
+- `npm run verify:fast`: unit **366件中365 pass・1 skip**、ESLint 0 errors、lint/typecheck/a11y/build 成功／E2E **74/74**
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 16.3 18項目への影響
+
+データ品質 64→65、監視・障害対応 66→67、コード品質 73→74。他は据え置き。**総合 61.1 → 61.3**(1103/18)。判定は依然PoC。
+
+### 16.4 未解決(据え置き)
+
+- MVPドメインはCloudflare Accessで保護されているため、**欠落アセットの404を外形監視へ組み込むにはAccess経由の監視設計が必要**(現状の`check-mvp-health.sh`は`/`の302を検査している)。
+- **Cloudflare Pages側のSPAフォールバックは未解消**。`pr-105.mirai-web-cad.pages.dev`の実測で`/missing.js`=200(text/html)。Pagesは404.htmlが無い場合に未一致パスを`/index.html`へ返すため、404を返させるには`404.html`の追加等が必要だが、それは`/deep/client/route`のようなSPA側のパスも404にしてしまう。ローカル常駐サーバー(実際の本番ドメイン)は本ラウンドで404化済みであり、Pagesは「参考・ロールバック用」の位置づけであるため、対応は方針判断とする。
+- 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限。
