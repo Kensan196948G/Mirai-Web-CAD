@@ -770,3 +770,41 @@ CI/CD・リリース 83→**84**(常時赤の除去)、運用保守性 72→**73
 ### 22.6 未実施(承認・判断待ち)
 
 P0-82〜P0-88の実装は、いずれもmigrationの版管理導入、保存済みハッシュの段階移行、デプロイ手順書の更新(ポリシーゲートで編集不可)、契約プランの確認、DB管理者作業を伴うため**人間の判断が必要**である。コードのみで完結する残項目は本ラウンドで尽きた。
+
+## 23. 2026-09-18 追加ラウンド(復元不能なバックアップの検出と修復、運用・供給網の統制、第6ラウンド)
+
+前ラウンドで挙げた「コードのみで完結する」残項目(P0-83/84/88)に着手する過程で、**より重大な既存欠陥(P0-89)を実測で検出した**ため、これを最優先で修復した。
+
+### 23.1 実測で検出した最重大事象: バックアップは成功するが復元できない(P0-89)
+
+| 項目 | 内容 |
+| --- | --- |
+| 事象 | このホストのサーバはPostgreSQL **16.14** だが、PATH上の`pg_config --bindir`は**18**(`/usr/lib/postgresql/18/bin`)を指していた。`backup-database.sh`/`restore-database.sh`の既定は`PG_BIN="${PG_BIN:-$(pg_config --bindir)}"`だったため、**PG_BIN未設定のドリル手順(README記載の`npm run db:backup`/`db:restore`)** では、`pg_dump`(18)が`SET transaction_timeout = 0`(PG17以降のGUC)を出力し、PostgreSQL 16のサーバへの`pg_restore`が `unrecognized configuration parameter "transaction_timeout"` で失敗して**復元先DBが空のまま残った** |
+| 重大度 | **High**(DR手順の破綻)。定時バックアップはsystemd unitが`PG_BIN=/usr/lib/postgresql/16/bin`を明示しているため影響を受けないが、**手順どおりの復元訓練が成立しない**状態であり、「バックアップがある」ことが復元可能性を意味していなかった |
+| 検出の経緯 | P0-84(対象DB名の検証)の実装検証としてバックアップ→復元の往復を実行したところ、復元がexit 1で失敗し復元先が0テーブルであることを実測した。CIの`recovery`ジョブが通っていたのは、ランナーのクライアント版がたまたま一致していたためで、**環境差が隠していた** |
+| 修正 | `scripts/lib/pg-bin.sh`を新設し、**サーバのメジャー版からクライアントを解決**する。①aptレイアウト`/usr/lib/postgresql/<major>/bin`を優先 ②無ければ`pg_config`の版がサーバと**一致する場合のみ**採用 ③一致しなければexit 5で中止(新しい版で復元不能なdumpを作らせない)。manifestへ使用クライアント版(`pg_client=`)を記録 |
+| 検証(実測) | **修正前**: PG_BIN未設定で復元exit 1・復元先0テーブル。**修正後**: PG_BIN未設定でも`pg_client=16.14`でバックアップされ、復元exit 0・復元先**9テーブル**・`manifest_match=yes`・図面1/版1/監査1。解決ロジックの4分岐(サーバ版一致/不一致/フォールバック一致/版取得不能)を個別に検証 |
+
+### 23.2 その他の修正
+
+| ID | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| P0-83 | `verify-database.sh`が`table_count == 9`の完全一致を要求し、**テーブルを追加するmigrationで全デプロイが恒久失敗**する構造だった | High | 件数の完全一致をやめ、**期待テーブルを名前で検証**する方式へ変更(`db:check`と同じ意味論)。実測: 10テーブルでも成功、期待テーブル欠落は`db:check`が名前を列挙してexit 1。`schema_migrations`による版管理は要判断として残置 |
+| P0-84 | backup/restoreに「対象DB名」の検証が無く、env取り違え(MVPのdumpを本番バックアップとして保存)を検出できなかった | Medium-High | `backup-database.sh`が`EXPECTED_DATABASE`と接続先の一致を必須化(不一致exit 4)、manifestへ`database=`と`pg_client=`を記録。`restore-database.sh`は`EXPECTED_DATABASE`設定時にmanifestの`database=`一致を必須化。本番/MVPのbackupとrestore-drillの4 unitへ`EXPECTED_DATABASE`を設定。実測: 不一致exit 4、一致で成功、restoreは不一致manifestをexit 4で拒否 |
+| P0-88 | SBOM・ライセンス検査・CODEOWNERS・ActionsのSHA固定が無い | Medium | CIへ`sbom`ジョブを追加し、`npm sbom --sbom-format cyclonedx`で生成・検証して`actions/upload-artifact`で保存。実測: 131コンポーネント(production-scope 4)のCycloneDXを生成し検証成功。ライセンス方針・CODEOWNERS・SHA固定は要判断として残置 |
+
+### 23.3 検証Evidence
+
+- `npm run verify` 全成功: `lint` / ESLint **0 errors** / `typecheck` / `a11y` / unit **413件(412 pass・0 fail・1 skip)** / `build` / E2E **78/78**
+- `backup-database.sh` / `restore-database.sh` / `scripts/lib/pg-bin.sh` の `bash -n` 構文検証
+- `.github/workflows/ci.yml` のYAML妥当性と`sbom`ジョブのステップ構成をパースで確認
+- 実DBでの往復検証(source DB作成→`db:verify`→backup→復元先の空DB作成→restore→テーブル数と`manifest_match`を確認)。検証用DB・ロールは削除済み(残留0)
+- `pg-bin.sh`の解決ロジック4分岐を偽psqlで個別検証
+
+### 23.4 18項目への影響
+
+可用性・バックアップ 59→**62**(復元不能だった手順を修復し、往復を実測)、テスト 89→**90**(往復検証とクライアント解決の分岐検証)、運用保守性 73→**74**(ドリル手順が成立)、CI/CD・リリース 84→**85**(SBOM生成ジョブ)。他は据え置き。**総合 63.4 → 63.8**(1148/18)。**判定は依然PoC。**
+
+### 23.5 残る課題(要判断)
+
+`schema_migrations`によるmigration版管理(P0-83残)、ライセンス方針・CODEOWNERS・ActionsのSHA固定(P0-88残)、P0-82(`content_hash`)、P0-85(監視予算)、P0-86(ロールバック)、P0-87(ホスト再現性)、P0-70〜P0-72/P1-13/P0-75(外部契約・経営判断)は人間の判断が必要である。

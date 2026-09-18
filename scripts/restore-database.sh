@@ -11,7 +11,15 @@ if [[ "${ALLOW_DATABASE_RESTORE:-}" != "yes" ]]; then
   exit 3
 fi
 
-pg_bin="${PG_BIN:-$(pg_config --bindir)}"
+# クライアントは復元先サーバと同じメジャー版を使う(backup-database.shと同じ理由)。
+pg_bin="${PG_BIN:-}"
+if [[ -z "$pg_bin" ]]; then
+  # shellcheck source=scripts/lib/pg-bin.sh
+  source "$(dirname "$0")/lib/pg-bin.sh"
+  if ! pg_bin="$(resolve_pg_bin "$RESTORE_DATABASE_URL")"; then
+    exit 5
+  fi
+fi
 manifest_file="${BACKUP_MANIFEST_FILE:-${BACKUP_FILE}.manifest}"
 max_backup_age_hours="${MAX_BACKUP_AGE_HOURS:-24}"
 
@@ -37,6 +45,22 @@ if [[ "$manifest_format" != "mirai-web-cad-backup-manifest-v1" ]] ||
    [[ ! "$manifest_signature" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9a-f]{32}$ ]]; then
   echo "Backup manifest is malformed: $manifest_file" >&2
   exit 4
+fi
+
+# バックアップ元DB名の検証(改善台帳P0-84)。manifestへ記録した`database=`を、期待値が
+# 与えられている場合は必須とする(過去のmanifestには無いため、未設定なら警告に留める)。
+manifest_database="$(manifest_value database || true)"
+if [[ -n "${EXPECTED_DATABASE:-}" ]]; then
+  if [[ -z "$manifest_database" ]]; then
+    echo "Backup manifest has no source database, but EXPECTED_DATABASE is set: $manifest_file" >&2
+    exit 4
+  fi
+  if [[ "$manifest_database" != "$EXPECTED_DATABASE" ]]; then
+    echo "Backup source database mismatch: manifest='${manifest_database}' EXPECTED_DATABASE='${EXPECTED_DATABASE}'" >&2
+    exit 4
+  fi
+elif [[ -z "$manifest_database" ]]; then
+  echo "警告: このmanifestにはdatabase=がありません(EXPECTED_DATABASE未設定のため検証を省略)" >&2
 fi
 
 actual_sha256="$(sha256sum "$BACKUP_FILE" | awk '{print $1}')"

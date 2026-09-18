@@ -12,6 +12,9 @@ EnvironmentFile=/home/kensan/.config/mirai-web-cad/backup.env
 Environment=PG_BIN=/usr/lib/postgresql/16/bin
 Environment=BACKUP_DIR=/var/backups/mirai-web-cad/postgres
 Environment=RETENTION_DAYS=14
+# 対象DB名の検証(改善台帳P0-84)。EnvironmentFileの取り違えでMVPのdumpを本番バックアップと
+# して保存しても検出できなかったため、接続先DB名を明示して一致を必須にする。
+Environment=EXPECTED_DATABASE=mirai_web_cad
 Environment=PATH=/home/kensan/.npm-global/bin:/home/kensan/.nvm/versions/node/v22.22.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/bash scripts/backup-local.sh
 

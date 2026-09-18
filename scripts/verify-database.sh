@@ -58,7 +58,20 @@ verification="$({
 
 IFS=: read -r database table_count project_count drawing_count public_count version_count audit_count <<<"$verification"
 
-if [[ "$table_count" != "9" || "$project_count" != "1" || "$drawing_count" != "1" || "$public_count" != "1" || "$version_count" != "1" || "$audit_count" != "1" ]]; then
+# 期待テーブルは「名前」で検証する。件数の完全一致(!= 9)を要求すると、将来テーブルを
+# 追加するmigrationを適用した時点で**全デプロイが恒久失敗**する(改善台帳P0-83)。
+expected_tables_sql="array['agent_runs','audit_logs','command_events','drawing_versions','drawings','idempotency_keys','project_members','projects','reviews']"
+missing_tables="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
+  select coalesce(string_agg(t, ' '), '')
+  from unnest(${expected_tables_sql}) as t
+  where to_regclass('public.' || t) is null
+")"
+if [[ -n "$missing_tables" ]]; then
+  echo "database verification failed: 期待テーブルがありません:${missing_tables}" >&2
+  exit 1
+fi
+
+if [[ "$project_count" != "1" || "$drawing_count" != "1" || "$public_count" != "1" || "$version_count" != "1" || "$audit_count" != "1" ]]; then
   echo "database verification failed: tables=$table_count project=$project_count drawing=$drawing_count public=$public_count version=$version_count audit=$audit_count" >&2
   exit 1
 fi

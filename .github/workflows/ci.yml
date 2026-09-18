@@ -186,6 +186,39 @@ jobs:
         if: always()
         run: npm audit --audit-level=high || true
 
+  # 供給網統制(改善台帳P0-88)。ビルドに含まれる依存の一覧をCycloneDX形式で生成し、
+  # 成果物として保存する。SBOM生成自体は方針判断を要さない技術的統制であり、
+  # 法務判断が必要な「ライセンス方針の決定」とは分離して実施する。
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Generate SBOM
+        run: |
+          mkdir -p artifacts
+          npm sbom --sbom-format cyclonedx > artifacts/sbom.cdx.json
+      - name: Validate SBOM
+        run: |
+          node -e "
+          const fs = require('node:fs');
+          const bom = JSON.parse(fs.readFileSync('artifacts/sbom.cdx.json', 'utf8'));
+          if (bom.bomFormat !== 'CycloneDX') throw new Error('bomFormat is not CycloneDX');
+          if (!Array.isArray(bom.components) || bom.components.length === 0) throw new Error('components is empty');
+          console.log('SBOM ok: components=' + bom.components.length);
+          "
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-cyclonedx
+          path: artifacts/sbom.cdx.json
+
   terraform:
     name: Terraform Format and Validate
     runs-on: ubuntu-latest
