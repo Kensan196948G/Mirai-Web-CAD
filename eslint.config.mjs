@@ -11,6 +11,7 @@ const webGlobals = {
   AbortController: "readonly",
   AbortSignal: "readonly",
   Blob: "readonly",
+  DOMException: "readonly",
   EventTarget: "readonly",
   FormData: "readonly",
   Headers: "readonly",

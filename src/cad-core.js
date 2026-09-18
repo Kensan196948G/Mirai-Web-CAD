@@ -421,7 +421,9 @@ export function approveDrawing(drawing, actor = "approver") {
   if (drawing.state !== "in_review") {
     return fail("レビュー中の図面だけを承認できます。", drawing);
   }
-  const issues = validateDrawing(drawing).filter((issue) => issue.severity === "critical");
+  // invalid-geometry(形状が評価できない図形)は critical と同様に承認を止める。
+  // 座標が算出できない図形を含む図面を「承認済み」にしてはいけない。
+  const issues = validateDrawing(drawing).filter((issue) => issue.severity === "critical" || issue.code === "invalid-geometry");
   if (issues.length > 0) {
     return fail(`Critical検査項目が残っています: ${issues.length}件`, drawing);
   }
@@ -614,10 +616,14 @@ export function proposalToTransaction(proposal, actor = "agent") {
 }
 
 export function entityBounds(entity) {
+  if (!entity || typeof entity !== "object") return null;
   if (entity.type === "line" || entity.type === "polyline") {
     return boundsFromPoints(entity.points);
   }
   if (entity.type === "rect") {
+    // originが無い/widthやheightが数値でない場合、以前は文字列連結によりNaNを含む
+    // boundsを返していた(truthyなのでinvalid-geometryにならず、承認まで通っていた)。
+    if (!isFinitePoint(entity.origin) || !Number.isFinite(entity.width) || !Number.isFinite(entity.height)) return null;
     return {
       minX: Math.min(entity.origin.x, entity.origin.x + entity.width),
       minY: Math.min(entity.origin.y, entity.origin.y + entity.height),
@@ -651,10 +657,13 @@ export function entityBounds(entity) {
     return boundsFromPoints(sampleSpline(entity));
   }
   if (entity.type === "text") {
+    // valueが文字列でない場合は `.length` で例外になる。atが無い場合は座標が取れない。
+    if (typeof entity.value !== "string" || !Number.isFinite(entity.size) || entity.size <= 0) return null;
     if (entity.widthFactor !== undefined || entity.oblique !== undefined || entity.generationFlags !== undefined) {
       const matrix = textAffine(entity), width = entity.value.length*0.55;
       return boundsFromPoints([{ x: 0, y: -1 }, { x: width, y: -1 }, { x: width, y: 0 }, { x: 0, y: 0 }].map((p) => affinePoint(matrix, p)));
     }
+    if (!isFinitePoint(entity.at)) return null;
     const width = entity.value.length * entity.size * 0.55;
     return boundsFromPoints(transformEntity({ points: [{ x: 0, y: -entity.size }, { x: width, y: -entity.size }, { x: width, y: 0 }, { x: 0, y: 0 }] }, {
       dx: entity.at.x, dy: entity.at.y, angle: entity.rotation ?? 0
@@ -938,7 +947,10 @@ function point(value) {
 }
 
 function boundsFromPoints(points) {
-  if (!points.length || points.some((value) => !isFinitePoint(value))) return null;
+  // pointsが無い/配列でない場合に `.length` で TypeErrorを投げていた。validateDrawingは
+  // 承認経路から呼ばれるため、例外は500になり「承認できない図面」が復旧不能になる。
+  // ここは必ずnull(不正)を返し、呼び出し側でinvalid-geometryとして扱う。
+  if (!Array.isArray(points) || !points.length || points.some((value) => !isFinitePoint(value))) return null;
   return {
     minX: Math.min(...points.map((p) => p.x)),
     minY: Math.min(...points.map((p) => p.y)),

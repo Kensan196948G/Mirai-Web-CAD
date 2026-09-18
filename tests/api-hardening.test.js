@@ -229,6 +229,18 @@ test("_headersとAPIのCSP/HSTSは一致する(ドリフト防止)", async () =>
   assert.equal(BRIDGE_HSTS, API_HSTS);
 });
 
+test("_headersとAPIで共通のセキュリティヘッダは値が一致する(全項目)", async () => {
+  // CSP/HSTSだけを比較していると、Permissions-Policyのような他項目が片方だけ
+  // 古いまま残るドリフトを検出できない(2026-09-18の独立レビューで実際に発生)。
+  const rules = await loadHeaderRules(path.join(__dirname, "..", "_headers"));
+  const headersForPath = makeHeadersResolver(rules);
+  const edge = headersForPath("/");
+  for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) {
+    const edgeValue = Object.entries(edge).find(([key]) => key.toLowerCase() === name)?.[1];
+    assert.equal(edgeValue, value, `${name} が_headersとAPIで不一致`);
+  }
+});
+
 test("API応答(JSON)にセキュリティヘッダが付く", async () => {
   resetMemoryStore();
   const response = await handleApiRequest(new Request("https://example.test/api/health"), env);
@@ -317,4 +329,58 @@ test("許可されたop(SPAが送る13種)は引き続き適用できる", async
     env
   );
   assert.equal(response.status, 200, await response.clone().text());
+});
+
+// 業務処理が失敗したときに予約を残したままだと、「一度失敗した操作を二度と再試行できない」
+// 状態になる(独立レビュー2026-09-18の指摘)。
+test("業務処理が失敗した場合は冪等キーを解放し、同じキーで再送できる", async () => {
+  resetMemoryStore();
+  const create = await handleApiRequest(
+    new Request("https://example.test/api/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "cad_admin", "idempotency-key": "release-create" },
+      body: JSON.stringify({ id: "prj_release_target", name: "解放検証" })
+    }),
+    env
+  );
+  assert.equal(create.status, 201);
+
+  const patch = (projectId) =>
+    handleApiRequest(
+      new Request(`https://example.test/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-demo-role": "cad_admin", "idempotency-key": "release-patch" },
+        body: JSON.stringify({ accessScope: "restricted" })
+      }),
+      env
+    );
+
+  // 存在しない案件への更新は404で失敗する → 予約が解放される
+  assert.equal((await patch("prj_does_not_exist")).status, 404);
+  // 同じキーで正しい対象へ再送 → 409にならず成功する
+  assert.equal((await patch("prj_release_target")).status, 200, "冪等キーが解放されていない");
+});
+
+test("成功した操作の予約は解放されない(二重実行は409のまま)", async () => {
+  resetMemoryStore();
+  const create = await handleApiRequest(
+    new Request("https://example.test/api/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-demo-role": "cad_admin", "idempotency-key": "keep-create" },
+      body: JSON.stringify({ id: "prj_release_target2", name: "保持検証" })
+    }),
+    env
+  );
+  assert.equal(create.status, 201);
+  const patch = () =>
+    handleApiRequest(
+      new Request("https://example.test/api/projects/prj_release_target2", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-demo-role": "cad_admin", "idempotency-key": "keep-patch" },
+        body: JSON.stringify({ accessScope: "restricted" })
+      }),
+      env
+    );
+  assert.equal((await patch()).status, 200);
+  assert.equal((await patch()).status, 409);
 });
