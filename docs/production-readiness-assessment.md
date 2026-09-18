@@ -576,3 +576,84 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 ### 18.5 残る未解決(据え置き)
 
 §17.5の1〜8のうち、複数タブ保護、`checkApiHealth`の未保存編集保護、`render()`の全DOM再構築そのもの(フォーカス移動・dialog保持)、Canvas内容の代替とキーボード作図、平文LocalStorageのPII/生DXF原本とTTL・削除導線、`content_hash`の強ハッシュ化、`migrations/0006`の監査トリガ一時解除、AI runと監査の非原子、職務分離、axeの`incomplete`対応、`app.js`のユニットテスト化、E2Eの共有図面依存、`sourcemap`/minifyは**未着手**。
+
+## 19. 2026-09-18 追加ラウンド(P0-58完了=PR #87のレビュー完了と本番main分岐の解消、ほか12件の実バグ修正)
+
+本ラウンドは、第10回から繰り返し最優先課題として挙げられながら未着手だった**P0-58(PR #87レビュー未完了・本番main分岐)**を完了させたことを主眼とする。あわせて、PR #87の差分に対する**独立敵対的レビュー(別コンテキストのSubAgent)と再レビュー(CodeRabbit 8件)**で検出した実バグ12件を、すべて実行で再現させたうえで修正し、回帰テストで固定した。
+
+### 19.1 P0-58の完了(最重要)
+
+| 項目 | 内容 |
+| --- | --- |
+| 開始時点の状態 | PR #87はopen、CodeRabbit review thread 18件(全てresolve済み)で、**branch protectionの`required_conversation_resolution`は満たしていた**。一方で本番ホストのローカル`main`がGitHub mainと分岐したまま稼働し、恒久対応(P0-58)は未着手だった |
+| 第1段階(レビュー指摘の解消) | ローカルbranchを`origin/main`へ追随させ、レビュー指摘の実バグ4件を修正(19.2の1〜4)。全CI green、追加レビューthread 0件を確認 |
+| 第2段階(再レビュー8件の解消) | 修正コミットへのCodeRabbit再レビューで**新規未解決thread 8件**が付き、`required_conversation_resolution`により正規手順でマージ不能となった。8件すべてを実コードで再検証し全件妥当と判断、8件を修正(19.2の5〜12)。全threadへ修正内容を回答しresolveした |
+| 完了確認 | 必須チェック5件+全ジョブの成功、未解決thread 0件を`gh`で実測。**admin権限によるbranch protection迂回は一切行っていない** |
+| 分岐の再発防止 | 本番ホスト側の乖離検知(`npm run deploy:drift`)が、分岐状態で**exit 1(fail-closed)を返すことを実測**(`ok:false`、`ahead`検出)。判定不能を「一致」と報告しない実装であることを確認した |
+
+**留意**: 本番ホスト(`/home/kensan/Projects/Mirai-DX-Project/Mirai-Web-CAD`)のローカル`main`の分岐解消そのものは、本リポジトリの外にある別チェックアウトの操作であり、**本ラウンドでは実施していない**(P0-58の残作業)。PR #87が`main`へ正式マージされたことで、以後`git merge --ff-only origin/main`が成立する状態になった。
+
+### 19.2 実装した修正(12件。すべて実測で再現→修正→回帰テストで固定)
+
+**(A) レビュー指摘の実バグ4件(ネイティブDXF往復で黙って失われる値)**
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `transformEntity`がHATCHの`elevation`を通常の座標点としてアフィン変換し、原本パッチがDXFのgroup 10/20(仕様上つねに0)へdx/dyを書き戻していた。実測: MOVE(dx=7,dy=9)後の出力が`10:7 20:9` | High(仕様違反の出力) | elevationのx/yは変換対象外、Zのみ倍率換算 |
+| 2 | 原本パッチ経路でHATCHの`elevation.z`(group 30)が比較・書出しの対象外で、SCALE 2倍でもモデルz=30に対し出力15のまま(往復で消失)。同一図面でも経路により出力が異なっていた | High(データ損失) | group 30を比較・書出し対象と許可コードへ追加 |
+| 3 | `encodeViewport`が`snapBase`(13)/`snapSpacing`(14)/`gridSpacing`(15)を出力せず、無原本/限定再生成の経路で往復後に3項目が`undefined`へ消失 | High(データ損失) | 存在する場合のみ出力(存在しない設定を0で作らない) |
+| 4 | angular寸法の13/14/15/16フォールバックが`points[(code+1)%2]`のため15≡13・16≡14となり、0度の縮退した寸法を出力していた | Medium | definitionPointsが揃わない場合は壊れた図形を書出さずスキップ理由付きで報告 |
+
+**(B) 再レビュー8件(いずれも「黙って誤った値を出す/値を失う」型)**
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 5 | solidFill(group 70=1)/pattern=SOLIDのHATCHが斜線描画のままで、面として塗られていなかった | Medium(表示忠実性) | `fill("evenodd")`で塗り、斜線描画を行わない分岐へ |
+| 6 | VIEWPORTの`viewCenter`/`snapBase`/`snapSpacing`/`gridSpacing`/`viewTarget`/`viewHeight`はモデル空間(DCS)の設定だが、紙空間の`center`を基準にした回転・倍率を適用していた | High(不正な座標) | 単位変換(scale factor・angle=0・base=原点)のときだけ倍率換算し、対話編集では保持 |
+| 7 | `entityLength("hatch")`が`entity.points`のみを見て、複数境界(外側ループ+穴)の周長の一部を無視していた | Medium | 全boundaryを合算(area/bounds/hit-testと揃える) |
+| 8 | DXF type 5(3点角度寸法)をtype 2(2線角度)として交差計算し、中心と掃引角を誤っていた | Medium | group 15を頂点とする分岐を追加 |
+| 9 | 角度寸法の返却`value`に`measurementScale`が未適用で、他の寸法分岐と返却契約が不一致 | Low | 適用後の値を返す |
+| 10 | ordinate(座標寸法)が`AcDbRotatedDimension`で出力されていた | Medium | 専用の`AcDbOrdinateDimension`(13=フィーチャ/14=引出線端点、bit64でX軸) |
+| 11 | `encodeHatch`が`entity.points`しか検証せず、boundaryのedgeの非有限値を文字列`"NaN"`として出力し`skipped`にも載らなかった | Medium(壊れた成果物) | 境界の座標・半径・比率・角度を検証し、不正なら理由付きでスキップ |
+| 12 | 必須group codeの欠落を0で補い、壊れたレコードを「原点にある図形」として黙って受け入れていた | High(誤ったDataの受入れ) | DIMENSION定義点・VIEWPORTの10/20/40/41・HATCHの91を必須化し、欠落時は取込を拒否 |
+
+### 19.3 検証Evidence
+
+- 新規回帰テスト: `tests/native-dxf-integrity.test.js` 8件 + E2E 1件(solidFillの塗り被覆率)。**8件は修正前に失敗し修正後に成功することを実測**。E2Eは修正前の塗りピクセル1342に対し修正後2000超で判別する
+- `npm run verify` 全成功: `lint` / `lint:static`(ESLint **0 errors**・21 warnings) / `typecheck` / `a11y` / unit **409件(408 pass・0 fail・1 skip)** / `build` / E2E desktop+mobile **78/78**
+- Migration検証: 9テーブル・監査追記専用トリガー2件・2回適用で冪等(CI相当の専用ロール/DBで実測)
+- PostgreSQL統合テスト: 8/8(CI相当環境)。ローカルのpeer認証では`postgres.js`がTCP接続するため、専用ロールを作成して再現した
+- CI: 全ジョブ成功(Empty PostgreSQL Migration / Backup and Restore Drill / Data Store Integration / Secret Scan / Dependency Audit / Synthetic DXF / Terraform / Lint・Test・Build・E2E・A11y / Deploy Preview)
+- レビュー: 独立SubAgent(別コンテキスト)による差分の敵対的レビュー1回、CodeRabbit再レビュー1回(未解決0件)
+
+### 19.4 18項目への影響
+
+機能完成度 30→**33**、データ品質 68→**70**、設計 73→**74**、UI/UX 45→**46**、コード品質 76→**77**、テスト 88→**89**、運用保守性 68→**71**、CI/CD・リリース 82→**83**、競合代替性 53→**54**。他は据え置き。**総合 62.0 → 62.8**(1130/18)。**判定は依然PoC。**
+
+据え置きの根拠: 本ラウンドは「既に本番で稼働していたコードを正規経路でmainへ入れ、その欠陥を潰した」ラウンドであり、600名・公共工事80%という業務前提に対する最大のギャップ(業務適合性18、機能完成度33)には触れていない。加えて19.5の重大な未解決が残る。
+
+### 19.5 独立監査3件で新たに確定した重大な未解決(本ラウンドでは実施せず)
+
+別コンテキストのSubAgent 3件(セキュリティ、DB/可用性/DR、DevOps/SRE/リリース管理)による**読み取り専用監査**を実施した。**アプリケーション層のCriticalは0件**(認証の四重fail-closed、全SQLパラメータ化、XSS/CSRF対策、監査追記専用トリガー、依存監査ゲートはコードで裏付けられた)。一方、**DR運用とリリース統制にCritical級が残る**。これらは業務判断・外部契約・DB管理者権限を要するため、無断実行せず記録する。
+
+| # | 事象 | 重大度 | 必要な対応(エスカレーション) |
+| --- | --- | --- | --- |
+| 1 | **オフサイトバックアップが存在しない**。バックアップはDBと同一ホスト・同一ディスク(`/var/backups/mirai-web-cad/postgres/`、14日保持)で、転送・暗号化の実装が0件。ホスト全損で本番とバックアップが同時に失われる | Critical | 転送先(R2等)の契約・暗号化・保持期間の方針合意 |
+| 2 | **本番DBの復旧ドリルが必ず失敗する**。`mirai-web-cad-restore-drill.service`は`~/.config/mirai-web-cad/backup.env`を読むが、当該ファイルに`RESTORE_DATABASE_URL`が無く、`restore-drill-local.sh`がexit 2。本番リストアは一度も実証されていない | Critical | DB管理者による隔離DB作成(本番接続ロールにCREATEDB権限が無い) |
+| 3 | **リリースの承認ゲートが存在しない**。`production.yml`にデプロイジョブも`environment:`も無く、required reviewerはプラン制約で設定不能。CODEOWNERSは実効化されない。レビュー承認ゼロで本番投入可能 | Critical | プラン見直しまたはリリース承認手順の運用担保(要経営判断) |
+| 4 | **単一ホスト依存**。電源・NW・ディスク障害で本番全体が停止し、RTOは実質的に復旧不能 | Critical | 冗長化・UPS・クラウド回帰の検討(要経営判断、P1-13) |
+| 5 | バックアップ/鮮度検査/復旧ドリルの**失敗が誰にも通知されない**(systemd unitに`OnFailure=`が0件、合成監視は公開HTTP境界のみ) | High | 通知先の確定(Issue #8)と`OnFailure=`追加 |
+| 6 | **`db:verify`が毎デプロイで本番DBへmigration+seedを適用**する。`seeds/demo.sql`の投入、`0004`による`dwg_demo_001`の名称上書きと`visibility='public'`強制、`0006`による監査トリガのdrop→UPDATE→再作成が毎回走る | High | デプロイ時の検証を読み取り専用のスキーマ検証へ分離 |
+| 7 | **案件分離が実運用で機能していない**。`access_scope`の既定が`open`で、SPAは`projectId`を送らないため全図面が単一のopen案件に集約される。結果、Cloudflare Accessを通った全ロール(viewer含む)が全図面を閲覧でき、drafter以上が全図面を変更できる | High | 既定`restricted`化・案件選択UI・図面の案件付け替えAPIのいずれかを選択(要判断)。当面は受容リスクとして経営層承認 |
+| 8 | **`isCadDrawing`失敗時にデモ図面を黙って返す**。破損・旧スキーマの図面をデモ内容として表示し、そのまま保存すると同一版を上書きして実データを失う | High | 明示エラーへ変更(fail-closed) |
+| 9 | `MAX_COMMAND_POINTS`が`command.points`のみを検査するが、実ペイロードは`entity.points`/`patch.points`のため**防御が一度も発動しない**(テストも同じ誤った形状で通っている) | High | 実形状を検査対象に追加しテストを修正 |
+| 10 | `migrations/0006`が監査の追記専用トリガを一時dropするため、`psql -1`以外(手動適用)では中断時に保護が失われ得る。また`audit_logs`はTRUNCATEを拒否せず、アプリロールがテーブル所有者 | High | 0006を自己完結トランザクション化、TRUNCATEトリガ追加、アプリロールの非所有者化 |
+| 11 | `ACCESS_DEFAULT_ROLE`が起動時に未検証(他2つのロールマップは検証済み)。`WRITE_RATE_LIMIT_PER_MINUTE`は`serve-production.mjs`が転送しないため、production.envに書いても反映されない | Medium | 起動時検証と転送の追加 |
+| 12 | 404応答本文の差による案件・図面IDの存在オラクル、`GET /api/audit-logs?format=csv`が状態を変更(GETで監査行を追記)することによるCSRF的な証跡汚染 | Medium | 本文の統一、CSV出力のPOST化 |
+
+**未検証(外部権限・実機が必要)**: 本番ホストのsystemd unit実状態、ロール権限の実測、Cloudflareダッシュボード側のCache Rule/本番Access/WAF/DNS(Terraform未import)、Actions実測分数と契約プラン、Entra Secretの実期限、実測RTO。**これらは「未確認」であり、推測で補完しない。**
+
+### 19.6 判断
+
+- 本番導入可否: **開発者本人による単一案件の作図・承認・AI提案運用は引き続き可能**。ただし19.5の1〜4が残る限り、**600名規模の本番正本としては不可**。3監査の結論は一致して「アプリケーション実装は良好、問題はDR運用とリリース統制に集中」である
+- 投資判断: **条件付き継続**。次ラウンドの最優先は、P0-58の残作業(本番ホストのローカルmain分岐解消)、19.5の6・7・8・9(コードで解消可能なHigh)、次いで1・2(外部契約・DB管理者)
