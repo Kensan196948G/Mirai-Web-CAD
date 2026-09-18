@@ -15,6 +15,10 @@
 | `POST` | `/api/drawings/:drawingId/comments` | 実装済み。`canComment`権限(reviewerも可)。コメント追加、監査ログに本文は記録しない |
 | `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ。`limit`/`offset`ページング、`?format=csv`でCSV export(数式注入ガード付き) |
 | `GET` | `/api/ai/status` | 実装済み。`canRunAi`権限。`AI_PROVIDER`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`AI_MODEL`環境変数から有効状態・プロバイダ名・モデル名のみ返す(APIキー自体は返さない)。APIキーはブラウザに一切保存・送信しない |
+| `POST` | `/api/projects` | 実装済み(2026-09-18〜)。`cad_admin`限定。案件を作成し、`accessScope`(`open`既定/`restricted`)を指定 |
+| `GET`/`PATCH` | `/api/projects/:projectId` | 実装済み。`cad_admin`限定。案件情報・メンバー一覧の取得、`accessScope`の変更 |
+| `POST` | `/api/projects/:projectId/members` | 実装済み。`cad_admin`限定。`restricted`案件へメールアドレス単位でメンバーを追加 |
+| `DELETE` | `/api/projects/:projectId/members/:member` | 実装済み。`cad_admin`限定。案件メンバーを削除(即座にアクセス失効) |
 
 ## DB設計方針
 
@@ -25,6 +29,7 @@
 - `idempotency_keys`で更新リクエストの重複実行を拒否する
 - `drawings.revision`を比較更新し、古いクライアントからの更新を409で拒否する
 - `drawings.visibility`は既定`private`。匿名経路は`public`だけを取得する
+- `projects.access_scope`は既定`open`(全ロールが認証済みなら閲覧・編集可、現行の単一案件運用と完全互換)。`restricted`にした案件は`project_members`に登録された利用者と`cad_admin`のみアクセス可(2026-09-18〜、`GET/POST/PATCH`各`/drawings`系エンドポイント全てで一貫して強制)。非会員は図面が存在しない場合と同一の404を返し、案件・図面IDの存在を推測されないようにする
 - 図面、版、command event、監査、Idempotency、AI承認状態は単一SQL statementで原子的に確定する
 - Localは既定でメモリストア、`DATABASE_URL`(`LOCAL_DB=1`明示時)またはProduction(`scripts/serve-production.mjs`)はローカルPostgreSQL 16へ`postgres`(postgres.js)経由で接続する(2026-08-30〜、Issue #22でNeon/Hyperdriveから移行)
 
@@ -56,6 +61,8 @@ curl http://127.0.0.1:4176/api/health
 | `0003_drawing_revision.sql` | 図面更新の楽観ロック用revision |
 | `0004_drawing_visibility.sql` | 匿名公開を明示し、既定をprivateに固定 |
 | `0005_audit_log_immutability.sql` | `audit_logs`をDBトリガーで追記専用化(UPDATE/DELETE拒否) |
+| `0006_normalize_jsonb_columns.sql` | JSONBが文字列として二重保存されていた過去データをobject/arrayへ復元 |
+| `0007_project_membership.sql` | `projects.access_scope`(既定`open`)と`project_members`を追加し、案件単位のアクセス制御を可能にする(既存案件は挙動不変) |
 | `seeds/demo.sql` | 5レイヤー、4図形の再実行安全なデモ図面 |
 
 Neon Preview/Productionへ`0004`を適用し、デモだけがpublicであることを確認しました(2026-08-27時点、Neon利用時代の記録)。2026-08-30の移行後は、ローカルPostgreSQL 16の本番DB(`mirai_web_cad`)へ全migrationを適用済みです。
