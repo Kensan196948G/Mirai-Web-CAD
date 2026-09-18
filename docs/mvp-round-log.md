@@ -492,3 +492,15 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 検証 | 修正前は復元exit 1・復元先0テーブル → 修正後はPG_BIN未設定でも`pg_client=16.14`で復元exit 0・復元先**9テーブル**・`manifest_match=yes`・図面1/版1/監査1。`pg-bin.sh`の4分岐を偽psqlで個別検証。バックアップ拒否exit 4、restoreのmanifest不一致exit 4、manifestの`database=`記録を実測。名前ベース検証は10テーブルで成功・欠落は`db:check`が検知。SBOMは131コンポーネント生成・検証成功。`npm run verify`全成功(ESLint 0 errors、unit 413件=412 pass/0 fail/1 skip、E2E 78/78)。検証用DB・ロールは削除済み |
 | 18項目 | 可用性・バックアップ59→62、テスト89→90、運用保守性73→74、CI/CD・リリース84→85。**総合63.4→63.8**。判定は依然PoC |
 | 残課題 | P0-83残(`schema_migrations`)、P0-88残(ライセンス方針・CODEOWNERS・ActionsのSHA固定)、P0-82/85/86/87、P0-70〜P0-72/P1-13/P0-75(いずれも要判断・要契約・要実機作業) |
+
+## Round 21 / 2026-09-18 本番監視の新設と、本番バージョン検証不能の実測
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | P0-88のActions SHA固定、P0-86の一部(curlタイムアウト)、P0-85の一部(本番監視)を実装する |
+| 実装 | 22箇所の`uses: actions/...@v7`を**コミットSHAに固定**(3種、GitHub APIでタグ→コミットSHAを解決)。`deploy-local.sh`のhealthループcurlへ`--max-time 5`。`scripts/check-production-health.sh`(新規、本番`18812`の監視。実測でexit=0)。**注意**: systemd unitの新規作成はポリシーゲートがINFRA_CHANGEとして拒否したため人間作業 |
+| 検証 | 本番監視スクリプトを**実環境に対して実行し exit=0**(local API ok / `database=mirai_web_cad` / public SPA 200 / 未認証書込み302)。Actions SHA固定後、3ワークフローのYAML妥当性を確認。`npm run verify`全成功(ESLint 0 errors、unit 413件=412 pass/0 fail/1 skip、E2E 78/78) |
+| 検出した重大事象 | 本番APIの`/api/health`に**`deploy.commit`が含まれない**=PR #99以前のコードが稼働。本番チェックアウト(読み取り専用で確認)は**branch=`feat/native-dimension-hatch-viewport`、HEAD=`dfc32d9`、origin/mainに対し4コミット先行**。つまり本番にはPR #99〜#107(セキュリティ修正)と本ラウンドの修正(#108〜#111)が**未反映**。`deploy:drift:live`は本番で判定不能(fail-openではない) |
+| 台帳 | P0-90として記録(本番バージョン検証不能/P0-58残の精確化)。本番反映の手順と注意(分岐解消には`git reset --hard`を伴うため人間判断)を評価書§24.5へ記載 |
+| 18項目 | 運用保守性74→75。**総合63.8→63.9**。判定は依然PoC |
+| 残課題 | **本番反映(P0-90、要人間判断)**、P0-82/83残/85/86残/87/88残、P0-70〜72/P1-13/P0-75(要契約・要経営判断) |

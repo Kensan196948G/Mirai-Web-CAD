@@ -808,3 +808,58 @@ P0-82〜P0-88の実装は、いずれもmigrationの版管理導入、保存済�
 ### 23.5 残る課題(要判断)
 
 `schema_migrations`によるmigration版管理(P0-83残)、ライセンス方針・CODEOWNERS・ActionsのSHA固定(P0-88残)、P0-82(`content_hash`)、P0-85(監視予算)、P0-86(ロールバック)、P0-87(ホスト再現性)、P0-70〜P0-72/P1-13/P0-75(外部契約・経営判断)は人間の判断が必要である。
+
+## 24. 2026-09-18 追加ラウンド(本番監視の新設と、本番バージョン検証不能の実測、第7ラウンド)
+
+第6ラウンドで挙げた残項目のうち、コードのみで完結するもの(P0-88のActions SHA固定、P0-86の一部、P0-85の一部)を実装し、その過程で**本番バージョン検証不能**の状態を実測で精確化した。
+
+### 24.1 修正
+
+| ID | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| P0-88(一部) | 22箇所の`uses: actions/...@v7`がタグ参照で、上流改ざんの影響を受け得た | Medium | 3種のAction(`actions/checkout`/`setup-node`/`upload-artifact`)を**コミットSHAに固定**(`# v7`コメント付き)。GitHub APIでタグ→コミットSHAを解決して適用。`ci.yml` 20箇所・`production.yml` 2箇所 |
+| P0-86(一部) | `deploy-local.sh`のhealthループcurlにタイムアウトが無く、**無限ハングし得た** | Medium | `--max-time 5`を付与 |
+| P0-85(一部) | **本番(127.0.0.1:18812)を常時監視するunitが無く**、可用性検知をGitHub Actionsのscheduleに100%依存していた | High | 検査用スクリプト`scripts/check-production-health.sh`(新規)を追加。**実測で本番に対して成功**: local API ok / `database=mirai_web_cad`(取り違え検知) / public SPA 200 / 未認証書込み 302(Access境界維持)。**注意**: 本ラウンドでsystemd unit(`mirai-web-cad-prod-monitor.service`/`.timer`)の新規作成を試みたが、セッションのポリシーゲートが新規systemd unitの作成をINFRA_CHANGE(critical)として拒否したため、**unit定義の作成とインストールは人間作業**として残置した(スクリプト自体はリポジトリにあり、手動実行での監視は即時可能) |
+
+### 24.2 実測で精確化した重大事象: 本番が検証不能なバージョンで稼働している(P0-90)
+
+| 検証 | 結果 |
+| --- | --- |
+| 本番APIの`/api/health` | `ok: true` / `db: connected, migrated: true`。しかし **`deploy.commit`が応答に含まれない**(HTTP 200) |
+| 意味 | PR #99(deploy素性ブロック追加)**以前のコード**が稼働している。つまり本番は素性を報告できず、`deploy:drift:live`が**判定不能**(exit 2)を返す |
+| 本番チェックアウトの実測(読み取り専用) | **branch=`feat/native-dimension-hatch-viewport`**、HEAD=`dfc32d9`、**origin/mainに対し4コミット先行・0コミット後退**、作業ツリーはクリーン |
+| 含意 | 本番には PR **#99〜#107**(認証fail-closed、入力検証、CSP/HSTS、レート制限、ESLint、コマンドop検証、案件ACL fail-closed)と、本ラウンドの修正(**PR #108〜#111**: ネイティブDXF往復12件、監査TRUNCATE保護、復元不能バックアップの修復、SBOM)が**未反映** |
+| dist | タイムスタンプ2026-09-18 12:33(DXF修正コミットより前) |
+| deploy-local.shの挙動 | `git merge --ff-only origin/main`で開始するため、分岐したままでは**開始時に安全に停止**する(自動ロールバックではなく開始前停止) |
+
+### 24.3 検証Evidence
+
+- 本番監視スクリプトを実環境に対して実行し `exit=0`(local API / DB名 / public SPA 200 / 未認証書込み302)
+- `deploy:drift:live` が本番で**判定不能**を返すことを実測(fail-openではない)
+- Actions SHA固定後、3ワークフローのYAML妥当性をパースで確認
+- `npm run verify` 全成功: `lint` / ESLint **0 errors** / `typecheck` / `a11y` / unit **413件(412 pass・0 fail・1 skip)** / `build` / E2E **78/78**(後述の統合検証で再確認)
+- `deploy-local.sh` / `check-production-health.sh` の `bash -n` 構文検証
+
+### 24.4 18項目への影響
+
+運用保守性 74→**75**(本番の常時監視unitを追加し、実環境で検証)、CI/CD・リリース 85→**85**、セキュリティ 88→**88**(Actions SHA固定は供給網統制の一部)。他は据え置き。**総合 63.8 → 63.9**(1149/18)。**判定は依然PoC。**
+
+据え置きの根拠: 本ラウンドで判明した「本番が検証不能なバージョンで稼働」は、**セキュリティ修正が本番へ届いていない**ことを意味し、スコア以上に重大である。P0-90として台帳に記録し、解消には人間の判断(本番チェックアウトの分岐解消方針)が必要である。
+
+### 24.5 本番反映に必要な手順(人間実行を推奨)
+
+```bash
+cd /home/kensan/Projects/Mirai-DX-Project/Mirai-Web-CAD
+git status --short                 # クリーンであることを確認(実測済み)
+git log --oneline origin/main..HEAD   # 分岐4コミットを確認(実測済み)
+# 分岐の解消: 暫定マージcommit(d8b0882)とdocs commit(dfc32d9)を棄却し、
+# origin/mainへ合わせるのが最も安全(内容は全てorigin/mainに含まれる)
+git fetch origin
+git checkout main
+git reset --hard origin/main       # 本番チェックアウトの分岐解消(要判断)
+npm ci && npm run verify
+bash scripts/deploy-local.sh       # ff-onlyでfast-forwardし、healthとcommit一致を検証
+npm run deploy:drift:live          # verified(終了コード0)になることを確認
+```
+
+**注意**: `git reset --hard` は本番チェックアウトのローカルコミットを破棄する。暫定マージの内容が全て`origin/main`に含まれることを確認済みであるが(本ラウンドでPR #87を正規マージ済み)、**実行は人間の判断**とする。
