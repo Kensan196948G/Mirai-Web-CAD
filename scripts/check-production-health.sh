@@ -41,7 +41,7 @@ HEALTH_JSON="$health_json" node -e '
 }
 
 # 2) 接続先DB名の検証(取り違え検知)
-actual_database="$("${pg_bin}/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select current_database()")"
+actual_database="$(timeout 15 "${pg_bin}/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select current_database()")"
 if [[ "$actual_database" != "$expected_database" ]]; then
   echo "production health check FAILED: expected database ${expected_database}, got ${actual_database}" >&2
   exit 1

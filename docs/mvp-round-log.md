@@ -515,6 +515,6 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | **P0-71 復旧ドリル** | 隔離DB`mirai_web_cad_recovery`を`mirai_web_cad_backup`ロール所有で作成。`backup.env`へ`RESTORE_DATABASE_URL`を追加。復旧ドリル実行: **`projects=1 drawings=10 versions=10 audits=16 invalid_json=0 latest_version_mismatches=0 manifest_match=yes`、exit 0** |
 | **P0-91 新規検出** | migration 0007で`project_members`追加時にバックアップロールへの`GRANT SELECT`が漏れており、**翌日の定時バックアップが失敗する**状態だった。`GRANT SELECT`で修正 |
 | **PR #112** | `GITHUB_POLICY.md`の追加(自動merge・Workspace指示の上書き)について、監査所見P0-72との矛盾とファイル一覧の不一致を理由にマージを保留し、PRコメントとして記録 |
-| 18項目 | 可用性・バックアップ62→68、運用保守性75→76、セキュリティ88→89。**総合63.7→64.2**。判定はPoC(継続) |
+| 18項目 | 可用性・バックアップ62→68、運用保守性75→76、セキュリティ88→89。**総合63.9→64.2(第22ラウンドで18項目を再集計し、第21ラウンドの累積記録63.9から63.7への補正を反映した基準値)**。判定はPoC(継続) |
 | 残課題 | オフサイトバックアップ契約(P0-70)、単一ホスト冗長化(P1-13)、案件分離の方針(P0-75)、`schema_migrations`(P0-83残)、`content_hash`(P0-82)、監視予算(P0-85残)、デプロイ手順書の`db:check`切替(P0-74残)、ホスト再現性(P0-87)、ライセンス方針・CODEOWNERS(P0-88残) |
 

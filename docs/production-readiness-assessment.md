@@ -819,7 +819,7 @@ P0-82〜P0-88の実装は、いずれもmigrationの版管理導入、保存済�
 | --- | --- | --- | --- |
 | P0-88(一部) | 22箇所の`uses: actions/...@v7`がタグ参照で、上流改ざんの影響を受け得た | Medium | 3種のAction(`actions/checkout`/`setup-node`/`upload-artifact`)を**コミットSHAに固定**(`# v7`コメント付き)。GitHub APIでタグ→コミットSHAを解決して適用。`ci.yml` 20箇所・`production.yml` 2箇所 |
 | P0-86(一部) | `deploy-local.sh`のhealthループcurlにタイムアウトが無く、**無限ハングし得た** | Medium | `--max-time 5`を付与 |
-| P0-85(一部) | **本番(127.0.0.1:18812)を常時監視するunitが無く**、可用性検知をGitHub Actionsのscheduleに100%依存していた | High | 検査用スクリプト`scripts/check-production-health.sh`(新規)を追加。**実測で本番に対して成功**: local API ok / `database=mirai_web_cad`(取り違え検知) / public SPA 200 / 未認証書込み 302(Access境界維持)。**注意**: 本ラウンドでsystemd unit(`mirai-web-cad-prod-monitor.service`/`.timer`)の新規作成を試みたが、セッションのポリシーゲートが新規systemd unitの作成をINFRA_CHANGE(critical)として拒否したため、**unit定義の作成とインストールは人間作業**として残置した(スクリプト自体はリポジトリにあり、手動実行での監視は即時可能) |
+| P0-85(一部) | **本番(127.0.0.1:18812)を常時監視するunitが無く**、可用性検知をGitHub Actionsのscheduleに100%依存していた | High | 検査用スクリプト`scripts/check-production-health.sh`(新規)を追加。**実測で本番に対して成功**: local API ok / `database=mirai_web_cad`(取り違え検知) / public SPA 200 / 未認証書込み 302(Access境界維持)。**注意**: 本ラウンドでsystemd unitの新規作成を試みたが、ポリシーゲートがINFRA_CHANGE(critical)として拒否したため、**unit定義の作成とtimerのインストールは人間作業として残置**(未インストール)。スクリプト自体はリポジトリにあり手動実行可能(スクリプト自体はリポジトリにあり、手動実行での監視は即時可能) |
 
 ### 24.2 実測で精確化した重大事象: 本番が検証不能なバージョンで稼働している(P0-90)
 
