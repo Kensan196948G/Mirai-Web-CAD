@@ -70,6 +70,19 @@ DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" n
 - 既存本番データ削除は行いません
 - migrationは`create table if not exists`中心、Seedは`on conflict do nothing`で、既存業務データを上書きしません
 
+### DBの状態だけを確認する(読み取り専用)
+
+```bash
+DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" npm run db:check
+```
+
+`db:check`は**書き込みを一切行わず**、migration 0001〜0007が作る9テーブル、`drawings.revision`/`drawings.visibility`/`projects.access_scope`列、監査の追記専用トリガ2件とUPDATE/DELETE拒否(検査はROLLBACK)、JSONB string scalarが0件であることを確認します。未適用があれば欠落を列挙して**終了コード1**で失敗します。
+
+実測(2026-09-18): migration適用済DBで`db:check`実行前後の行数と`content_hash`のmd5が完全一致(書き込みゼロ)。空DBでは欠落テーブル・列を列挙してexit 1。
+
+> [!NOTE]
+> `db:verify`(migration+`seeds/demo.sql`適用)をデプロイのたびに本番DBへ実行すると、デモ行の投入、`0004`による`dwg_demo_001`の`name`上書きと`visibility='public'`強制、`0006`による監査トリガのdrop→UPDATE→再作成が毎回発生します(2026-09-18の独立監査で指摘、改善台帳P0-74)。`db:check`はこの問題に対する**読み取り専用の代替**として追加しました。デプロイ手順(`scripts/deploy-local.sh`)自体の切替は、手順書(`docs/deployment-local.md`)の同時更新が必要なため**未実施**です(セッションのポリシーゲートにより当該ファイルを編集できませんでした。人間側での手順書更新と併せて切替えてください)。
+
 ## リリース判定基準
 
 **`CI`ワークフロー(pull_request/push時のLint/Test/Build/E2E/A11y等)の成功は「コード品質が基準を満たしている」ことのみを保証し、「本番が正常稼働している」ことは保証しません。** CIはephemeralなPostgreSQLコンテナを使うため、実際の本番DB接続の健全性は検証できません(2026-08-29のIssue #22はこの盲点で発生し、CI全green後もNeon資格情報の不整合で本番APIが500になり続けました。移行後の現在もこの原則自体は変わりません)。
@@ -164,7 +177,15 @@ drop trigger audit_logs_no_update on audit_logs;
 drop trigger audit_logs_no_delete on audit_logs;
 ```
 
-監査データの棚卸は承認者権限で`GET /api/audit-logs?format=csv`(export操作自体が`audit.exported`として記録されます)。
+監査データの棚卸は承認者権限で`POST /api/audit-logs/export`(`content-type: application/json`必須)を実行します(export操作自体が`audit.exported`として記録されます)。
+
+```bash
+curl -fsS -X POST -H 'content-type: application/json' \
+  https://mirai-web-cad.mirai-dx-platform.com/api/audit-logs/export -o audit-logs.csv
+```
+
+> [!NOTE]
+> 2026-09-18の独立監査で、`GET /api/audit-logs?format=csv`が**GETでありながら監査行を追記**していた点を指摘し、POST専用へ変更しました。GETはCORSのsimple requestとして扱われるため、クロスサイトの`<img>`/`<link>`から被害者の名前で`audit.exported`を追記でき、監査証跡を汚染・誤帰属させ得るためです(`content-type: application/json`の必須化によりpreflightが発生し、ブラウザ経由のクロスサイト実行は成立しません)。
 
 ### 既存の検証用残留行の削除(要承認)
 

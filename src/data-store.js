@@ -267,11 +267,14 @@ class PostgresDataStore {
     if (rows.length === 0) return null;
 
     const row = rows[0];
-    let drawing = parseStoredJson(row.content);
+    const drawing = parseStoredJson(row.content);
+    // 保存済みcontentがCAD図面として解釈できない場合、以前はデモ図面を黙って返していた。
+    // その挙動は「利用者に誤った図面を見せ、そのまま保存させると同一版を上書きして実データを
+    // 失う」ため、fail-closedで明示的に失敗させる(呼び出し元は500として扱い、内部詳細は返さない)。
     if (!isCadDrawing(drawing)) {
-      drawing = seedDrawing();
+      throw new Error(`保存済み図面contentが解釈できません: ${row.id} (version ${row.current_version})`);
     }
-    drawing = {
+    return {
       ...drawing,
       schemaVersion: 1,
       id: row.id,
@@ -281,7 +284,6 @@ class PostgresDataStore {
       state: row.state,
       revision: Number(row.revision)
     };
-    return drawing;
   }
 
   async getPublicDrawing(id) {

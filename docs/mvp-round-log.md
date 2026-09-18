@@ -446,3 +446,15 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 独立監査3件 | セキュリティ、DB/可用性/DR、DevOps/SRE/リリース管理の読み取り専用監査を実施。**アプリケーション層のCriticalは0件**(認証の四重fail-closed、全SQLパラメータ化、XSS/CSRF対策、監査追記専用、依存監査ゲートをコードで確認)。一方でDR運用とリリース統制にCritical級(オフサイトバックアップ不在、本番復旧ドリルが必ず失敗、リリース承認ゲート不在、単一ホスト依存)を確定し、改善台帳P0-70〜P0-80へ記録した |
 | 18項目 | 機能完成度30→33、データ品質68→70、設計73→74、UI/UX45→46、コード品質76→77、テスト88→89、運用保守性68→71、CI/CD82→83、競合代替性53→54。**総合62.0→62.8**。判定は依然PoC |
 | 残課題 | 本番ホストのローカルmain分岐の解消そのもの(別チェックアウトの操作)、改善台帳P0-70〜P0-80(うちP0-74〜P0-77はコードで解消可能) |
+
+## Round 17 / 2026-09-18 監査で確定したコード修正可能なHigh 4件とMedium 1件
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | 第19回で独立監査3件が確定した未解決項目のうち、コードのみで解消でき業務判断・外部契約を要しないものを実装する |
+| 対象 | P0-77(点列長上限の空振り)、P0-76(破損図面をデモ図面で代替)、P0-74(デプロイ毎の本番DB書込み、一部)、P0-79(設定の起動時検証と転送)、P0-80(404本文の存在オラクル、GETでの監査追記) |
+| 実装 | `src/api-handler.js`: `entity.points`/`patch.points`も上限検査、404本文を定数化、CSV出力を`POST /api/audit-logs/export`(`content-type: application/json`必須)へ移設しGETは読取り専用化。`src/data-store.js`: `isCadDrawing`失敗時にデモ図面で代替せず例外。`scripts/serve-production.mjs`: `ACCESS_DEFAULT_ROLE`を`ROLE_POLICIES`と突合し未知はexit 78、`viewer`以外はwarn、`WRITE_RATE_LIMIT_PER_MINUTE`を転送。`scripts/check-database-state.sh`(新規、`npm run db:check`): 読取り専用のDB状態検証 |
+| 検証 | `npm run verify`全成功(ESLint 0 errors、unit **413件=412 pass/0 fail/1 skip**、E2E **78/78**)。新規回帰4件+実PostgreSQL統合1件を追加し**9/9**。`db:check`は適用済DBでexit 0かつ**行数と`content_hash` md5が前後で完全一致(書き込みゼロ)**、空DBでexit 1を実測 |
+| 制約 | P0-74のデプロイ経路切替は、手順書`docs/deployment-local.md`の同時更新が必要だが、**セッションのポリシーゲートが同ファイルをINFRA_CHANGE(critical)として編集拒否**したため未実施。文書と実装の矛盾を避けるため`deploy-local.sh`の変更も取り消した(読み取り専用チェックは追加済みで、手順書更新後に1行切り替えれば完了) |
+| 18項目 | データ品質70→71、セキュリティ85→86、可用性・バックアップ58→59。**総合62.8→63.1**。判定は依然PoC |
+| 残課題 | デプロイ検証の切替(要手順書更新)、P0-75/P0-78、P0-70〜P0-73(要業務判断・外部契約・DB管理者)、本番ホストのローカルmain分岐解消と本番への修正反映 |

@@ -385,13 +385,13 @@ test("audit log export requires approver capability and returns CSV with injecti
   );
 
   const forbidden = await handleApiRequest(
-    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "drafter" } }),
+    new Request("https://example.test/api/audit-logs/export", { method: "POST", headers: { "content-type": "application/json", "x-demo-role": "drafter" } }),
     env
   );
   assert.equal(forbidden.status, 403);
 
   const csvResponse = await handleApiRequest(
-    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "approver" } }),
+    new Request("https://example.test/api/audit-logs/export", { method: "POST", headers: { "content-type": "application/json", "x-demo-role": "approver" } }),
     env
   );
   assert.equal(csvResponse.status, 200);
