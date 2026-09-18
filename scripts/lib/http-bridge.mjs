@@ -52,6 +52,28 @@ export function patternToRegExp(pattern) {
   return new RegExp(`^${escaped}$`);
 }
 
+// HSTSはTLS終端がCloudflare(Tunnel)側でも、ブラウザに「以降はHTTPSのみ」を
+// 記憶させるためにアプリ応答へ付与する。静的応答にしか付いていなかったため
+// API応答とエラー応答が抜けていた。
+export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
+
+/**
+ * Fetch APIの`Headers`へ、`_headers`由来のエッジヘッダとHSTSを「不足分のみ」補う。
+ * アプリケーションが自前で設定したヘッダ(`JSON_HEADERS`等)を上書きしないことを
+ * 保証する。API応答にもCSP/HSTSを適用するために使う。
+ * @param {Headers} target 変更対象のヘッダ
+ * @param {Record<string, string>} edgeHeaders `_headers`から解決済みのヘッダ
+ * @param {string} [hsts] HSTS値(空文字を渡すと付与しない)
+ * @returns {Headers} target(同一インスタンス)
+ */
+export function applyEdgeHeaders(target, edgeHeaders = {}, hsts = STRICT_TRANSPORT_SECURITY) {
+  for (const [name, value] of Object.entries(edgeHeaders)) {
+    if (!target.has(name)) target.set(name, value);
+  }
+  if (hsts && !target.has("strict-transport-security")) target.set("strict-transport-security", hsts);
+  return target;
+}
+
 /**
  * loadHeaderRulesの結果を受け取り、pathnameに対して適用すべきheaderをマージして
  * 返す関数を生成する。複数ルールにマッチした場合は後方(より具体的なパターン)が

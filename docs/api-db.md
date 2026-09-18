@@ -72,6 +72,14 @@ curl http://127.0.0.1:4176/api/health
 
 5xxの応答本文は、ローカル開発(`demo`かつ`APP_ENV!=="production"`)以外では`{"ok":false,"error":"internal error"}`へ丸め、DB接続エラー等の内部詳細を未認証クライアントへ返さない(詳細はサーバーログにのみ記録)。
 
+### API応答のセキュリティヘッダ
+
+`scripts/serve-production.mjs`は、`/api/*`の応答にも`_headers`の`/*`ルール(CSP・`X-Frame-Options`・`Referrer-Policy`・`Permissions-Policy`等)と`Strict-Transport-Security`を付与する。以前は静的応答にしか適用されておらず、**API応答にはCSP/HSTSが付いていなかった**(2026-09-18の追加ラウンドで修正)。
+
+- アプリが自前で設定したヘッダ(`src/api-handler.js`の`JSON_HEADERS`・CORS)が優先され、`_headers`側で上書きされない。
+- ローカル開発サーバー(`scripts/serve-local.mjs`)はHTTP配信のためHSTSのみ除去し、CSP等は本番と同じものを付与する(E2Eで検証される)。
+- 404/413/500等のエラー応答にもHSTSを付与する。
+
 ## Migration
 
 | File | 内容 |

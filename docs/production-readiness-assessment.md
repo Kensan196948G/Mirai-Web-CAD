@@ -302,7 +302,9 @@
 
 ## 10. 外部基盤の判断
 
-Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで**静的応答**へ適用している。**`/api/*`は`_headers`の対象外**(同スクリプトは`/api`を早期に`handleApiRequest`へ渡し、`headersForPath`を適用しない)であり、API応答のヘッダは`src/api-handler.js`の`JSON_HEADERS`(7項目)とCORSヘッダのみである。したがって「移行後にこの制約自体が解消した」は誤りで、**API応答にはCSP/HSTSが付かない**(2026-09-18追加ラウンドで訂正)。
+Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで**静的応答**へ適用している。
+
+**2026-09-18の追加ラウンドで判明した経緯と最終状態**: 一時点では`/api/*`が`_headers`の対象外であり、API応答のヘッダは`src/api-handler.js`の`JSON_HEADERS`(7項目)とCORSヘッダのみで、**CSP/HSTSが付いていなかった**(「移行後にこの制約自体が解消した」という以前の記述は誤りだったため訂正した)。その後PR #102で`scripts/lib/http-bridge.mjs`の`applyEdgeHeaders`を`/api/*`・エラー応答にも適用し、**API応答にもCSP・HSTS・`X-Frame-Options`・`Referrer-Policy`・`Permissions-Policy`が付く状態になった**(アプリ設定ヘッダは上書きしない)。404/413/500のエラー応答にもHSTSを付与する。ローカル開発サーバーはHTTP配信のためHSTSのみ除去し、CSP等は本番と同一のものを付与する。
 
 (2026-08-30以前の記録)Neonの履歴保持は復旧窓に依存し、保護branchは削除/reset/compute削除を防ぐ。履歴は1日のため、本番基準の7-35日へ延長するにはプラン・費用・RPO合意が必要だった。[Neon restore window](https://neon.com/docs/manage/projects) / [Protected branches](https://neon.com/docs/guides/protected-branches)。2026-08-30にNeon依存自体を除去したため、この制約は対象外になった。ローカルPostgreSQLのRPO/RTOは`docs/deployment-local.md`・`docs/operations.md`の「Backup / Restore」節を参照。
 
@@ -386,3 +388,27 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 **18項目への影響**: セキュリティ 80→81、コード品質 69→71、テスト 84→85、運用保守性 68→69。他は据え置き。**総合 60.4 → 60.6**(1091/18)。判定は依然PoC。
 
 **未解決(据え置き)**: `appendAudit`の`on conflict (id) do nothing`(ID衝突時に監査行を黙って落とし得る)、`/transactions`の1コマンドあたりの配列長検証、レート制限がAI経路限定、監査ログの保持期間・削除手段の不在、`/api`応答へのCSP/HSTS付与。
+
+## 13. 2026-09-18 追加ラウンド(API応答ヘッダと運用footgun、PR #102)
+
+### 13.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `/api/*`応答にCSP/HSTS等のセキュリティヘッダが付いていなかった(`_headers`は静的応答にのみ適用)。404/413/500のエラー応答も同様 | Medium | `scripts/lib/http-bridge.mjs`に`applyEdgeHeaders`(不足分のみ補い、アプリ設定ヘッダは上書きしない)を追加。`serve-production.mjs`が`/api/*`と全エラー応答へ適用。`_headers`にもHSTSを追加 |
+| 2 | **環境変数ファイルをシェルで`source`するとJSON値の引用符が除去され**、`ACCESS_ROLE_MAP`が不正JSONになる。手動起動時に「refusing to start」で復旧作業が止まる(実測: 36文字→32文字) | Medium(運用) | `docs/deployment-local.md`の手順を「必要な1変数のみ`sed`で抽出」へ変更し、注意書きを追加。`serve-production.mjs`の起動拒否ログに原因を示す`hint`を追加(起動拒否そのものはfail-closedとして維持) |
+
+### 13.2 検証Evidence
+
+- `tests/http-bridge.test.js`に4件追加(HSTSの全パス付与、API応答への補完とアプリ設定ヘッダ優先、HSTS無効化)
+- **実行時検証**: `scripts/serve-local.mjs`を一時ポートで起動し`/api/health`がCSP/XFO付き・HSTSなしを確認。`scripts/serve-production.mjs`を本番`EnvironmentFile`相当の環境で**別ポート(24139)**で起動し(DBは読み取りprobeのみ)、`/api/health`(200)・`/api/nope`(401)・`/definitely-missing.txt`(SPAフォールバック200)の**すべて**でCSP・HSTS・XFO・XCTO・Referrer-Policy・Permissions-Policyを確認
+- `npm run verify:fast`(unit **346件中345 pass・1 skip**)、CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 13.3 18項目への影響
+
+セキュリティ 81→82、運用保守性 69→71、文書 79→80。他は据え置き。**総合 60.6 → 60.8**(1095/18)。判定は依然PoC。
+
+### 13.4 新たに判明した未解決事項
+
+- SPAフォールバックにより、存在しないパスも**200 + index.html**を返す(`/definitely-missing.txt`=200)。外形監視が誤ったパスを監視した場合に異常を検知できないため、監視対象パスの設計または404返却の検討が必要。
+- Cloudflare Pages(`mirai-web-cad.pages.dev`)は`main`マージでは更新されない(preview jobは`pull_request`のみ)。**PR #99/#100/#102のコード修正はPages本番へ届かない**ため、公開APIの情報漏洩はCloudflare側の操作まで残る。

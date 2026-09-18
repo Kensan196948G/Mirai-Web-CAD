@@ -113,9 +113,11 @@ ENTRA_GROUP_CACHE_TTL_MINUTES=15   # 任意、既定15分。グループ変更�
 ### 3. Migration適用
 
 ```bash
-source <(grep -v '^#' ~/.config/mirai-web-cad/production.env)
-DATABASE_URL="$DATABASE_URL" npm run db:verify
+DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' ~/.config/mirai-web-cad/production.env)" npm run db:verify
 ```
+
+> [!WARNING]
+> 環境変数ファイルを**シェルで`source`しないでください**。bashは代入値の引用符を除去するため、`ACCESS_ROLE_MAP`等のJSON値が壊れます(実測: `{"kensan1969@gmail.com":"cad_admin"}` が `{kensan1969@gmail.com:cad_admin}` になり、`serve-production.mjs` が「ACCESS_ROLE_MAP is not valid JSON」で起動を拒否します)。systemdの`EnvironmentFile`は引用符を保持するため通常運用では問題ありません。手動で必要な変数を取り出す場合は、上記のように`sed`で**必要な1変数だけ**を抽出してください。
 
 ### 4. systemdユニット配置
 
@@ -176,9 +178,10 @@ Tunnel登録、本番/MVPのDNS、MVP Access Applicationは`infra/cloudflare/`�
 
 ### デプロイ(手動)
 
+環境変数ファイルを一括で`source`すると、JSON値(`ACCESS_ROLE_MAP`等)の引用符がシェルにより除去され、手動起動時に「ACCESS_ROLE_MAP is not valid JSON」で失敗する。必要な変数だけを`sed`で取り出す(「3. Migration適用」の注意書き参照)。
+
 ```bash
-source <(grep -v '^#' ~/.config/mirai-web-cad/production.env)
-bash scripts/deploy-local.sh
+DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' ~/.config/mirai-web-cad/production.env)" bash scripts/deploy-local.sh
 ```
 
 `mainブランチをfast-forward → npm ci → build → db:verify → systemctl restart → health確認`を行い、health確認に失敗した場合は直前のコミットへ自動ロールバックする。
