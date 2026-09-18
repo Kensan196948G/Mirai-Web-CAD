@@ -19,6 +19,7 @@
     "build": "node scripts/build.mjs",
     "start:production": "node scripts/serve-production.mjs",
     "deploy:local": "bash scripts/deploy-local.sh",
+    "deploy:drift": "node scripts/check-deploy-drift.mjs",
     "compat:report": "node scripts/compat-report.mjs",
     "compat:explain": "node scripts/compat-report.mjs --explain",
     "corpus:validate": "node scripts/corpus-ledger.mjs validate",

@@ -82,6 +82,52 @@ DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" n
 
 「mainへのマージが成功した」「CIが緑だった」「healthが200だった」のいずれか単独をもって本番正常と報告しないでください。
 
+## デプロイ素性(稼働commit)と乖離検知
+
+### 何が起きたか
+
+2026-09-18、本番ホストのチェックアウトでローカル`main`がGitHub `main`より4コミット先行し、**未レビューのPR #87(`feat/native-dimension-hatch-viewport`)のコードが本番で稼働している**状態が、人手の調査で初めて判明しました(Issue #98 / [改善台帳P0-58](improvement-register.md))。`branch protection`の`required_conversation_resolution`によりPR #87は正規手順ではマージできない状態のまま、セキュリティ修正を届けるためにローカルでのみ`git merge --no-ff`が行われていました。
+
+原因は「本番が今どのコミットで動いているか」を記録・比較する仕組みが無く、確認が人の記憶と目視に依存していたことです。
+
+### 運用ルール(必須)
+
+- **本番ホストのチェックアウトへ直接コミットしない。** 変更は必ずPR経由でGitHub `main`へ入れ、本番は`scripts/deploy-local.sh`の`git merge --ff-only origin/main`だけで更新する。
+- 本番ホストのローカル`main`を先行させない。`ff-only`が失敗した場合は、回避策を探すのではなく分岐の原因を解消する(Issue #98と同じ判断を繰り返さない)。
+- やむを得ず暫定措置を取る場合は、Issue起票・コミットメッセージへの理由記載・解消期限の3点を同時に残す。
+
+### 検知の仕組み
+
+`GET /api/health`は稼働中のコミットを`deploy`ブロックで返します(公開リポジトリのcommit/branchのみ。パス・資格情報・環境変数の値は含みません)。
+
+```json
+"deploy": { "commit": "89a25fe...", "branch": "main", "dirty": false }
+```
+
+`scripts/check-deploy-drift.mjs`(npm script: `deploy:drift`)は、作業ツリーのcommit・`origin/main`・稼働APIの報告値を突き合わせて判定します。
+
+```bash
+npm run deploy:drift                    # ローカルgit情報のみ(--remoteなし)
+npm run deploy:drift -- --json          # 機械可読
+node scripts/check-deploy-drift.mjs --url http://127.0.0.1:18812 --remote
+```
+
+判定と終了コード:
+
+| 判定 | 意味 | 終了コード |
+| --- | --- | --- |
+| `verified` | `origin/main`と一致し、未コミット変更もない | 0 |
+| `behind` | 本番が`origin/main`より遅れている(デプロイ待ち) | 0 |
+| `ahead` | `origin/main`に無いコミットが稼働している(**未レビューコード**) | 1 |
+| `dirty` | 未コミット変更が混ざった状態で稼働している | 1 |
+| `unknown` | git情報が読めない(アーカイブ配信など) | 2 |
+
+定期実行用に`deploy/systemd/mirai-web-cad-deploy-drift.service`と`.timer`(30分間隔)を用意しています。配置手順は[ローカルデプロイ運用メモ](deployment-local.md)の「systemdユニット配置」と同じです。乖離時はユニットが失敗し、journalに理由が残ります(通知連携はIssue #8)。
+
+### 起動時のガード(任意)
+
+`scripts/serve-production.mjs`は起動時に同じ判定を行い、乖離があれば`error`ログを出します。既定は可用性優先で**起動を継続**します。乖離状態での起動そのものを拒否したい場合は、本番の環境変数ファイルに`DEPLOY_GUARD=strict`を追加して再起動してください(`strict`では`origin/main`に無いコミットが稼働している状態での起動を拒否します)。有効化する前に`npm run deploy:drift`が`verified`を返すことを確認してください。
+
 ## Rollback
 
 本番はこのホスト(kensan1969)上のsystemdサービスです。ロールバック手順:
@@ -95,7 +141,11 @@ curl -fsS http://127.0.0.1:18812/api/health
 
 `scripts/deploy-local.sh`はhealth確認に失敗すると直前コミットへ自動ロールバックします。DB migrationは破壊的変更を含めていないため、ロールバック時も既存テーブルを削除しません。
 
-Cloudflare Tunnel/DNS自体に問題がある場合(Tunnel停止、証明書失効等)は、Cloudflare Pages Custom Domainを再アタッチして`mirai-web-cad.pages.dev`相当の配信へ一時的に切り戻せます(Pagesプロジェクト・`functions/`・`wrangler.toml`はこのためにロールバック手段として残置しています)。ただしPages側のコードは移行前時点のもので、Neon接続を試みるため`/api`は機能しません。SPA表示のみの緊急避難的な切り戻しです。
+Cloudflare Tunnel/DNS自体に問題がある場合(Tunnel停止、証明書失効等)は、Cloudflare Pages Custom Domainを再アタッチして`mirai-web-cad.pages.dev`相当の配信へ一時的に切り戻せます(Pagesプロジェクト・`functions/`・`wrangler.toml`はこのためにロールバック手段として残置しています)。
+
+ただしPages側は**「移行前のコード」ではありません**(2026-09-18に実測して訂正)。`functions/api/[[path]].js`が現行の`src/api-handler.js`を読み込むため、`/api`は現行コードで動作します。接続先が失効済みのNeonを指しているため、実測では`GET /api/health`が500を返して図面データは取得できません。SPA表示のみの緊急避難的な切り戻しであり、APIの代替にはなりません。
+
+なおPages(preview含む)はCloudflare Accessの外側の公開オリジンであるため、本リポジトリでは`functions/api/[[path]].js`が`AUTH_MODE=access`以外を503で拒否するようにし、`wrangler.toml`にも`AUTH_MODE = "access"`を明示しています。5xxの内部エラー詳細も、ローカルdemoモード以外では応答へ含めません。
 
 ## 監査ログの追記専用化(0005)
 

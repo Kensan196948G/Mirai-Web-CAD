@@ -148,6 +148,8 @@ sudo systemctl enable --now mirai-web-cad-backup.timer mirai-web-cad-backup-chec
 
 `mirai-web-cad-cloudflared.service`はCloudflare Tunnel作成後に有効化する(下記)。
 
+`mirai-web-cad-deploy-drift.service`/`.timer`(30分間隔)も同じ要領で配置・有効化する。稼働中のcommitがレビュー済み`origin/main`と乖離していないかを定期検査し、乖離時はユニットが失敗してjournalに理由を残す。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。
+
 ### 5. Cloudflare Tunnel作成
 
 ```bash
@@ -177,6 +179,14 @@ bash scripts/deploy-local.sh
 
 `mainブランチをfast-forward → npm ci → build → db:verify → systemctl restart → health確認`を行い、health確認に失敗した場合は直前のコミットへ自動ロールバックする。
 
+デプロイ後は必ず**稼働commitの素性確認**を行う。
+
+```bash
+npm run deploy:drift
+```
+
+`verified`(終了コード0)であれば、本番はレビュー済みの`origin/main`と同一である。`ahead`または`dirty`(終了コード1)の場合は未レビューのコードが稼働しているため、業務利用を止めて原因を解消する(2026-09-18のIssue #98と同じ事故)。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。
+
 ### バックアップ
 
 `mirai-web-cad-backup.timer`が毎日03:10(JST、`RandomizedDelaySec=30min`)に`scripts/backup-local.sh`を実行し、`/var/backups/mirai-web-cad/postgres/`へdumpを保存する(保持14日)。`mirai-web-cad-backup-check.timer`が毎日06:00に鮮度(36時間以内・0バイト超)を検証する。
@@ -197,6 +207,18 @@ sudo systemctl start mirai-web-cad-backup.service
 sudo systemctl start mirai-web-cad-backup-check.service
 journalctl -u mirai-web-cad-backup.service -n 20
 ```
+
+### 本番DBの復元ドリル(初回セットアップが必要)
+
+MVPは隔離DBへの復元ドリルを週次で実行しているが、**本番DBには同等の自動ドリルが無い**(2026-09-18時点)。`deploy/systemd/mirai-web-cad-restore-drill.service`と`.timer`(日曜04:10 JST)を追加したので、初回のみ次の準備を行えば以降は自動化される。
+
+1. 復元専用の隔離DB`mirai_web_cad_recovery`を作成する。**2026-09-18の実測では、本番の接続ロールにCREATEDB権限が無く`create database`が`permission denied to create database`で失敗した。** DB管理者ロールでの作成が必要(実施者: DB管理者)。
+2. `~/.config/mirai-web-cad/backup.env`へ`RESTORE_DATABASE_URL`(手順1の隔離DBを指す。本番DBと同一にしてはならない)を追加する。
+3. `mirai-web-cad-restore-drill.service`と`.timer`を配置して有効化する。配置手順は「4. systemdユニット配置」と同じ。
+
+`scripts/restore-drill-local.sh`は復元先DB名が`EXPECTED_RESTORE_DATABASE`と完全一致し、かつ元DBと異なる場合のみ初期化を許可する。復元したデータは成功・失敗にかかわらず終了時に隔離DBから消去される。実行結果は`journalctl -u mirai-web-cad-restore-drill.service`で確認する。
+
+完了基準は「週次ドリルが成功し続けること」であり、設定が存在するだけではPASSとしない。復元できた行数・最新版がバックアップ時点と一致することまで確認する。
 
 ### ログ確認
 

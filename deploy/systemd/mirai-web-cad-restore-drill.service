@@ -1,0 +1,35 @@
+[Unit]
+Description=Mirai Web CAD production isolated PostgreSQL restore drill
+Documentation=https://github.com/Kensan196948G/Mirai-Web-CAD/blob/main/docs/deployment-local.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=kensan
+Group=kensan
+# WorkingDirectory は本番ホストのチェックアウト先。他の mirai-web-cad-* unit と必ず揃えること。
+WorkingDirectory=/home/kensan/Projects/Mirai-DX-Project/Mirai-Web-CAD
+# backup.env には DATABASE_URL と RESTORE_DATABASE_URL の両方が必要。
+# RESTORE_DATABASE_URL は隔離された復元専用DB(mirai_web_cad_recovery)を指し、
+# 本番DBと同一であってはならない(restore-drill-local.shが拒否する)。
+EnvironmentFile=/home/kensan/.config/mirai-web-cad/backup.env
+Environment=PG_BIN=/usr/lib/postgresql/16/bin
+Environment=BACKUP_DIR=/var/backups/mirai-web-cad/postgres
+Environment=EXPECTED_RESTORE_DATABASE=mirai_web_cad_recovery
+Environment=PATH=/home/kensan/.npm-global/bin:/home/kensan/.nvm/versions/node/v22.22.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/bash scripts/restore-drill-local.sh
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0077

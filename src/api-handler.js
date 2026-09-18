@@ -67,6 +67,7 @@ export async function handleApiRequest(request, env = {}) {
             anonymous: actor.actor.anonymous === true
           },
           db: actor.actor.anonymous ? sanitizeProbe(db) : db,
+          deploy: deployProvenance(env),
           durationMs: Date.now() - startedAt
         },
         dbHealthy ? 200 : 503,
@@ -385,7 +386,12 @@ export async function handleApiRequest(request, env = {}) {
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
     if (status >= 500) console.error(`[${requestId}] API request failed`, error);
-    const message = status >= 500 && env.APP_ENV === "production" ? "internal error" : error instanceof Error ? error.message : "internal error";
+    // 5xx の詳細は「ローカル開発(demo認証)」以外では必ず伏せる。以前は
+    // APP_ENV==="production" のときだけ伏せていたため、preview等の公開環境で
+    // DB接続エラーの原文(接続先ユーザー名など)が未認証クライアントへ返っていた。
+    const mayExposeInternal = authMode(env) === "demo" && env.APP_ENV !== "production";
+    const message = status >= 500 && !mayExposeInternal ? "internal error" : error instanceof Error ? error.message : "internal error";
+
     return json({ ok: false, error: message }, status, cors);
   }
 }
@@ -397,6 +403,11 @@ export function resetMemoryStore() {
 async function resolveActor(request, env, allowAnonymous = false) {
   const mode = authMode(env);
   if (mode === "demo") {
+    // APP_ENV=production でdemoが有効なのは設定ミスであり、ヘッダー自己申告で
+    // 任意ロールになれる状態を意味する。可用性より安全側に倒して拒否する。
+    if (env.APP_ENV === "production") {
+      return { ok: false, error: "本番環境ではデモ認証を利用できません。" };
+    }
     const role = request.headers.get("x-demo-role") ?? "drafter";
     if (!ROLE_POLICIES[role]) return { ok: false, error: "不正なデモ権限です。" };
     return { ok: true, actor: { id: request.headers.get("x-demo-actor") ?? "demo@example.com", role } };
@@ -472,8 +483,13 @@ function parseRoleMap(value) {
 }
 
 function authMode(env) {
-  if (env.AUTH_MODE) return env.AUTH_MODE;
-  return env.APP_ENV === "production" ? "access" : "demo";
+  // fail-closed: 明示的に"access"/"demo"が設定されている場合のみその値を使う。
+  // 未設定・タイポ・想定外の値は"access"(Cloudflare Access JWT必須)へ倒す。
+  // 以前は未設定時にAPP_ENV!=="production"なら"demo"へ倒していたため、
+  // AUTH_MODEを設定し忘れた環境(例: Pages preview)が「x-demo-roleヘッダーを
+  // 自己申告するだけで最強ロールになれる」状態で公開され得た。
+  if (env.AUTH_MODE === "demo" || env.AUTH_MODE === "access") return env.AUTH_MODE;
+  return "access";
 }
 
 function checkAiRateLimit(env, actorId) {
@@ -624,6 +640,23 @@ function sanitizeProbe(db) {
     provider: db.provider,
     mode: db.mode,
     migrated: db.migrated ?? db.mode === "memory-preview"
+  };
+}
+
+// 稼働中APIがどのコミットに由来するかを応答へ含める(Issue #98の再発防止)。
+// 本番は「本番ホストのローカルmainがGitHub mainから分岐したまま稼働していた」事故を
+// 起こしているため、外部から`GET /api/health`だけで稼働commitを確認できるようにする。
+// ここに含めるのは公開リポジトリのcommit/branchのみで、パス・資格情報・環境変数の値は
+// 一切含めない。値が未設定(開発サーバー等)の場合はnullを返す。
+function deployProvenance(env) {
+  const info = env.DEPLOY_INFO;
+  if (!info || typeof info !== "object") {
+    return { commit: null, branch: null, dirty: null };
+  }
+  return {
+    commit: typeof info.commit === "string" ? info.commit : null,
+    branch: typeof info.branch === "string" ? info.branch : null,
+    dirty: typeof info.dirty === "boolean" ? info.dirty : null
   };
 }
 
