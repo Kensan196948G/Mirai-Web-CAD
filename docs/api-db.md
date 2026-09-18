@@ -52,6 +52,26 @@ wrangler pages dev dist --port=4176
 curl http://127.0.0.1:4176/api/health
 ```
 
+`GET /api/health`の応答には、稼働中のコードの素性を示す`deploy`ブロックが含まれる(公開リポジトリのcommit/branchのみ。パス・資格情報・環境変数の値は含まない)。
+
+```json
+{
+  "ok": true,
+  "status": "ok",
+  "auth": { "mode": "access", "role": "viewer", "anonymous": true },
+  "db": { "provider": "postgres", "mode": "connected", "migrated": true },
+  "deploy": { "commit": "<40桁SHA>", "branch": "main", "dirty": false }
+}
+```
+
+`deploy`は`scripts/serve-production.mjs`が起動時に`env.DEPLOY_INFO`として渡す。`npm run dev`(ローカル開発サーバー)やテストでは未設定のため`null`になる。本番で`origin/main`と乖離していないかの判定は`npm run deploy:drift`が行う([運用・復旧メモ](operations.md)参照)。
+
+### 認証モードのfail-closed
+
+`AUTH_MODE`は`access`または`demo`のみ有効で、**未設定・想定外の値は`access`として扱う**。`demo`は認証をリクエストヘッダー(`x-demo-role`)の自己申告で決めるため、公開環境では使用しない。`APP_ENV=production`で`demo`が設定されている場合、`handleApiRequest`はリクエストを401で拒否する(`serve-production.mjs`はそもそも`AUTH_MODE=access`以外での起動を拒否する)。Cloudflare Pages Functions(`functions/api/[[path]].js`)は`AUTH_MODE=access`以外を503で拒否する。
+
+5xxの応答本文は、ローカル開発(`demo`かつ`APP_ENV!=="production"`)以外では`{"ok":false,"error":"internal error"}`へ丸め、DB接続エラー等の内部詳細を未認証クライアントへ返さない(詳細はサーバーログにのみ記録)。
+
 ## Migration
 
 | File | 内容 |

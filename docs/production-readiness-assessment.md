@@ -302,6 +302,69 @@
 
 ## 10. 外部基盤の判断
 
-Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで全応答へ適用しており、この制約自体が解消している。
+Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFunctions応答には適用されないため、API側にも直接付与した。[Cloudflare公式](https://developers.cloudflare.com/pages/configuration/headers/)。2026-08-30の移行後は`scripts/serve-production.mjs`が`_headers`を読み込んで**静的応答**へ適用している。**`/api/*`は`_headers`の対象外**(同スクリプトは`/api`を早期に`handleApiRequest`へ渡し、`headersForPath`を適用しない)であり、API応答のヘッダは`src/api-handler.js`の`JSON_HEADERS`(7項目)とCORSヘッダのみである。したがって「移行後にこの制約自体が解消した」は誤りで、**API応答にはCSP/HSTSが付かない**(2026-09-18追加ラウンドで訂正)。
 
 (2026-08-30以前の記録)Neonの履歴保持は復旧窓に依存し、保護branchは削除/reset/compute削除を防ぐ。履歴は1日のため、本番基準の7-35日へ延長するにはプラン・費用・RPO合意が必要だった。[Neon restore window](https://neon.com/docs/manage/projects) / [Protected branches](https://neon.com/docs/guides/protected-branches)。2026-08-30にNeon依存自体を除去したため、この制約は対象外になった。ローカルPostgreSQLのRPO/RTOは`docs/deployment-local.md`・`docs/operations.md`の「Backup / Restore」節を参照。
+
+## 11. 2026-09-18 追加ラウンド(第11回、PR #99)
+
+第10回ラウンドの直後に、**本番稼働環境そのもの**を対象とした追加検証を行った。評価書・READMEの記述ではなく、実環境のHTTP応答とgit状態を証拠とした点が第10回との違いである。第10回の記述のうち2件が実環境と矛盾していたことも判明し、訂正した。
+
+### 11.1 実測で確認した重大/高リスク
+
+| # | 事象 | 重大度 | Evidence |
+| --- | --- | --- | --- |
+| 1 | 公開中のCloudflare Pages(`mirai-web-cad.pages.dev`)が、未認証の`GET /api/health`に対してDB接続エラー原文(接続ユーザー名`neondb_owner`)を返していた | 高(情報漏洩) | `curl`応答本文 `{"ok":false,"error":"password authentication failed for user 'neondb_owner'"}`。旧実装は`APP_ENV==="production"`のときだけ5xx詳細をマスク |
+| 2 | `AUTH_MODE`未設定時に`demo`認証(ヘッダー自己申告)へフォールバックする実装が残り、公開オリジンで設定漏れが起きると未認証者が`cad_admin`相当へ到達し得た | 重大(潜在的) | `authMode()`/`resolveActor()`の実装、および`wrangler.toml`に`AUTH_MODE`が無い状態 |
+| 3 | デプロイ時の`db:verify`が、トリガーにより削除できない合成監査行を本番`audit_logs`へ混入させていた | 高(監査証跡の完全性) | `mirai_web_cad`の`audit_trigger_verify_probe`(actor `verify`、2026-08-30)1件。`mirai_web_cad_test`にも1件 |
+| 4 | 本番ホストのローカル`main`が`origin/main`より4コミット先行し、未レビューのPR #87コードが稼働。稼働commitを確認・比較する手段が存在しなかった | 重大 | `git log origin/main..HEAD`が4件(16ファイル、688 insertions)。Issue #98 |
+| 5 | 文書と実環境の矛盾2件:「Pages側のコードは移行前のもの」は誤り(現行`functions/api/[[path]].js`が現行`src/api-handler.js`を配信)。「`_headers`は全応答へ適用」も誤り(静的応答のみで`/api`は対象外) | 中(文書信頼性) | 実応答が現行ハンドラのJSON形式であること、`scripts/serve-production.mjs`の分岐 |
+| 6 | 本番DBには隔離復元DBが無く、自動復元ドリルも無い。本番接続ロールには`CREATEDB`権限が無い | 高(DR未検証) | `mirai_web_cad_recovery`不存在、`create database`が`permission denied to create database` |
+| 7 | 本番DBに統合/E2Eテスト由来の図面9件(`dwg_it_*`/`dwg_smoke_*`)が残存 | 中(データ品質) | `select id,name from drawings`の実測 |
+
+### 11.2 実施した修正(PR #99、reviewer SubAgentの独立レビュー指摘を反映)
+
+- **認証のfail-closed化**: `AUTH_MODE`は`access`/`demo`のみ受理し、未設定・不正値は`access`へ。`demo`は`APP_ENV=production`で拒否。Pages Functionsは`access`以外を503で拒否。
+- **5xx内部詳細のマスク**: ローカル開発以外では`internal error`へ丸め、原文はサーバーログのみ。
+- **デプロイ素性の可視化と乖離検知**: `GET /api/health`の`deploy`ブロック、`deploy:drift`/`deploy:drift:live`、30分間隔timer、起動時ガード(`DEPLOY_GUARD=strict`)。**判定不能を「一致」と報告しない**(fail-open除去)。
+- **デプロイ時の稼働commit一致確認**: `scripts/deploy-local.sh`が、稼働APIの`deploy.commit`と今回の`$new_sha`の一致を必須化(不一致は自動ロールバック)。
+- **監査probeの残留ゼロ化**: 単一トランザクション+ROLLBACK。例外判定を`errcode 42501`かつメッセージ一致へ厳格化。
+- **本番DB復元ドリルunit**の追加(初回の隔離DB準備は未了)。
+- **文書訂正**: 「本番ホストへ直接コミットしない」運用ルール、Pagesの誤記2件、`_headers`適用範囲、既存残留監査行の削除手順(要承認)。
+
+検証Evidence: ローカル`npm run verify`(unit 333件中332 pass/1 skip、E2E 74/74)、PR #99の全CIジョブ成功(Empty PostgreSQL Migration / Backup and Restore Drill / Data Store Integration / Secret Scan / Dependency Audit / Synthetic DXF / Terraform / Lint・Test・Build・E2E・A11y / Deploy Preview)、**Preview実測**(`pr-99.mirai-web-cad.pages.dev`で`/`=200、未認証`/api/health`=500かつ`internal error`で内部情報なし、`x-demo-role: cad_admin`でも同一応答、不正JWT=401)、監査probeの正常系/負例の実DB検証。
+
+### 11.3 18項目再採点(追加ラウンド後)
+
+| 評価軸 | 第10回後 | 第11回後 | 増分の根拠 |
+| --- | ---: | ---: | --- |
+| 業務適合性 | 18 | 18 | 変化なし(電子納品・座標系・案件モデルの不在は未着手) |
+| 機能完成度 | 30 | 30 | 変化なし(CAD機能は本ラウンドの対象外) |
+| UI/UX | 45 | 45 | 変化なし |
+| アクセシビリティ | 42 | 42 | 変化なし |
+| データ品質 | 62 | 64 | 監査証跡への合成行混入を停止。ただし本番の残留1件とテスト由来図面9件は未解消 |
+| AI有効性 | 58 | 58 | 変化なし |
+| 設計 | 72 | 73 | 認証のfail-closed化、素性情報の分離(`scripts/lib/deploy-info.mjs`) |
+| コード品質 | 68 | 69 | 回帰テスト30件追加・独立レビュー反映。ESLint等の静的解析は未導入(P0-59) |
+| 性能・拡張性 | 70 | 70 | 変化なし |
+| セキュリティ | 74 | **80** | 権限昇格経路の封鎖、未認証への内部エラー漏洩の封鎖、公開オリジンのAPIガード。LocalStorage平文・レート制限の範囲は未解消 |
+| 可用性・バックアップ | 55 | 57 | 本番DB復元ドリルunitを追加。**実行は権限待ち**で、オフサイト・暗号化・単一障害点は未解消 |
+| 監視・障害対応 | 58 | **66** | 稼働commitの外部可視化、30分間隔の乖離検知、起動時ガード、デプロイ時のcommit一致必須化。当番実名は未確定 |
+| テスト | 83 | 84 | unit 333件(第10回305件)+E2E 74件+独立レビュー。カバレッジ計測は未導入 |
+| CI/CD・リリース | 75 | **81** | デプロイ時の稼働commit検証をCI/CD経路へ組込み。Previewの`/api`検証は未追加 |
+| 運用保守性 | 60 | **68** | 「本番ホストへ直接コミットしない」運用ルール、乖離検知手順、復元ドリル手順を明文化 |
+| 文書 | 78 | 79 | 実環境と矛盾する記述2件を訂正。`mvp-traceability.md`等の陳腐化は残存 |
+| 費用対効果 | 50 | 50 | 変化なし |
+| 競合代替性 | 53 | 53 | 変化なし(代替率はCAD機能側の進捗に依存) |
+| **総合(単純平均)** | **58.6** | **60.4** | 18項目単純平均(1087/18) |
+
+**判定は依然PoC。** 本ラウンドは「本番で安全に運用するための統制」を強化したもので、600名・複数案件・公共工事80%という業務前提に対する最大のギャップ(業務適合性18、機能完成度30)には触れていない。Critical残存は、単一ホスト依存(P1-13)、電子納品/座標系の欠落、案件・工区モデルの未成熟、本番稼働コードの分岐(P0-58)。
+
+### 11.4 未解決(次ラウンド以降)
+
+1. **P0-58**: 本番稼働コードと`origin/main`の分岐解消(業務判断が必要)。
+2. **本番復元ドリルの初回準備**: 隔離DB作成の権限が無い(要DB管理者)。
+3. 既存の残留監査行1件の削除(破壊的本番DB操作のため要承認)。
+4. 本番DBのテスト由来図面9件の扱い(削除は業務判断)。
+5. `_headers`が`/api`に適用されない件(CSP/HSTSのAPI応答への付与)。
+6. `AUTH_MODE=demo`のままで公開される自己ホストpreviewがある場合の5xx詳細漏洩(条件付き)。

@@ -8,6 +8,7 @@ import path from "node:path";
 import { handleApiRequest } from "../src/api-handler.js";
 import { closeDataStorePool, createDataStore } from "../src/data-store.js";
 import { ROLE_POLICIES } from "../src/cad-core.js";
+import { DEPLOY_PROVENANCE, evaluateDeployProvenance } from "./lib/deploy-info.mjs";
 import {
   CONTENT_TYPES,
   RequestBodyTooLargeError,
@@ -27,7 +28,25 @@ const shutdownTimeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10000);
 
 const env = validateEnv();
 
-log("info", "starting", { port, host, appEnv: env.APP_ENV, authMode: env.AUTH_MODE });
+// 稼働commitの素性検査(Issue #98の再発防止)。ネットワークへは出ず、ローカルの
+// git情報だけを読む。既定は「重大警告をログに出して起動継続」(可用性優先)。
+// DEPLOY_GUARD=strict を設定した場合のみ、未レビューのcommitが稼働している状態での
+// 起動を拒否する(fail-closed)。本番のproduction.envへ設定するかは運用判断とする。
+const deployInfo = evaluateDeployProvenance({ cwd: root });
+env.DEPLOY_INFO = {
+  commit: deployInfo.info.commit,
+  commitShort: deployInfo.info.commitShort,
+  branch: deployInfo.info.branch,
+  dirty: deployInfo.info.dirty
+};
+log("info", "starting", {
+  port,
+  host,
+  appEnv: env.APP_ENV,
+  authMode: env.AUTH_MODE,
+  deploy: { ...env.DEPLOY_INFO, provenance: deployInfo.status, ahead: deployInfo.counts?.ahead ?? null, behind: deployInfo.counts?.behind ?? null }
+});
+enforceDeployGuard(deployInfo);
 
 await failFastProbe(env);
 
@@ -221,6 +240,34 @@ function requireEnv(name, missing) {
     return undefined;
   }
   return value;
+}
+
+// 稼働素性がorigin/mainと乖離している場合の扱いを決める。
+// - 既定(warn): 重大警告をログへ残し、起動は継続する。可用性を落とさないため。
+// - strict: 未レビューのcommitが稼働している状態での起動を拒否する(EX_CONFIG=78)。
+// 「本番で何が動いているか分からない」状態を検知可能にするのが目的であり、
+// 検知そのものが業務を止めないよう既定は継続とする(docs/operations.md参照)。
+function enforceDeployGuard(deploy) {
+  const detail = {
+    provenance: deploy.status,
+    commit: deploy.info.commit,
+    branch: deploy.info.branch,
+    dirty: deploy.info.dirty,
+    ahead: deploy.counts?.ahead ?? null,
+    reasons: deploy.reasons
+  };
+  if (deploy.status === DEPLOY_PROVENANCE.UNKNOWN) {
+    // 判定できないこと自体は起動を止めないが、「一致」と誤解されないよう必ず記録する。
+    log("warn", "deploy provenance guard: cannot determine provenance (origin/main ref may be missing)", detail);
+    return;
+  }
+  const drifted = deploy.status === DEPLOY_PROVENANCE.AHEAD || deploy.status === DEPLOY_PROVENANCE.DIRTY;
+  if (!drifted) return;
+  if (process.env.DEPLOY_GUARD === "strict") {
+    log("error", "deploy provenance guard: refusing to start with unreviewed code", detail);
+    process.exit(78); // EX_CONFIG
+  }
+  log("error", "deploy provenance guard: running code is not origin/main (set DEPLOY_GUARD=strict to refuse startup)", detail);
 }
 
 async function failFastProbe(currentEnv) {
