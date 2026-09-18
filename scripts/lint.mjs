@@ -24,6 +24,7 @@ const required = [
   "migrations/0005_audit_log_immutability.sql",
   "migrations/0006_normalize_jsonb_columns.sql",
   "migrations/0007_project_membership.sql",
+  "migrations/0008_audit_truncate_guard.sql",
   "scripts/check-mvp-health.sh",
   "scripts/database-signature.sh",
   "scripts/restore-drill-local.sh",

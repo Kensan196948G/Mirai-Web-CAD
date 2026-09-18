@@ -15,6 +15,7 @@ for pass in 1 2; do
     -f migrations/0005_audit_log_immutability.sql \
     -f migrations/0006_normalize_jsonb_columns.sql \
     -f migrations/0007_project_membership.sql \
+    -f migrations/0008_audit_truncate_guard.sql \
     -f seeds/demo.sql >/dev/null
 done
 
@@ -30,8 +31,9 @@ trigger_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
   where tgrelid = 'audit_logs'::regclass and not tgisinternal and tgname like 'audit_logs_no_%'
     and tgenabled = 'O'
 ")"
-if [[ "$trigger_count" != "2" ]]; then
-  echo "database verification failed: audit_logs append-only triggers missing or disabled (found=$trigger_count)" >&2
+# UPDATE/DELETE(0005)に加えTRUNCATE拒否(0008)を含め3件であることを要求する。
+if [[ "$trigger_count" != "3" ]]; then
+  echo "database verification failed: audit_logs append-only triggers missing or disabled (found=$trigger_count, expected=3)" >&2
   exit 1
 fi
 

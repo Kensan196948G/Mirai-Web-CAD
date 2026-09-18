@@ -76,9 +76,34 @@ DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" n
 DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" npm run db:check
 ```
 
-`db:check`は**書き込みを一切行わず**、migration 0001〜0007が作る9テーブル、`drawings.revision`/`drawings.visibility`/`projects.access_scope`列、監査の追記専用トリガ2件とUPDATE/DELETE拒否(検査はROLLBACK)、JSONB string scalarが0件であることを確認します。未適用があれば欠落を列挙して**終了コード1**で失敗します。
+`db:check`は**書き込みを一切行わず**、migration 0001〜0008が作る9テーブル、`drawings.revision`/`drawings.visibility`/`projects.access_scope`列、監査の追記専用トリガ**3件**(UPDATE/DELETE/TRUNCATE)と各操作の拒否(検査はROLLBACK)、JSONB string scalarが0件であることを確認します。未適用があれば欠落を列挙して**終了コード1**で失敗します。
 
 実測(2026-09-18): migration適用済DBで`db:check`実行前後の行数と`content_hash`のmd5が完全一致(書き込みゼロ)。空DBでは欠落テーブル・列を列挙してexit 1。
+
+### 監査ログの追記専用保護と所有権分離(P0-78)
+
+`audit_logs`は`migration 0005`(UPDATE/DELETE拒否)と`0008`(TRUNCATE拒否)のDBトリガで保護されています。**トリガはロールを問わず発火する**ため、スーパーユーザでの`truncate`/`update`/`delete`も拒否されることを実測確認済みです。
+
+ただし所有者は`alter table ... disable trigger`や`drop trigger`を実行できるため、トリガだけではDDLを防げません。現在は`create database ... owner mirai_web_cad_app`のためアプリ用ロールが所有者でもあり、ここが残余リスクです(`db:check`は所有者が接続ロールと同一の場合に**警告**を出力します。失敗にはしません)。
+
+所有権を分離する場合、DB管理者が次を一度だけ実行します。
+
+```bash
+sudo -u postgres psql -d mirai_web_cad \
+  -v app_role=mirai_web_cad_app \
+  -v owner_role=mirai_web_cad_audit_owner \
+  -f scripts/sql/harden-audit-role.sql
+```
+
+実測した効果(2026-09-18、検証用DB):
+
+| 接続ロール | TRUNCATE | UPDATE | DELETE | SELECT | INSERT |
+| --- | --- | --- | --- | --- | --- |
+| アプリ用ロール(所有者) | トリガで拒否 | トリガで拒否 | トリガで拒否 | 可 | 可 |
+| アプリ用ロール(非所有者、SELECT/INSERTのみ) | 権限で拒否 | 権限で拒否 | 権限で拒否 | 可 | 可 |
+
+> [!IMPORTANT]
+> 所有権を分離した後は、`db:verify`(migration適用)を**アプリ用ロールで実行できません**(`must be owner of table audit_logs`で失敗します。実測確認済み)。migration適用は所有者ロールまたは管理者で実行してください。`db:check`はどちらの構成でも正常に動作します。
 
 > [!NOTE]
 > `db:verify`(migration+`seeds/demo.sql`適用)をデプロイのたびに本番DBへ実行すると、デモ行の投入、`0004`による`dwg_demo_001`の`name`上書きと`visibility='public'`強制、`0006`による監査トリガのdrop→UPDATE→再作成が毎回発生します(2026-09-18の独立監査で指摘、改善台帳P0-74)。`db:check`はこの問題に対する**読み取り専用の代替**として追加しました。デプロイ手順(`scripts/deploy-local.sh`)自体の切替は、手順書(`docs/deployment-local.md`)の同時更新が必要なため**未実施**です(セッションのポリシーゲートにより当該ファイルを編集できませんでした。人間側での手順書更新と併せて切替えてください)。

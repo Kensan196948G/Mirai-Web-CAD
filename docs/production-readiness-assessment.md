@@ -690,3 +690,83 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 データ品質 70→**71**(誤ったDataを受入れない)、セキュリティ 85→**86**(404の存在オラクル解消、GET経由の監査汚染の封鎖、設定ミスの起動時拒否)、可用性・バックアップ 58→**59**(読み取り専用のデプロイ検証を追加)、監視・障害対応 68→**68**、コード品質 77→**77**、テスト 89→**89**(回帰4件+PG1件)。他は据え置き。**総合 62.8 → 63.1**(1136/18)。**判定は依然PoC。**
 
 据え置きの根拠: 本ラウンドも「安全側への是正」であり、業務適合性(18)・機能完成度(33)という最大のギャップ、およびCritical 4件(§19.5)には触れていない。
+
+## 21. 2026-09-18 追加ラウンド(監査の追記専用保護をTRUNCATEまで拡張、第3ラウンド)
+
+§19.5に記録したP0-78(監査の追記専用保護の穴)を実装した。
+
+### 21.1 事象と修正
+
+| 事象 | 重大度 | 修正 |
+| --- | --- | --- |
+| `migration 0005`はUPDATE/DELETEを拒否するが**TRUNCATEを拒否しない**。アプリ用ロールは`create database ... owner mirai_web_cad_app`のため`audit_logs`の所有者でもあり、`truncate`と`alter table ... disable trigger`が可能だった。検証SQLもUPDATE/DELETEのみを検査していた | High(監査の改ざん耐性) | `migrations/0008_audit_truncate_guard.sql`で`before truncate ... for each statement`トリガを追加(既存の`reject_audit_log_mutation()`を再利用、errcode 42501)。UPDATE/DELETEトリガも冪等に再作成し、`0006`中断時の回復経路とした(履歴migrationである0006自体は変更しない)。`db:verify`/`db:check`の期待値を3トリガへ更新し、TRUNCATE拒否も機械検証する |
+| `0006`は正規化のため追記専用トリガを一時dropし、`psql -1`(単一トランザクション)に原子性を依存していた | Medium | `0008`が終端で3トリガを冪等に再作成するため、後続の適用で必ず回復する。**残余**: 手動で0006だけを中断適用した場合の中間状態はトリガでは防げず、`db:check`の検知に依存する |
+| 所有者はDDL(`disable trigger`/`drop trigger`)を実行でき、トリガでは防げない | High(残余) | DB管理者が一度だけ実行する`scripts/sql/harden-audit-role.sql`を用意(`audit_logs`の所有権を専用ロールへ分離し、アプリ用ロールへSELECT/INSERTのみ付与)。`db:check`は所有者が接続ロールと同一の場合に警告する。**本番への適用はDB管理者の承認待ち** |
+
+### 21.2 検証Evidence(すべて実測)
+
+| 検証 | 結果 |
+| --- | --- |
+| トリガ | `audit_logs_no_update` / `audit_logs_no_delete` / `audit_logs_no_truncate` が3件とも`tgenabled='O'` |
+| 拒否(所有者ロール・かつスーパーユーザ) | `truncate` / `update` / `delete` のいずれも `audit_logs is append-only` で拒否 |
+| 権限分離後の拒否(非所有者・SELECT/INSERTのみ) | `truncate` / `update` / `delete` はいずれも `permission denied for table audit_logs` で拒否。`select`/`insert` は成功 |
+| 所有権分離スクリプト | 適用exit 0、所有者が専用ロールへ移動、app roleの権限は`INSERT,SELECT`のみ、**2回適用してもexit 0(冪等)** |
+| `db:verify`(3トリガ期待・TRUNCATE検査込み) | 適用済DBで`database verification ok`(2回適用で冪等) |
+| `db:check` | 両posture(所有者/非所有者)で成功。所有者=接続ロールのとき**警告**を出力 |
+| 権限分離後の運用帰結 | `db:verify`はアプリ用ロールで`must be owner of table audit_logs`により失敗(migration適用は所有者/管理者で行う必要がある) |
+| **検証SQLの誤判定を1件検出・修正** | 所有権分離後は権限が先に拒否するため、`verify-audit-append-only.sql`が「トリガによる拒否」だけを要求していると**正しい状態を『保護が無効』と誤判定**した。拒否理由を「トリガ」または「権限不足」のいずれでも成立するよう修正(成功した場合のみ失敗とする不変条件は維持) |
+
+- `npm run verify` 全成功: `lint`(0008を必須ファイルへ追加) / ESLint **0 errors** / `typecheck` / `a11y` / unit **413件(412 pass・0 fail・1 skip)** / `build` / E2E **78/78**
+- 検証用DB・ロールはすべて削除済み(残留0件)
+
+### 21.3 18項目への影響
+
+セキュリティ 86→**87**(監査の改ざん耐性をTRUNCATEまで拡張し、権限分離の手順と検知を追加)、データ品質 71→**72**(改ざん・消去の経路を縮小)、運用保守性 71→**72**(所有権分離のRunbookと`db:check`の警告)。他は据え置き。**総合 63.1 → 63.3**(1139/18)。**判定は依然PoC。**
+
+### 21.4 未実施・要承認
+
+- 本番DBへの**所有権分離の適用**(`scripts/sql/harden-audit-role.sql`)はDB管理者の承認が必要。適用後は`db:verify`をアプリ用ロールで実行できなくなるため、migration適用主体の見直しが伴う
+- `0006`の自己完結トランザクション化は、履歴migrationの変更を避け`0008`の再作成で代替した。手動適用時の中断状態は`db:check`の検知に依存する(残余リスクとして明記)
+
+## 22. 2026-09-18 追加ラウンド(CIの恒常的な赤信号の除去・文書同期・所見台帳の補完、第5ラウンド)
+
+第3ラウンドまでで**コードのみで解消できるCritical/Highは出し切った**ため、本ラウンドは「少人数のIT・DX部門が運用を回すうえで効く」領域(CIの信号品質、文書の正確性、所見の永続記録)を対象とした。
+
+### 22.1 修正
+
+| ID | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| P0-81 | `Deploy Preview`が**Dependabot起点のPRで常に失敗**していた。Dependabot起点のワークフローにはリポジトリのシークレットが渡らない(GitHubの仕様)ため`CLOUDFLARE_API_TOKEN`が空になり、`wrangler`がエラー終了する。必須チェックではないが**常に赤いジョブが1つあり、真の異常との判別を妨げる**(改善台帳P0-21と同種) | Medium(CI信号品質) | `Check Cloudflare credentials`ステップで資格情報の有無を判定し、無い実行では配信と検証をスキップして`notice`で理由を残すようにした。**実測**: PR #89/#90の`Deploy Preview`失敗ログが`CLOUDFLARE_API_TOKEN`空による`wrangler`エラーであることを確認 |
+
+### 22.2 文書の事実誤りを訂正(実装と突合)
+
+| 文書 | 誤 | 正(実測根拠) |
+| --- | --- | --- |
+| `README.md` | `db:verify`は`0001`〜`0006`を適用し**8テーブル**、監査トリガーは**UPDATE/DELETE**を検証 | `scripts/verify-database.sh`は`0001`〜**`0008`**を適用し**9テーブル**、トリガー**3件**(UPDATE/DELETE/**TRUNCATE**)を検証。読み取り専用の`db:check`(手動確認用。デプロイ手順は現時点で`db:verify`を実行)にも言及 |
+| `docs/testing.md` | 監査トリガーの検証はUPDATE/DELETE。**PostgreSQL 18**空DBでPASS | トリガー3件(TRUNCATE含む)。CIは**`postgres:16-alpine`**(本番もPostgreSQL 16) |
+
+### 22.3 所見台帳の補完(独立監査の未記録分8件)
+
+第2〜3ラウンドで修正した項目以外に、独立監査が指摘したまま台帳へ記録されていなかったものを**P0-82〜P0-88**として追加した(未着手・根拠・完了基準付き)。これにより、監査所見が会話ログではなくリポジトリ内の台帳から追跡可能になった。
+
+- **P0-82**(High): `content_hash`が内容由来でなく(layers/用紙/尺度/単位の変更や論理破損を検出できない)、復元署名が論理破損を検出できない
+- **P0-83**(High): migration版管理が無く`verify-database.sh`が`table_count == 9`固定のため、**テーブルを追加した時点で全デプロイが恒久失敗**する
+- **P0-84**(Medium-High): backup/restoreに「対象DB名」のアサーションが無く、env取り違えを検出できない
+- **P0-85**(High): 監視がGitHub Actionsの分数予算に100%依存し、超過時に監視・CI・Dependabotが同時に沈黙する。本番`18812`の常時監視unitが無く、全unitに`OnFailure=`も無い
+- **P0-86**(High): `rollback()`がDBを戻さず、`npm ci`が`node_modules`を先に消すためNW断で復旧不能になり得る。`curl`に`--max-time`が無い
+- **P0-87**(High): 本番ホスト構成(ロール/権限/cloudflared/env/backups)がコードで再現できず、新規ホスト復旧Runbookが無い。systemd unitの`WorkingDirectory`は別チェックアウトを指す
+- **P0-88**(Medium): SBOM/ライセンス検査/CODEOWNERS不在、ActionsがSHA固定されていない
+
+### 22.4 検証Evidence
+
+- `npm run verify` 全成功: `lint` / ESLint **0 errors** / `typecheck` / `a11y` / unit **413件(412 pass・0 fail・1 skip)** / `build` / E2E **78/78**
+- `.github/workflows/ci.yml` の構文検証と、`preview`ジョブの各ステップの`if`条件をYAMLパースで確認
+- 文書の訂正値は`scripts/verify-database.sh`(9テーブル・3トリガ)と`.github/workflows/ci.yml`(`postgres:16-alpine`)の実装から採取
+
+### 22.5 18項目への影響
+
+CI/CD・リリース 83→**84**(常時赤の除去)、運用保守性 72→**73**(誤警報の削減)、文書 81→**82**(実装との不一致2件を訂正し、監査所見8件を台帳へ補完)。他は据え置き。**総合 63.3 → 63.4**(1142/18)。**判定は依然PoC。**
+
+### 22.6 未実施(承認・判断待ち)
+
+P0-82〜P0-88の実装は、いずれもmigrationの版管理導入、保存済みハッシュの段階移行、デプロイ手順書の更新(ポリシーゲートで編集不可)、契約プランの確認、DB管理者作業を伴うため**人間の判断が必要**である。コードのみで完結する残項目は本ラウンドで尽きた。

@@ -110,4 +110,4 @@ API応答(`JSON_HEADERS`)は`src/api-handler.js`の`API_SECURITY_HEADERS`を単�
 
 Neon Preview/Productionへ`0004`を適用し、デモだけがpublicであることを確認しました(2026-08-27時点、Neon利用時代の記録)。2026-08-30の移行後は、ローカルPostgreSQL 16の本番DB(`mirai_web_cad`)へ全migrationを適用済みです。
 
-`0005`は`db:verify`の中で、トリガー2件の存在と、UPDATE/DELETEが`42501`で拒否されることを機械検証します。監査ログはDB権限保有者を含め改変・削除できません(物理的なリストアやテーブル再作成を除く)。
+`0005`(UPDATE/DELETE)と`0008`(TRUNCATE)は`db:verify`の中で、**トリガー3件**の存在と、UPDATE/DELETE/TRUNCATEが`42501`で拒否されることを機械検証します。拒否理由は「トリガ(`audit_logs is append-only`)」または「権限不足(`permission denied for table audit_logs`)」のいずれでも成立とします(所有権分離後は権限が先に拒否するため)。監査ログはDB権限保有者を含め改変・削除・切詰めできません。ただし所有者は`alter table ... disable trigger`を実行できるため、恒久的な保護には所有権分離が必要です(`scripts/sql/harden-audit-role.sql`)。
