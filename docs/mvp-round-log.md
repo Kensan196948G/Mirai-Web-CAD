@@ -470,3 +470,14 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 運用帰結 | 所有権分離後は`db:verify`をアプリ用ロールで実行できない(`must be owner of table audit_logs`)。migration適用は所有者ロールまたは管理者で行う |
 | 制約 | 本番DBへの所有権分離の適用はDB管理者の承認が必要。`0006`の自己完結トランザクション化は履歴migrationを避け0008の再作成で代替(手動中断時はdb:checkの検知に依存) |
 | 18項目 | セキュリティ86→87、データ品質71→72、運用保守性71→72。**総合63.1→63.3**。判定は依然PoC |
+
+## Round 19 / 2026-09-18 CIの恒常的な赤信号の除去・文書同期・所見台帳の補完
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | コードのみで解消できるCritical/Highを出し切った後の、運用に効く領域(CI信号品質・文書の正確性・所見の永続記録)を整える |
+| 実装 | `.github/workflows/ci.yml`の`preview`ジョブに`Check Cloudflare credentials`を追加し、資格情報が無い実行(Dependabot起点PR)では配信と検証をスキップしてnoticeで理由を残す。`README.md`と`docs/testing.md`の実装との不一致を訂正。改善台帳へP0-82〜P0-88(独立監査の未記録分)を追加 |
+| 検証 | `.github/workflows/ci.yml`のYAML妥当性と`preview`ジョブ各ステップの`if`条件をパースで確認。訂正値は`scripts/verify-database.sh`(9テーブル・3トリガ)と`ci.yml`(`postgres:16-alpine`)から採取。`npm run verify`全成功(ESLint 0 errors、unit 413件=412 pass/0 fail/1 skip、E2E 78/78) |
+| 根拠 | PR #89/#90の`Deploy Preview`失敗ログが`CLOUDFLARE_API_TOKEN`空による`wrangler`エラーであることを実測。Dependabot起点のワークフローにはシークレットが渡らないというGitHubの仕様による(P0-21と同種の「恒常的な赤が真の異常を覆い隠す」問題) |
+| 18項目 | CI/CD・リリース83→84、運用保守性72→73、文書81→82。**総合63.3→63.4**。判定は依然PoC |
+| 残課題 | P0-82〜P0-88の実装(いずれもmigration版管理・保存済みハッシュの段階移行・デプロイ手順書更新・契約プラン確認・DB管理者作業を伴うため人間の判断が必要) |
