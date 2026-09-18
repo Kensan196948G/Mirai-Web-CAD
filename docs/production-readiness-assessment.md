@@ -368,3 +368,21 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 4. 本番DBのテスト由来図面9件の扱い(削除は業務判断)。
 5. `_headers`が`/api`に適用されない件(CSP/HSTSのAPI応答への付与)。
 6. `AUTH_MODE=demo`のままで公開される自己ホストpreviewがある場合の5xx詳細漏洩(条件付き)。
+
+## 12. 2026-09-18 追加ラウンド(API入力境界の強化、PR #100)
+
+第11回に続き、`src/`の精査で検出した**実害のあるAPI入力境界の弱点**を修正した(PR #100、squash `c7c88f0`)。Criticalは該当なし、High 2件・Medium 3件。
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | 案件系3経路が本文検証より先に冪等キーを予約し、本文不備で400を返したリクエストがキーを消費。同じキーでの正しい再送が**恒久的に409**となり、案件作成・メンバー追加が操作不能 | High | 検証後に予約する順序へ変更(成功後の重複再送は409のまま) |
+| 2 | `/drawings/:id/transactions` にコマンド数上限が無く、`commands`が非配列だと500 | High | 上限500件、非配列400、超過413 |
+| 3 | `expected-version` を`Number()`で解釈し`1e0`/`0x1`/`1.0`が通る | Medium | `/^\d+$/`で10進整数のみ受理 |
+| 4 | 監査CSVの数式注入対策が先頭一致のみで、先頭空白つき`" =cmd\|..."`が素通り | Medium | 最初の有意文字で判定(`csvEscape`を単体テスト対象としてexport) |
+| 5 | 未使用レガシー`saveDrawing`が`project_id`をデモ案件に固定(将来の呼び出しで案件ACLが破綻) | Medium | 呼び出し側の`projectId`を優先 |
+
+検証: `tests/api-hardening.test.js`(新規10件)、`npm run verify:fast`(unit **343件中342 pass・1 skip**)、CI全ジョブ成功、Preview実測(`pr-100`で`/`=200、未認証`/api/health`=500かつ`internal error`、内部情報漏洩0件)、マージ後のmain CI/Production verify ともにsuccess。PostgreSQL統合テストのローカル実行はローカル認証方式(peer)の制約で不可のため、CIの`PostgreSQL Data Store Integration`で検証した。
+
+**18項目への影響**: セキュリティ 80→81、コード品質 69→71、テスト 84→85、運用保守性 68→69。他は据え置き。**総合 60.4 → 60.6**(1091/18)。判定は依然PoC。
+
+**未解決(据え置き)**: `appendAudit`の`on conflict (id) do nothing`(ID衝突時に監査行を黙って落とし得る)、`/transactions`の1コマンドあたりの配列長検証、レート制限がAI経路限定、監査ログの保持期間・削除手段の不在、`/api`応答へのCSP/HSTS付与。
