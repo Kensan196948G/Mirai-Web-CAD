@@ -481,6 +481,7 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 - `tests/api-hardening.test.js`に5件追加(未知opの400、非オブジェクトコマンドの400、op非文字列の400、`points`超過の413、SPAが送る13 opの正常適用)
 - `tests/http-bridge.test.js`に4件追加(既存ファイル解決、欠落ファイルはnull=404、拡張子無しパスはindex.html、上位ディレクトリへ抜けるパスは不解決)
 - **実行時検証**(`serve-local`を一時ポートで起動): `/`=200 html、`/index.html`=200 html、**`/missing.js`=404**、**`/missing.txt`=404**、`/deep/client/route`=200 html(フォールバック維持)、`/src/app.js`=200 js
+- **本番コードパスの実行時検証**(`serve-production.mjs`を本番`EnvironmentFile`相当の環境・別ポート24155で起動。DBは読み取りprobeのみ、終了後に停止): `/`=200 html+HSTS、**`/missing.js`=404**+HSTS、**`/missing.txt`=404**+HSTS、`/deep/client/route`=200 html+HSTS、`/api/health`=200 json+HSTS。**404/エラー応答にもHSTSが付くこと**を含めて確認
 - **Preview実測の限界**: `pr-105.mirai-web-cad.pages.dev`では`/missing.js`が**依然200(text/html)**である。これはCloudflare Pages側のSPAフォールバック(404.htmlが無い場合に未一致パスを`/index.html`へ返す挙動)であり、本修正が対象とするのは**自ホストの本番サーバー(`serve-production.mjs`、実際の本番ドメイン)**である。Pages経路はCloudflare側の設定であり、本ラウンドの修正対象外(下記16.4)。
 - `npm run verify:fast`: unit **366件中365 pass・1 skip**、ESLint 0 errors、lint/typecheck/a11y/build 成功／E2E **74/74**
 - CI全ジョブ、Preview実測、マージ後main CI/Production verify
@@ -494,3 +495,53 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 - MVPドメインはCloudflare Accessで保護されているため、**欠落アセットの404を外形監視へ組み込むにはAccess経由の監視設計が必要**(現状の`check-mvp-health.sh`は`/`の302を検査している)。
 - **Cloudflare Pages側のSPAフォールバックは未解消**。`pr-105.mirai-web-cad.pages.dev`の実測で`/missing.js`=200(text/html)。Pagesは404.htmlが無い場合に未一致パスを`/index.html`へ返すため、404を返させるには`404.html`の追加等が必要だが、それは`/deep/client/route`のようなSPA側のパスも404にしてしまう。ローカル常駐サーバー(実際の本番ドメイン)は本ラウンドで404化済みであり、Pagesは「参考・ロールバック用」の位置づけであるため、対応は方針判断とする。
 - 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限。
+
+## 17. 2026-09-18 追加ラウンド(独立レビュー2件とその反映、PR #106)
+
+ディレクティブが推奨する「Independent Review」として、**実装者とは別のコンテキスト**で専門SubAgentを2件起動し、7本のPRを経た`main`を対象に、私とは異なる仮説でレビューさせた。結論を鵜呑みにせず、**指摘ごとに実コードで再検証**した(反証した項目もある)。
+
+### 17.1 検証して修正したもの
+
+| # | 事象 | 重大度 | 出所 | 修正 |
+| --- | --- | --- | --- | --- |
+| 1 | `POST /drawings/:id/transactions` は保存前に検証せず、`applyTransaction`は`command.entity`を無検証でpushする。`points`の無い`line`を保存でき、その後の承認で`validateDrawing`が**TypeError→500**となり、図面が削除以外で復旧不能になっていた | **High(誤判定/業務停止)** | 業務ロジックレビュー | (a)`boundsFromPoints`/`entityBounds`を防御的にし例外を排除、(b)更新で**新たに生じた**構造不正(`invalid-geometry`/`critical`)を保存前に400で拒否、(c)`approveDrawing`の承認阻止条件に`invalid-geometry`を追加 |
+| 2 | `probe()`がmigration**0007**(`projects.access_scope`/`project_members`)を検証せず「migrated=true」を返す。かつ`requireProjectAccess`が`accessScope !== "restricted"`で**fail-open**だったため、0007未適用時に案件アクセス制御が無効なまま健全と報告され得た | **High(権限)** | 業務ロジックレビュー | probeに0007の検証を追加し`migration`ラベルを更新。`requireProjectAccess`を**fail-closed**(案件が取得できない/`open`以外はメンバー要求)へ変更 |
+| 3 | 業務処理が失敗した場合に冪等キーの予約が残り、**同じキーでの正しい再送が恒久的に409**になっていた(案件作成・accessScope更新・メンバー追加) | High(業務操作) | 業務ロジックレビュー | `releaseIdempotency`を両ストアへ追加し、業務処理の失敗時に解放。成功後の二重実行は409のまま |
+| 4 | `saveDrawing`にtry/catchが無く、**容量超過やプライベートモードで例外が伝播**して`log`/`render`に到達しない=「画面には反映されたが何も保存されていない」無言のデータ喪失 | **Critical(データ損失)** | フロントレビュー | `saveDrawing`が`{ok, reason}`を返す契約へ変更し、`persist`は失敗を必ず画面へ出して`render`まで到達。`saveUserSettings`も同様。**失敗経路の単体テストを追加** |
+| 5 | 描画に例外境界が無く、壊れた図形1件で`render`全体が失敗し続け**サイトデータ削除まで復旧不能** | High(可用性) | フロントレビュー | `drawCanvas`をtry/catchで隔離し、失敗を画面に出してUIを稼働継続 |
+| 6 | ダウンロード処理がanchorをDOMへ接続せず**同期revoke**しており、Firefox/WebKitで書出しが失敗し得た | Low(データ保全) | フロントレビュー | anchorを接続してclickし、revokeを次のタスクへ遅延 |
+| 7 | `Permissions-Policy`が`_headers`(`usb=()`あり)とAPI側(なし)で**ドリフト**。ドリフト防止テストがCSP/HSTSしか比較していなかった | Low | フロントレビュー | 値を一致させ、**共通ヘッダ全項目の一致テスト**へ拡張 |
+| 8 | READMEのE2Eバッジが`68/68`(実際は74/74)、`docs/mvp-traceability.md`が「DXF書出し=未実装」「ARCはポリライン変換」等で陳腐化 | Low(文書) | 私の検証 | 実装に合わせて更新(ネイティブARC/ELLIPSE/SPLINE、DXF書出し限定対応、ネイティブBLOCK、案件ACL、AIハイブリッドを反映) |
+
+### 17.2 独立レビューの指摘のうち**反証した**もの
+
+- 「`afterHash`が`resolveBlocks`/`resolveDimensions`の**前**に計算される」→ 実コードでは解決処理の**後**(`cad-core.js:353-359`→`368`)。**誤り**。
+- 「`AUTH_MODE`未設定のPagesがdemo認証で権限昇格可能」(第1回レビュー)→ 実測で`cf-access-jwt-assertion: bogus`が401を返し**accessモードと確定**。ただし「未設定時のフォールバックが危険」という設計指摘は妥当なため、PR #99でfail-closed化済み。
+- 「systemd unitの`WorkingDirectory`が誤り」→ リポジトリ内の全unitが同じ旧パスを指しており、それが本番ホストのチェックアウト。**誤り**(真の問題は本番mainの分岐=P0-58)。
+
+### 17.3 検証Evidence
+
+- `tests/geometry-integrity.test.js`(新規6件)、`tests/api-hardening.test.js`(+7件)、`tests/storage.test.js`(+4件)
+- `npm run verify:fast`: unit **379件中378 pass・1 skip**、ESLint **0 errors/21 warnings**、lint/typecheck/a11y/build 成功／E2E **74/74**
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 17.4 18項目への影響
+
+データ品質 65→67、セキュリティ 83→85、可用性・バックアップ 57→58、監視・障害対応 67→68、コード品質 74→75、テスト 86→87、文書 80→81。他は据え置き。**総合 61.3 → 61.8**(1112/18)。判定は依然PoC。
+
+### 17.5 未解決(独立レビューが指摘し、本ラウンドでは**実施しなかった**もの)
+
+優先順はレビュアーの推奨に従う。いずれも**別イニシアチブ相当の規模**または**業務判断**を要する。
+
+1. **複数タブ同時編集の保護が皆無**(`storage`イベント/BroadcastChannel/ロックが0件)。オフラインでは後勝ちで作業が消える。→ 検知・警告・マージ方針の設計が必要
+2. **`checkApiHealth`が未保存のローカル編集を無警告で破棄**(revision比較・in-flightガードなし) → 確認ダイアログと世代トークンが必要
+3. **`render()`が全DOMを`innerHTML`で再構築**するため`aria-live`が毎回破棄され、エラーが支援技術に伝わらない。ほぼ全操作後にフォーカスがCanvasへ飛ぶ(WCAG 2.4.3/4.1.3) → DOM再構築の設計変更が必要
+4. **Canvas内容の代替が皆無・キーボードで作図できない**(公共調達のアクセシビリティ要件で致命的)
+5. **平文LocalStorageに生DXF原本(≤700KB)と実名メール(PII)が入り、TTL・削除導線がない** → 保存方針の決定(最小化・暗号化・削除導線)が必要
+6. **`content_hash`が`entities`のみを対象とする32bitハッシュ**で、レイヤ・用紙・尺度・単位の変更が現れない → 改ざん検知に使うなら強ハッシュへの置換と対象拡張が必要(保存済みハッシュとの互換に関わるため段階移行が要る)
+7. **`migrations/0006`が監査不変性トリガを一時的にdropしてUPDATEする** → 0005の保護を落とさない正規化手順への見直し
+8. **AI提案のrunと監査が非原子**(`saveAgentRun`の後に別INSERT)
+9. **レイヤロックの迂回**(`delete_layer`/`update_layer`がロック中レイヤでも通る)、`update_layout`の数値上限なし、用紙境界がA3横mm固定(単位・用紙サイズを参照していない)
+10. **職務分離の欠如**(提出者と承認者の同一性を検査しない。cad_adminは提出と承認を1人で行える)
+11. テストの実効性: axeは`violations`のみで`incomplete`を無視、`app.js`(3046行)のユニットテストが存在しない、E2Eは共有`dwg_demo_001`を`fullyParallel`で触る(「74件」は37ケース×2プロジェクト)
+12. 本番配信物が`sourcemap: true`・minify無しでソース全公開

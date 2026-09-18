@@ -484,7 +484,15 @@ function render() {
   /** @type {HTMLElement} */ (document.querySelector(".workspace")).style.setProperty("--dock-width", `${state.settings.dockWidth}px`);
   if (state.space === "layout") applyLayoutGeometry(activeLayoutDrawing(drawing));
   bindEvents();
-  drawCanvas();
+  try {
+    drawCanvas();
+  } catch (error) {
+    // 1件の壊れた図形でCanvas描画が例外を投げると、render全体が失敗して以後
+    // すべての操作が例外になる(サイトデータを消すまで復旧不能)。描画だけを隔離し、
+    // 失敗は画面に出してUIを稼働させ続ける。
+    console.error("drawCanvas failed", error);
+    state.canvasError = error instanceof Error ? error.message : String(error);
+  }
 }
 
 function icon(name, size = 14) {
@@ -2711,8 +2719,15 @@ function updateCoordReadout(world) {
 }
 
 function persist(message) {
-  saveDrawing(state.drawing);
-  log(message);
+  const result = saveDrawing(state.drawing);
+  if (result.ok) {
+    log(message);
+  } else {
+    // 保存できなかったことを必ず利用者へ伝える。以前は例外で log/render に到達せず、
+    // 「画面には反映されたが何も保存されていない」無言のデータ喪失になっていた。
+    state.saveStatus = "failed";
+    log(`${message}(ただしローカル保存に失敗: ${result.reason})`);
+  }
   render();
 }
 
@@ -2726,8 +2741,7 @@ async function checkApiHealth() {
     const selectedRole = roleLocked ? body.auth.role : state.drawing.currentRole;
     if (drawingBody.drawing.id !== state.drawing.id) state.layoutDraft = null;
     state.drawing = { ...drawingBody.drawing, currentRole: selectedRole };
-    state.saveStatus = "synced";
-    saveDrawing(state.drawing);
+    state.saveStatus = saveDrawing(state.drawing).ok ? "synced" : "failed";
     state.apiStatus = {
       state: "ok",
       message: `${body.service} / ${body.auth.anonymous ? "公開閲覧" : `auth=${body.auth.mode}`} / db=${body.db.mode} / 同期済み`,
@@ -3025,7 +3039,15 @@ function loadUserSettings() {
 }
 
 function saveUserSettings() {
-  localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(state.settings));
+  // 設定の保存に失敗しても操作を止めない(容量超過等)。失敗は画面に出し、
+  // renderまで到達させる(以前は例外で以降の処理が走らなかった)。
+  try {
+    localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(state.settings));
+    return { ok: true };
+  } catch {
+    state.settingsSaveError = true;
+    return { ok: false };
+  }
 }
 
 function applyTheme(theme) {

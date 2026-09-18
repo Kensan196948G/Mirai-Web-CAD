@@ -34,7 +34,7 @@ export const API_SECURITY_HEADERS = {
   "strict-transport-security": STRICT_TRANSPORT_SECURITY,
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
-  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
   "x-frame-options": "DENY"
 };
 
@@ -183,6 +183,13 @@ export async function handleApiRequest(request, env = {}) {
         commands
       });
       if (!result.ok) return json({ ok: false, error: result.error }, 409, cors);
+      // 構造不正(invalid-geometry/critical)は「今回の更新で新たに生じたもの」を保存前に拒否する。
+      // applyTransactionはcommand.entityを無検証でpushするためpointsの無いline等を保存でき、
+      // その後の承認(validateDrawing)が例外→500となり、図面が削除以外で復旧不能になっていた。
+      const introduced = findIntroducedGeometryIssues(drawing, result.drawing);
+      if (introduced.length > 0) {
+        return json({ ok: false, error: `図形が不正なため保存できません: ${introduced[0].message}`, issues: introduced }, 400, cors);
+      }
       await saveMutationAtomically(store, result.drawing, actor.actor, "drawing.transaction", drawing.id, { label: body.label }, idempotencyKey, route);
       return json({ ok: true, drawing: result.drawing, warnings: result.warnings }, 200, cors);
     }
@@ -372,12 +379,17 @@ export async function handleApiRequest(request, env = {}) {
       if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
         throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
-      const id = typeof body.id === "string" && /^prj_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `prj_${cryptoSafeId()}`;
-      const accessScope = body.accessScope === "restricted" ? "restricted" : "open";
-      const project = await store.createProject({ id, name: body.name.trim().slice(0, 100), owner: actor.actor.id, accessScope });
-      if (!project) throw httpError(`案件IDは既に使用されています: ${id}`, 409);
-      await audit(store, actor.actor, "project.created", "project", project.id, { name: project.name, accessScope });
-      return json({ ok: true, project }, 201, cors);
+      try {
+        const id = typeof body.id === "string" && /^prj_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `prj_${cryptoSafeId()}`;
+        const accessScope = body.accessScope === "restricted" ? "restricted" : "open";
+        const project = await store.createProject({ id, name: body.name.trim().slice(0, 100), owner: actor.actor.id, accessScope });
+        if (!project) throw httpError(`案件IDは既に使用されています: ${id}`, 409);
+        await audit(store, actor.actor, "project.created", "project", project.id, { name: project.name, accessScope });
+        return json({ ok: true, project }, 201, cors);
+      } catch (error) {
+        await releaseIdempotencyQuietly(store, idempotencyKey);
+        throw error;
+      }
     }
 
     const projectMatch = route.match(/^\/projects\/([^/]+)$/);
@@ -399,10 +411,15 @@ export async function handleApiRequest(request, env = {}) {
       if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
         throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
-      const project = await store.updateProjectAccessScope(projectMatch[1], body.accessScope);
-      if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
-      await audit(store, actor.actor, "project.updated", "project", project.id, { accessScope: project.accessScope });
-      return json({ ok: true, project }, 200, cors);
+      try {
+        const project = await store.updateProjectAccessScope(projectMatch[1], body.accessScope);
+        if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
+        await audit(store, actor.actor, "project.updated", "project", project.id, { accessScope: project.accessScope });
+        return json({ ok: true, project }, 200, cors);
+      } catch (error) {
+        await releaseIdempotencyQuietly(store, idempotencyKey);
+        throw error;
+      }
     }
 
     const projectMembersMatch = route.match(/^\/projects\/([^/]+)\/members$/);
@@ -417,12 +434,17 @@ export async function handleApiRequest(request, env = {}) {
       if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
         throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
       }
-      const project = await store.getProject(projectMembersMatch[1]);
-      if (!project) throw httpError(`案件が見つかりません: ${projectMembersMatch[1]}`, 404);
-      await store.addProjectMember(projectMembersMatch[1], body.member, actor.actor.id);
-      await audit(store, actor.actor, "project.member.added", "project", projectMembersMatch[1], { member: body.member.toLowerCase() });
-      const members = await store.listProjectMembers(projectMembersMatch[1]);
-      return json({ ok: true, members }, 201, cors);
+      try {
+        const project = await store.getProject(projectMembersMatch[1]);
+        if (!project) throw httpError(`案件が見つかりません: ${projectMembersMatch[1]}`, 404);
+        await store.addProjectMember(projectMembersMatch[1], body.member, actor.actor.id);
+        await audit(store, actor.actor, "project.member.added", "project", projectMembersMatch[1], { member: body.member.toLowerCase() });
+        const members = await store.listProjectMembers(projectMembersMatch[1]);
+        return json({ ok: true, members }, 201, cors);
+      } catch (error) {
+        await releaseIdempotencyQuietly(store, idempotencyKey);
+        throw error;
+      }
     }
 
     const projectMemberMatch = route.match(/^\/projects\/([^/]+)\/members\/([^/]+)$/);
@@ -618,10 +640,17 @@ function requireCadAdmin(actor) {
 // 全案件へアクセス可能(運用担当が少人数のため管理者ロールを唯一のオーバーライドとする)。
 // restrictedな案件はproject_membersに登録された利用者のみ許可し、非会員には図面が
 // 存在しない場合と同一の404を返して案件・図面IDの存在自体を推測されないようにする。
+// 案件(project)単位のアクセス制御。fail-closedで判定する:
+//  - 案件が取得できない場合は拒否(404)。「判定できないので通す」経路を作らない。
+//  - accessScopeが"open"のときだけ無条件で許可し、それ以外(restricted・未知の値・未設定)は
+//    メンバー登録を要求する。以前は `accessScope !== "restricted"` で許可していたため、
+//    migration 0007未適用などでaccessScopeが取得できない場合に全ロールへ開放され得た。
+// cad_adminは常に全案件へアクセス可能(運用担当が少人数のため管理者ロールを唯一のオーバーライドとする)。
 async function requireProjectAccess(store, actor, projectId) {
   if (actor.role === "cad_admin") return;
   const project = await store.getProject(projectId);
-  if (!project || project.accessScope !== "restricted") return;
+  if (!project) throw httpError("この案件への権限がありません。", 404);
+  if (project.accessScope === "open") return;
   const isMember = await store.isProjectMember(projectId, actor.id);
   if (!isMember) throw httpError("この案件への権限がありません。", 404);
 }
@@ -711,9 +740,33 @@ function requireTransactionCommands(body) {
   return commands;
 }
 
+// 図形の構造不正(critical または invalid-geometry)のうち、更新前には無かったものを返す。
+// 既存の不整合(修正前に保存された不正図形)は対象外とし、今回の更新で新たに生じたものだけを
+// 拒否する(正常に使えている図面の編集を止めないため)。
+function findIntroducedGeometryIssues(before, after) {
+  const key = (issue) => `${issue.code}:${issue.entityId ?? ""}`;
+  const existing = new Set(validateDrawing(before).filter(isStructuralIssue).map(key));
+  return validateDrawing(after).filter(isStructuralIssue).filter((issue) => !existing.has(key(issue)));
+}
+
+function isStructuralIssue(issue) {
+  return issue.severity === "critical" || issue.code === "invalid-geometry";
+}
+
 async function rejectClaimedIdempotency(store, key) {
   if (await store.hasIdempotency(key)) {
     throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
+  }
+}
+
+// 冪等キーの予約を取り消す。業務処理が失敗した場合に呼び、同じキーでの正しい再送を可能にする。
+// 予約を残したままだと、ID衝突や一時障害のあと「一度失敗した操作を二度と再試行できない」状態になる。
+// 解放に失敗しても元のエラーを優先する(予約が残るリスクはログで追跡できる)。
+async function releaseIdempotencyQuietly(store, key) {
+  try {
+    if (typeof store.releaseIdempotency === "function") await store.releaseIdempotency(key);
+  } catch {
+    // 元のエラーを優先する
   }
 }
 

@@ -67,7 +67,7 @@ class MemoryDataStore {
   }
 
   async probe() {
-    return { provider: "memory", mode: "memory-preview", migration: "0006_normalize_jsonb_columns.sql" };
+    return { provider: "memory", mode: "memory-preview", migration: "0007_project_membership.sql" };
   }
 
   async getDrawing(id) {
@@ -194,6 +194,10 @@ class MemoryDataStore {
     return true;
   }
 
+  async releaseIdempotency(key) {
+    memory.idempotencyKeys.delete(key);
+  }
+
   async hasIdempotency(key) {
     return memory.idempotencyKeys.has(key);
   }
@@ -225,6 +229,12 @@ class PostgresDataStore {
              ) and exists (
                select 1 from information_schema.triggers
                where event_object_table = 'audit_logs' and trigger_name = 'audit_logs_no_delete'
+             ) and exists (
+               select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = 'projects' and column_name = 'access_scope'
+             ) and exists (
+               select 1 from information_schema.tables
+               where table_schema = 'public' and table_name = 'project_members'
              ) and not exists (
                select 1 from drawing_versions where jsonb_typeof(content) = 'string'
              ) and not exists (
@@ -240,7 +250,7 @@ class PostgresDataStore {
       mode: "connected",
       database: rows[0].database,
       migrated: rows[0].migrated,
-      migration: "0006_normalize_jsonb_columns.sql"
+      migration: "0007_project_membership.sql"
     };
   }
 
@@ -608,6 +618,14 @@ class PostgresDataStore {
       returning key
     `;
     return rows.length === 1;
+  }
+
+  // 予約した冪等キーを取り消す。処理が失敗した場合に呼び、同じキーでの正しい再送を
+  // 可能にする(予約を残したままだと恒久的に409になる)。
+  async releaseIdempotency(key) {
+    await this.sql`
+      delete from idempotency_keys where key = ${key}
+    `;
   }
 
   async hasIdempotency(key) {
