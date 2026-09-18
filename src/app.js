@@ -379,7 +379,7 @@ function render() {
         </div>
       </div>
       <div class="topbar-actions">
-        <div class="drawing-meta" aria-label="図面状態">
+        <div class="drawing-meta" role="group" aria-label="図面状態">
           <strong>${escapeHtml(drawing.name)}</strong>
           <span>Version ${escapeHtml(drawing.version)}</span>
           <span>${escapeHtml(stateLabel(drawing.state))}</span>
@@ -416,7 +416,7 @@ function render() {
           `<button type="button" data-ribbon-tab="${key}" class="ribbon-tab ${state.ribbonTab === key ? "active" : ""}" aria-pressed="${state.ribbonTab === key}">${escapeHtml(label)}</button>`
       ).join("")}
     </nav>
-    <div class="ribbon" aria-label="リボン">
+    <div class="ribbon" role="toolbar" aria-label="リボン">
       ${(RIBBON[state.ribbonTab] ?? [])
         .map(
           (group) => `
@@ -464,7 +464,7 @@ function render() {
     </main>
 
     <footer class="command-line ${commandLogClass}" aria-label="コマンドライン">
-      <div class="command-history" aria-label="コマンドログ" aria-live="polite" tabindex="0">
+      <div class="command-history" role="log" aria-label="コマンドログ" aria-live="polite" tabindex="0">
         ${state.commandLog
           .slice(-state.settings.commandLogLines)
           .map((lineValue) => `<div>${escapeHtml(lineValue)}</div>`)
@@ -493,6 +493,20 @@ function render() {
     console.error("drawCanvas failed", error);
     state.canvasError = error instanceof Error ? error.message : String(error);
   }
+  announceLatestCommand();
+}
+
+// 最新のコマンドログをスクリーンリーダー向け領域へ流す。ログはこのアプリ唯一の
+// エラー通知経路(権限拒否・Import失敗・保存失敗など)だが、コマンドログ自体は
+// renderのたびに作り直されるため、中の要素に aria-live を付けても読み上げられない。
+// #sr-announcer は #app の外にあり作り直されないので、ここへ同じ文言を流す。
+let lastAnnouncedCommand = null;
+function announceLatestCommand() {
+  const latest = state.commandLog.at(-1) ?? "";
+  if (latest === lastAnnouncedCommand) return;
+  lastAnnouncedCommand = latest;
+  const announcer = document.getElementById("sr-announcer");
+  if (announcer) announcer.textContent = latest;
 }
 
 function icon(name, size = 14) {
@@ -633,7 +647,7 @@ function applyLayoutGeometry(drawing) {
 
 function statusBarHtml(drawing) {
   return `
-    <div class="status-bar" aria-label="ステータスバー">
+    <div class="status-bar" role="group" aria-label="ステータスバー">
       <span id="coordReadout" class="coord">0.0, 0.0</span>
       <div class="divider"></div>
       <div class="status-toggles" role="group" aria-label="作図補助トグル">
