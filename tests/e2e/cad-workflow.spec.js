@@ -117,6 +117,20 @@ test("状態表示、権限拒否、Keyboard操作を確認できる", async ({ 
   await expect(page.getByLabel("コマンドログ")).toContainText("取消");
 });
 
+test("エラー通知はスクリーンリーダー向けのlive regionにも流れる", async ({ page }) => {
+  // コマンドログは render のたびに #app の中で作り直されるため、その中の
+  // aria-live は読み上げられない。#app の外にある #sr-announcer に同じ文言が
+  // 入ることを確認する(エラーが支援技術へ届く唯一の経路)。
+  const announcer = page.locator("#sr-announcer");
+  await expect(announcer).toHaveAttribute("aria-live", "polite");
+
+  await page.getByLabel("権限を切替").selectOption("viewer");
+  await openDock(page, "レイヤー");
+  await page.locator("[data-layer-visible]").first().click();
+  await expect(page.getByLabel("コマンドログ")).toContainText("図面を変更できません");
+  await expect(announcer).toContainText("図面を変更できません");
+});
+
 test("新規図面、コマンドライン、JSON Importを連続操作できる", async ({ page }) => {
   await page.getByRole("button", { name: "新規図面" }).click();
   await expect(page.getByRole("dialog", { name: "新規図面" })).toBeVisible();

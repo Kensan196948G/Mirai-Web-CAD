@@ -1,9 +1,9 @@
-import { circle, entityBounds, line, polyline, rect, text } from "./cad-core.js";
+import { MODEL_EXTENT, circle, entityBounds, line, polyline, rect, text } from "./cad-core.js";
 
 export const MAX_LLM_COMMANDS = 20;
 export const MAX_PROMPT_CHARS = 2000;
 
-const PAPER_BOUNDS = { minX: 0, minY: 0, maxX: 12000, maxY: 7000 };
+const PAPER_BOUNDS = MODEL_EXTENT;
 const ALLOWED_ADD_TYPES = new Set(["line", "rect", "circle", "polyline", "text"]);
 const ALLOWED_OPS = new Set(["add", "update", "delete", "add_layer", "update_layer", "update_layout", "update_drawing_meta"]);
 
