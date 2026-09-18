@@ -55,16 +55,25 @@ trigger_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
   select count(*) from pg_trigger
   where tgrelid = 'audit_logs'::regclass and not tgisinternal and tgname like 'audit_logs_no_%'
 ")"
-if [[ "$trigger_count" != "2" ]]; then
-  echo "database state check failed: 監査ログの追記専用トリガが2件ではありません(found=${trigger_count})。" >&2
-  echo "  → 'DATABASE_URL=... npm run db:verify' でmigration 0005/0006を適用してください。" >&2
+if [[ "$trigger_count" != "3" ]]; then
+  echo "database state check failed: 監査ログの追記専用トリガが3件ではありません(found=${trigger_count}, expected=3)。" >&2
+  echo "  → 'DATABASE_URL=... npm run db:verify' でmigration 0005/0006/0008を適用してください。" >&2
   exit 1
 fi
 
-# UPDATE/DELETEの拒否をerrcode 42501とメッセージ本文まで確認する(検査はROLLBACK)。
+# UPDATE/DELETE/TRUNCATEの拒否をerrcode 42501とメッセージ本文まで確認する(検査はROLLBACK)。
 if ! psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/verify-audit-append-only.sql >/dev/null; then
   echo "database state check failed: 監査ログの追記専用保護が機能していません。" >&2
   exit 1
+fi
+
+# 残余リスクの可視化(失敗ではない): 接続ロールがaudit_logsの所有者だと、
+# トリガでは防げないDDL(`alter table ... disable trigger` / `drop trigger`)を実行できる。
+# 所有権分離は環境固有の運用操作のため、ここでは警告に留める。
+audit_owner="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select pg_get_userbyid(relowner) from pg_class where oid = 'audit_logs'::regclass")"
+current_role="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select current_user")"
+if [[ "$audit_owner" == "$current_role" ]]; then
+  echo "警告: audit_logsの所有者が接続ロール(${current_role})と同一です。TRIGGERはUPDATE/DELETE/TRUNCATEを拒否しますが、DDL(disable trigger/drop trigger)は防げません。scripts/sql/harden-audit-role.sql による所有権分離を検討してください。" >&2
 fi
 
 # migration 0006 が正規化したはずのJSONB string scalarが残っていないこと(読取りのみ)。
