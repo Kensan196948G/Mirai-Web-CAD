@@ -42,7 +42,12 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
   const definitionIds = new Map(sourceDefinitions.map((source, index) => [source.recordId, definitions[index].id]));
   const references = new Map(view.references.map((reference) => [reference.recordId, reference]));
   function checkPlanar(record) {
-    for (const code of [30, 31, 38, 39, 210, 220]) if (Number(dxfGroup(record, code, 0)) !== 0) throw new Error(`${record.type}: 3D/OCS/厚さは未対応です。`);
+    // HATCHのgroup 30は図形のZ座標ではなく「elevation point(OCS標高点)のZ」で、2D平面の
+    // 標高を表す正規の値であり、elevationとして取込・保持する(3D非対応の判定対象外)。
+    // これを一律0と要求すると、INSERTを含むDXFではelevation付きHATCHが「3D/OCS/厚さは
+    // 未対応」で取込全体を中止する一方、INSERTが無ければ同じHATCHを正常に取り込めていた。
+    const planarityCodes = record.type === "HATCH" ? [31, 38, 39, 210, 220] : [30, 31, 38, 39, 210, 220];
+    for (const code of planarityCodes) if (Number(dxfGroup(record, code, 0)) !== 0) throw new Error(`${record.type}: 3D/OCS/厚さは未対応です。`);
     if (Number(dxfGroup(record, 230, 1)) !== 1) throw new Error(`${record.type}: OCSは未対応です。`);
   }
   function attribute(source) {

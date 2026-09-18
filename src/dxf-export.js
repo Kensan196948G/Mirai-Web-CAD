@@ -363,8 +363,14 @@ function encodeDimension(entity, base, skipped) {
     "70", String(type), "71", String(entity.attachmentPoint ?? 5), "1", dxfText(entity.textOverride ?? "<>"), "3", dxfText(entity.dimensionStyleName ?? "STANDARD")];
   const definitions = entity.definitionPoints ?? {};
   if (kind === "angular") {
+    // angular寸法はDXF上、2本の角度線をgroup code 13/14と15/16の4点で表す
+    // (AcDb2LineAngularDimension)。definitionPointsが欠けている場合、points(2点)からは
+    // 2本目の角度線を復元できないため、13/14の複製を作ると0度の縮退した寸法を出力して
+    // しまう。黙って壊れた図形を書出さず、理由付きでスキップする(未対応entity非破棄
+    // ポリシーの書出し側適用)。
+    if (![13, 14, 15, 16].every((code) => finitePoint(definitions[String(code)]))) return skipEntity(entity, skipped, "角度寸法の角度線定義点(13/14/15/16)が不足しています");
     groups.push("100", "AcDb2LineAngularDimension");
-    for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)] ?? entity.points[(code + 1) % 2], code));
+    for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)], code));
   } else if (["radius", "diameter"].includes(kind)) {
     groups.push("100", kind === "radius" ? "AcDbRadialDimension" : "AcDbDiametricDimension", ...point(entity.points[1], 15));
   } else {
@@ -423,9 +429,17 @@ function encodeViewport(entity, base, skipped, limitedRegeneration = false) {
   const center = finitePoint(entity.center);
   if (!center || !Number.isFinite(entity.width) || entity.width <= 0 || !Number.isFinite(entity.height) || entity.height <= 0) return skipEntity(entity, skipped, "VIEWPORTの位置または寸法が不正です");
   const groups = ["0", "VIEWPORT", ...base, "67", "1", "410", dxfText(entity.layoutName ?? "Layout1"), ...point(center, 10), "40", num(entity.width), "41", num(entity.height),
-    "68", String(entity.status ?? 1), "69", String(entity.viewportId ?? 1), ...point(entity.viewCenter ?? { x: 0, y: 0 }, 12), ...point(entity.viewTarget ?? { x: 0, y: 0 }, 17),
+    "68", String(entity.status ?? 1), "69", String(entity.viewportId ?? 1), ...point(entity.viewCenter ?? { x: 0, y: 0 }, 12)];
+  // snapBase(13)/snapSpacing(14)/gridSpacing(15)はモデル空間側(DCS)のスナップ設定。
+  // パーサは原本に存在する場合だけ保持するため、未指定なら出力もしない(存在しない設定を
+  // 0で作らない)。これらを落とすと、原本アーカイブが無い図面や限定再生成へフォールバック
+  // した図面でスナップ設定が往復のたびに消える(実測で確認済み)。
+  if (finitePoint(entity.snapBase)) groups.push(...point(entity.snapBase, 13));
+  if (finitePoint(entity.snapSpacing)) groups.push(...point(entity.snapSpacing, 14));
+  if (finitePoint(entity.gridSpacing)) groups.push(...point(entity.gridSpacing, 15));
+  groups.push(...point(entity.viewTarget ?? { x: 0, y: 0 }, 17),
     "16", num(entity.viewDirection?.x ?? 0), "26", num(entity.viewDirection?.y ?? 0), "36", num(entity.viewDirection?.z ?? 1), "42", num(entity.lensLength ?? 50), "43", num(entity.frontClip ?? 0), "44", num(entity.rearClip ?? 0),
-    "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384)];
+    "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384));
   // 限定再生成では原本のLAYERテーブルのハンドルが新しい文書と一致する保証がないため、
   // frozenLayerHandles(331参照)は出力しない(entityArea等と異なりgroup 331自体を省略する)。
   if (!limitedRegeneration) for (const handle of entity.frozenLayerHandles ?? []) groups.push("331", String(handle));

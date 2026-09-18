@@ -119,7 +119,10 @@ export function exportDxfFromSource(drawing, encodeEntity, encodeDefinition) {
     return true;
   };
   const hatchCoordinateGroups = (entity) => {
-    const result = { 10: [entity.elevation?.x ?? 0], 20: [entity.elevation?.y ?? 0], 11: [], 21: [], 40: [], 42: [], 50: [], 51: [], 73: [] };
+    // group 30はHATCHのelevation point(OCS標高点)のZで、レコード内でこの1箇所にのみ現れる。
+    // x/y(group 10/20)は仕様上つねに0なので、Zだけが標高として変化し得る。30を比較・書出しの
+    // 対象から外すと、SCALE等で標高が変わっても原本の値が残り、往復で黙って失われる。
+    const result = { 10: [entity.elevation?.x ?? 0], 20: [entity.elevation?.y ?? 0], 30: [entity.elevation?.z ?? 0], 11: [], 21: [], 40: [], 42: [], 50: [], 51: [], 73: [] };
     for (const boundary of entity.boundaries ?? []) {
       if (boundary.type === "polyline") {
         result[73].push(boundary.closed === false ? 0 : 1);

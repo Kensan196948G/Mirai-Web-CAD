@@ -43,9 +43,12 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = transform(next[key]);
   }
-  // HATCHのelevationはx/y(常に0)とZ標高を持つ。x/yは他の点と同様に変換するが、
-  // Zは平面内の平行移動・回転の影響を受けない値なので倍率だけを適用して保持する。
-  if (next.elevation) next.elevation = { ...transform(next.elevation), z: (next.elevation.z ?? 0) * scale };
+  // HATCHのelevationはDXFのgroup code 10/20/30で、仕様上x/yは常に0でZのみが標高を表す
+  // (Autodesk DXF Reference: "X and Y always equal 0, Z represents the elevation")。
+  // したがってx/yは平面内の平行移動・回転の対象外とし、Zだけを倍率換算する。
+  // ここでx/yを他の点と同様に変換すると、原本パッチ(patchHatch)がその値をgroup 10/20へ
+  // 書き戻し、「常に0」という仕様に反するDXFを出力してしまう(実測で確認済み)。
+  if (next.elevation) next.elevation = { x: next.elevation.x ?? 0, y: next.elevation.y ?? 0, z: (next.elevation.z ?? 0) * scale };
   if (next.points) next.points = next.points.map(transform);
   if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
   for (const key of ["dimensionLinePoint", "textPoint"]) {

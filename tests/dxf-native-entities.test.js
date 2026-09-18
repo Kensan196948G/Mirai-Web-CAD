@@ -4,6 +4,7 @@ import { applyTransaction, createDrawing } from "../src/cad-core.js";
 import { dimensionEntity, hatchEntity, transformEntity } from "../src/cad-advanced.js";
 import { exportDxf } from "../src/dxf-export.js";
 import { parseCadImport } from "../src/importers.js";
+import { nativeBlockDrawing } from "./fixtures/native-block.js";
 
 function importDxf(content) {
   const drawing = createDrawing();
@@ -107,6 +108,42 @@ test("HATCHのelevation.zとseedPointsが原本なし・限定再生成のいず
   assert.match(regenerated.content, /\n98\n2\n/, "限定再生成でもseedPointsを出力する");
 });
 
+test("transformEntityはHATCHのelevation x/yを変換せず、Zのみ倍率換算する", () => {
+  const drawing = createDrawing();
+  const hatch = hatchEntity(drawing.layers[0].id, [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
+  hatch.elevation = { x: 0, y: 0, z: 5 };
+  // DXF仕様上、HATCHのelevation pointはx/yが常に0でZのみが標高。平行移動・回転の
+  // 影響を受けてはならない(受けると原本へ仕様違反の値を書き戻してしまう)。
+  assert.deepEqual(transformEntity(hatch, { dx: 100, dy: 200, angle: 45 }).elevation, { x: 0, y: 0, z: 5 });
+  // 単位変換などの倍率変更ではZは一貫して換算する。
+  assert.deepEqual(transformEntity(hatch, { scale: 1000 }).elevation, { x: 0, y: 0, z: 5000 });
+});
+
+test("原本パッチでHATCHを移動してもelevation pointのgroup 10/20は0を保つ", () => {
+  const { drawing } = importDxf(nativeFixture);
+  const hatch = drawing.entities.find((entity) => entity.type === "hatch");
+  const moved = applyTransaction(drawing, { source: "system", label: "native-move",
+    commands: [{ op: "update", id: hatch.id, patch: transformEntity(hatch, { dx: 7, dy: 9 }) }] });
+  assert.equal(moved.ok, true, moved.error);
+  const exported = exportDxf(moved.drawing);
+  assert.equal(exported.preservation?.mode, "source-patch", "この編集は原本パッチで処理されるはず");
+
+  const lines = exported.content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const start = lines.findIndex((value, index) => value === "0" && lines[index + 1] === "HATCH");
+  assert.ok(start >= 0, "HATCHレコードが出力される");
+  const groups = [];
+  for (let index = start; index + 1 < lines.length && (groups.length === 0 || lines[index] !== "0"); index += 2) groups.push([lines[index], lines[index + 1]]);
+  const code10 = groups.filter(([code]) => code === "10").map(([, value]) => value);
+  const code20 = groups.filter(([code]) => code === "20").map(([, value]) => value);
+  // 1件目はelevation point(OCS標高点)で、DXF仕様上つねに0でなければならない。
+  assert.equal(code10[0], "0", "HATCH elevation pointのX(group 10)は移動後も0を保つ");
+  assert.equal(code20[0], "0", "HATCH elevation pointのY(group 20)は移動後も0を保つ");
+  // 2件目は境界edge(円弧中心)、3件目はseed pointで、いずれも平行移動へ追従する。
+  assert.deepEqual(code10.slice(1), ["27", "27"], "境界とseed pointは平行移動へ追従する");
+  assert.deepEqual(code20.slice(1), ["29", "29"], "境界とseed pointは平行移動へ追従する");
+  assert.deepEqual(importDxf(exported.content).drawing.entities.find((entity) => entity.type === "hatch").elevation, { x: 0, y: 0, z: 0 });
+});
+
 test("VIEWPORTの紙空間移動はcenterのみ動かし、viewCenter/snapBase/viewTarget(モデル空間のカメラ・スナップ基準)は保持する", () => {
   const viewport = {
     id: "vp-move", type: "viewport", layerId: "layer-structure",
@@ -184,4 +221,72 @@ test("DIMSTYLE/Layoutモデルの変更を未変更原本として黙って書�
   assert.doesNotMatch(exported.content, /\n331\n32\n/, "限定再生成でVIEWPORTの原本frozenLayerHandle参照(331)を出力してはならない");
   const hatchSection = exported.content.slice(exported.content.indexOf("\nHATCH\n"));
   assert.match(hatchSection, /\n71\n0\n/, "限定再生成ではHATCHの関連付け(71)を0にする");
+});
+
+test("原本パッチ経路でもHATCHのelevation.zが書き戻され、往復で失われない", () => {
+  const elevated = nativeFixture.replace("\n30\n0\n210", "\n30\n15\n210");
+  assert.notEqual(elevated, nativeFixture, "フィクスチャのHATCH elevation.zを15へ差替えられる");
+  const { drawing } = importDxf(elevated);
+  const hatch = drawing.entities.find((entity) => entity.type === "hatch");
+  assert.equal(hatch.elevation.z, 15);
+  const scaled = applyTransaction(drawing, { source: "system", label: "native-scale",
+    commands: [{ op: "update", id: hatch.id, patch: transformEntity(hatch, { scale: 2, base: { x: 0, y: 0 } }) }] });
+  assert.equal(scaled.ok, true, scaled.error);
+  const exported = exportDxf(scaled.drawing);
+  assert.equal(exported.preservation?.mode, "source-patch", "この編集は原本パッチで処理されるはず");
+  const lines = exported.content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const start = lines.findIndex((value, index) => value === "0" && lines[index + 1] === "HATCH");
+  assert.ok(start >= 0, "HATCHレコードが出力される");
+  const groups = [];
+  for (let index = start; index + 1 < lines.length && (groups.length === 0 || lines[index] !== "0"); index += 2) groups.push([lines[index], lines[index + 1]]);
+  assert.deepEqual(groups.filter(([code]) => code === "30").map(([, value]) => value), ["30"], "elevation.zがgroup 30へ書き戻される");
+  assert.equal(importDxf(exported.content).drawing.entities.find((entity) => entity.type === "hatch").elevation.z, 30);
+});
+
+test("VIEWPORTのsnapBase/snapSpacing/gridSpacingが原本なしの書出しでも失われない", () => {
+  const drawing = createDrawing();
+  const viewport = { id: "vp-snap", type: "viewport", layerId: drawing.layers[0].id, center: { x: 200, y: 150 }, width: 180, height: 100,
+    viewCenter: { x: 50, y: 60 }, snapBase: { x: 5, y: 6 }, snapSpacing: { x: 10, y: 11 }, gridSpacing: { x: 20, y: 21 },
+    viewTarget: { x: 0, y: 0, z: 0 }, viewDirection: { x: 0, y: 0, z: 1 }, viewHeight: 100, status: 2, viewportId: 2, flags: 0, locked: false,
+    paperSpace: true, layoutName: "Layout1", style: { strokeWidth: 1, lineDash: [], fill: "transparent" }, meta: {} };
+  const added = applyTransaction(drawing, { source: "system", commands: [{ op: "add", entity: viewport }] });
+  assert.equal(added.ok, true, added.error);
+  const exported = exportDxf(added.drawing);
+  assert.equal(exported.skipped.length, 0);
+  for (const [code, value] of [["13", "5"], ["23", "6"], ["14", "10"], ["24", "11"], ["15", "20"], ["25", "21"]]) {
+    assert.match(exported.content, new RegExp(`\\n${code}\\n${value}\\n`), `VIEWPORTのgroup ${code}が出力される`);
+  }
+  const reimported = importDxf(exported.content).drawing.entities.find((entity) => entity.type === "viewport");
+  assert.deepEqual(reimported.snapBase, { x: 5, y: 6 });
+  assert.deepEqual(reimported.snapSpacing, { x: 10, y: 11 });
+  assert.deepEqual(reimported.gridSpacing, { x: 20, y: 21 });
+});
+
+test("INSERTを含むDXFでもelevation付きHATCHを取込める(group 30は3D座標ではない)", () => {
+  const base = exportDxf(nativeBlockDrawing()).content;
+  const marker = "\n0\nENDSEC\n0\nEOF";
+  assert.ok(base.includes(marker), "ENTITIES末尾のマーカーが見つかる");
+  const hatchLines = ["0", "HATCH", "5", "77", "8", "0", "10", "0", "20", "0", "30", "15", "210", "0", "220", "0", "230", "1",
+    "2", "SOLID", "70", "1", "71", "0", "91", "1", "92", "3", "72", "0", "73", "1", "93", "3",
+    "10", "0", "20", "0", "10", "100", "20", "0", "10", "100", "20", "50", "97", "0",
+    "75", "0", "76", "1", "52", "0", "41", "1", "77", "0", "98", "0"];
+  const content = base.replace(marker, `\n${hatchLines.join("\n")}${marker}`);
+  assert.notEqual(content, base, "ENTITIESへHATCHを追加できる");
+  const { drawing } = importDxf(content);
+  const hatch = drawing.entities.find((entity) => entity.type === "hatch");
+  assert.ok(hatch, "INSERTを含むDXFでもHATCHが取込まれる");
+  assert.equal(hatch.elevation.z, 15, "HATCHの標高はgroup 30として保持される");
+  assert.deepEqual(hatch.points, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }]);
+});
+
+test("角度線定義点を持たないangular寸法は縮退出力せずスキップ理由付きで報告する", () => {
+  const drawing = createDrawing();
+  const dimension = { ...dimensionEntity(drawing.layers[0].id, { x: 0, y: 0 }, { x: 100, y: 0 }, { offset: 20 }), dimensionType: "angular" };
+  const added = applyTransaction(drawing, { source: "system", commands: [{ op: "add", entity: dimension }] });
+  assert.equal(added.ok, true, added.error);
+  const exported = exportDxf(added.drawing);
+  assert.equal(exported.exported, 0, "縮退した角度寸法を書出してはならない");
+  assert.equal(exported.skipped.length, 1);
+  assert.match(exported.skipped[0].reason, /角度寸法の角度線定義点/);
+  assert.doesNotMatch(exported.content, /\n0\nDIMENSION\n/);
 });
