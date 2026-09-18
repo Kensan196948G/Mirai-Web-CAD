@@ -4,7 +4,8 @@
 
 | Gate | コマンド | 主な検査 |
 | --- | --- | --- |
-| Lint | `npm run lint` | 必須成果物、JavaScript構文、未解決マーカー |
+| Lint | `npm run lint` | 必須成果物、JavaScript構文、未解決マーカー、`_headers`の書式 |
+| Static | `npm run lint:static` | ESLint(flat config)。未定義参照、重複キー/引数、到達不能コード、未使用変数、定数条件、`await`後の`state`更新(warnのみ) |
 | Type | `npm run typecheck` | `checkJs`によるUI、CAD Core、API、PostgreSQL層の型整合 |
 | Unit/API | `npm test` | CAD不変条件、CLI、Import、公開/private境界、JWT、RBAC、本文制限、原子更新、AI承認、10k図形Core baseline。`TEST_DATABASE_URL`(DB名に"test"を含む場合のみ)設定時は実PostgreSQLに対する統合テスト(`tests/data-store.pg.test.js`)も実行 |
 | A11y static | `npm run a11y` | lang、ARIA、focus-visible、Responsive規則 |
