@@ -10,7 +10,7 @@ import {
   submitForReview,
   validateDrawing
 } from "./cad-core.js";
-import { createDataStore, resetMemoryStoreData } from "./data-store.js";
+import { createDataStore, resetMemoryStoreData, LEGACY_PROJECT_ID } from "./data-store.js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { describeAiConfig, createAiCompletion } from "./ai-provider.js";
 import { COMMAND_SCHEMA, buildSystemPrompt, buildUserMessage, normalizeLlmProposal } from "./ai-proposal.js";
@@ -89,6 +89,10 @@ export async function handleApiRequest(request, env = {}) {
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         throw httpError("JSON本文はオブジェクトである必要があります。", 400);
       }
+      const projectId = typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : LEGACY_PROJECT_ID;
+      const project = await store.getProject(projectId);
+      if (!project) throw httpError(`案件が見つかりません: ${projectId}`, 404);
+      await requireProjectAccess(store, actor.actor, projectId);
       const drawing = body.template === "demo" ? seedDrawing() : createDrawing();
       drawing.id = typeof body.id === "string" && /^dwg_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `dwg_${cryptoSafeId()}`;
       drawing.name = typeof body.name === "string" ? body.name.trim().slice(0, 100) || "新規図面" : "新規図面";
@@ -96,10 +100,11 @@ export async function handleApiRequest(request, env = {}) {
       drawing.currentRole = actor.actor.role;
       const created = await store.createDrawingAtomically(
         drawing,
-        createAuditEntry(actor.actor, "drawing.created", "drawing", drawing.id, { name: drawing.name }),
+        createAuditEntry(actor.actor, "drawing.created", "drawing", drawing.id, { name: drawing.name, projectId }),
         idempotencyKey,
         actor.actor.id,
-        route
+        route,
+        projectId
       );
       if (!created) throw httpError("同じIdempotency-Keyまたは図面IDは処理済みです。", 409);
       return json({ ok: true, drawing }, 201, cors);
@@ -107,12 +112,14 @@ export async function handleApiRequest(request, env = {}) {
 
     const drawingMatch = route.match(/^\/drawings\/([^/]+)$/);
     if (request.method === "GET" && drawingMatch) {
+      await requireDrawingAccess(store, actor.actor, drawingMatch[1]);
       return json({ ok: true, drawing: await getDrawing(store, drawingMatch[1]) }, 200, cors);
     }
 
     const transactionMatch = route.match(/^\/drawings\/([^/]+)\/transactions$/);
     if (request.method === "POST" && transactionMatch) {
       authorize(actor.actor, "canEdit");
+      await requireDrawingAccess(store, actor.actor, transactionMatch[1]);
       const drawing = withActor(await getDrawing(store, transactionMatch[1]), actor.actor);
       const body = await readJson(request);
       const idempotencyKey = requireIdempotency(request);
@@ -132,6 +139,7 @@ export async function handleApiRequest(request, env = {}) {
     const commentsMatch = route.match(/^\/drawings\/([^/]+)\/comments$/);
     if (request.method === "POST" && commentsMatch) {
       authorize(actor.actor, "canComment");
+      await requireDrawingAccess(store, actor.actor, commentsMatch[1]);
       const drawing = withActor(await getDrawing(store, commentsMatch[1]), actor.actor);
       const body = await readJson(request);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -164,6 +172,7 @@ export async function handleApiRequest(request, env = {}) {
     const agentMatch = route.match(/^\/drawings\/([^/]+)\/agent-runs$/);
     if (request.method === "POST" && agentMatch) {
       authorize(actor.actor, "canRunAi");
+      await requireDrawingAccess(store, actor.actor, agentMatch[1]);
       const drawing = withActor(await getDrawing(store, agentMatch[1]), actor.actor);
       const body = await readJson(request);
       const prompt = typeof body.prompt === "string" ? body.prompt : "";
@@ -217,6 +226,7 @@ export async function handleApiRequest(request, env = {}) {
       if (run.proposal.status !== "planned") {
         return json({ ok: false, error: "適用可能なAI提案ではありません。" }, 409, cors);
       }
+      await requireDrawingAccess(store, actor.actor, run.drawingId);
       const drawing = withActor(await getDrawing(store, run.drawingId), actor.actor);
       requireExpectedVersion(request, drawing);
       const result = applyTransaction(drawing, proposalToTransaction(run.proposal, actor.actor.id));
@@ -238,6 +248,7 @@ export async function handleApiRequest(request, env = {}) {
 
     const reviewMatch = route.match(/^\/drawings\/([^/]+)\/review$/);
     if (request.method === "POST" && reviewMatch) {
+      await requireDrawingAccess(store, actor.actor, reviewMatch[1]);
       const drawing = withActor(await getDrawing(store, reviewMatch[1]), actor.actor);
       const body = await readJson(request);
       if (body.action === "submit") authorize(actor.actor, "canEdit");
@@ -295,6 +306,79 @@ export async function handleApiRequest(request, env = {}) {
       authorize(actor.actor, "canRunAi");
       const status = describeAiConfig(env);
       return json({ ok: true, ...status }, 200, cors);
+    }
+
+    if (request.method === "POST" && route === "/projects") {
+      requireCadAdmin(actor.actor);
+      const idempotencyKey = requireIdempotency(request);
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
+      }
+      const body = await readJson(request);
+      if (!body || typeof body.name !== "string" || !body.name.trim()) {
+        throw httpError("案件名(name)が必要です。", 400);
+      }
+      const id = typeof body.id === "string" && /^prj_[a-z0-9_-]{1,60}$/i.test(body.id) ? body.id : `prj_${cryptoSafeId()}`;
+      const accessScope = body.accessScope === "restricted" ? "restricted" : "open";
+      const project = await store.createProject({ id, name: body.name.trim().slice(0, 100), owner: actor.actor.id, accessScope });
+      if (!project) throw httpError(`案件IDは既に使用されています: ${id}`, 409);
+      await audit(store, actor.actor, "project.created", "project", project.id, { name: project.name, accessScope });
+      return json({ ok: true, project }, 201, cors);
+    }
+
+    const projectMatch = route.match(/^\/projects\/([^/]+)$/);
+    if (request.method === "GET" && projectMatch) {
+      requireCadAdmin(actor.actor);
+      const project = await store.getProject(projectMatch[1]);
+      if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
+      const members = await store.listProjectMembers(projectMatch[1]);
+      return json({ ok: true, project, members }, 200, cors);
+    }
+    if (request.method === "PATCH" && projectMatch) {
+      requireCadAdmin(actor.actor);
+      const idempotencyKey = requireIdempotency(request);
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
+      }
+      const body = await readJson(request);
+      if (body.accessScope !== "open" && body.accessScope !== "restricted") {
+        throw httpError("accessScopeはopenまたはrestrictedである必要があります。", 400);
+      }
+      const project = await store.updateProjectAccessScope(projectMatch[1], body.accessScope);
+      if (!project) throw httpError(`案件が見つかりません: ${projectMatch[1]}`, 404);
+      await audit(store, actor.actor, "project.updated", "project", project.id, { accessScope: project.accessScope });
+      return json({ ok: true, project }, 200, cors);
+    }
+
+    const projectMembersMatch = route.match(/^\/projects\/([^/]+)\/members$/);
+    if (request.method === "POST" && projectMembersMatch) {
+      requireCadAdmin(actor.actor);
+      const idempotencyKey = requireIdempotency(request);
+      if (!(await store.claimIdempotency(idempotencyKey, actor.actor.id, route))) {
+        throw httpError("同じIdempotency-Keyのリクエストは処理済みです。", 409);
+      }
+      const body = await readJson(request);
+      if (typeof body.member !== "string" || !body.member.includes("@")) {
+        throw httpError("member(メールアドレス)が必要です。", 400);
+      }
+      const project = await store.getProject(projectMembersMatch[1]);
+      if (!project) throw httpError(`案件が見つかりません: ${projectMembersMatch[1]}`, 404);
+      await store.addProjectMember(projectMembersMatch[1], body.member, actor.actor.id);
+      await audit(store, actor.actor, "project.member.added", "project", projectMembersMatch[1], { member: body.member.toLowerCase() });
+      const members = await store.listProjectMembers(projectMembersMatch[1]);
+      return json({ ok: true, members }, 201, cors);
+    }
+
+    const projectMemberMatch = route.match(/^\/projects\/([^/]+)\/members\/([^/]+)$/);
+    if (request.method === "DELETE" && projectMemberMatch) {
+      requireCadAdmin(actor.actor);
+      const project = await store.getProject(projectMemberMatch[1]);
+      if (!project) throw httpError(`案件が見つかりません: ${projectMemberMatch[1]}`, 404);
+      const member = decodeURIComponent(projectMemberMatch[2]);
+      await store.removeProjectMember(projectMemberMatch[1], member);
+      await audit(store, actor.actor, "project.member.removed", "project", projectMemberMatch[1], { member: member.toLowerCase() });
+      const members = await store.listProjectMembers(projectMemberMatch[1]);
+      return json({ ok: true, members }, 200, cors);
     }
 
     return json({ ok: false, error: "not found" }, 404, cors);
@@ -409,6 +493,32 @@ function authorize(actor, capability) {
   if (!policy[capability]) {
     throw httpError(`${policy.label}には${capability}権限がありません。`, 403);
   }
+}
+
+// 案件・案件メンバーの管理はCAD管理者のみに限定する(少人数のIT/DX部門による一元運用を想定)。
+function requireCadAdmin(actor) {
+  if (actor.role !== "cad_admin") {
+    throw httpError("この操作にはCAD管理者権限が必要です。", 403);
+  }
+}
+
+// 案件(project)単位のアクセス制御。既存案件は既定でaccess_scope='open'のままなので、
+// 単一案件運用の現行挙動(全ロールが閲覧・編集可)は一切変わらない。cad_adminは常に
+// 全案件へアクセス可能(運用担当が少人数のため管理者ロールを唯一のオーバーライドとする)。
+// restrictedな案件はproject_membersに登録された利用者のみ許可し、非会員には図面が
+// 存在しない場合と同一の404を返して案件・図面IDの存在自体を推測されないようにする。
+async function requireProjectAccess(store, actor, projectId) {
+  if (actor.role === "cad_admin") return;
+  const project = await store.getProject(projectId);
+  if (!project || project.accessScope !== "restricted") return;
+  const isMember = await store.isProjectMember(projectId, actor.id);
+  if (!isMember) throw httpError("この案件への権限がありません。", 404);
+}
+
+async function requireDrawingAccess(store, actor, drawingId) {
+  const projectId = await store.getDrawingProjectId(drawingId);
+  if (projectId === null) throw httpError(`図面が見つかりません: ${drawingId}`, 404);
+  await requireProjectAccess(store, actor, projectId);
 }
 
 async function getDrawing(store, id) {

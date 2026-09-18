@@ -14,6 +14,7 @@ for pass in 1 2; do
     -f migrations/0004_drawing_visibility.sql \
     -f migrations/0005_audit_log_immutability.sql \
     -f migrations/0006_normalize_jsonb_columns.sql \
+    -f migrations/0007_project_membership.sql \
     -f seeds/demo.sql >/dev/null
 done
 
@@ -64,7 +65,7 @@ verification="$({
 
 IFS=: read -r database table_count project_count drawing_count public_count version_count audit_count <<<"$verification"
 
-if [[ "$table_count" != "8" || "$project_count" != "1" || "$drawing_count" != "1" || "$public_count" != "1" || "$version_count" != "1" || "$audit_count" != "1" ]]; then
+if [[ "$table_count" != "9" || "$project_count" != "1" || "$drawing_count" != "1" || "$public_count" != "1" || "$version_count" != "1" || "$audit_count" != "1" ]]; then
   echo "database verification failed: tables=$table_count project=$project_count drawing=$drawing_count public=$public_count version=$version_count audit=$audit_count" >&2
   exit 1
 fi

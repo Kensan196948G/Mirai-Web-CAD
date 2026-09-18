@@ -176,6 +176,47 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
     assert.equal(logs[0].detail.count, 1);
   });
 
+  await t.test("案件アクセス制御(project_members)がPostgreSQL上で一貫して動作する", async () => {
+    const projectId = `prj_it_${Date.now()}`;
+    const created = await store.createProject({ id: projectId, name: "統合テスト案件", owner: "it@test", accessScope: "restricted" });
+    assert.equal(created.accessScope, "restricted");
+
+    const duplicate = await store.createProject({ id: projectId, name: "重複", owner: "it@test", accessScope: "open" });
+    assert.equal(duplicate, null, "同一IDの案件は再作成できない");
+
+    const fetched = await store.getProject(projectId);
+    assert.equal(fetched.accessScope, "restricted");
+
+    const member = `member-${Date.now()}@example.com`;
+    assert.equal(await store.isProjectMember(projectId, member), false);
+    await store.addProjectMember(projectId, member, "it@test");
+    assert.equal(await store.isProjectMember(projectId, member.toUpperCase()), true, "member判定は大文字小文字を無視する");
+    assert.deepEqual(await store.listProjectMembers(projectId), [member.toLowerCase()]);
+
+    await store.removeProjectMember(projectId, member);
+    assert.equal(await store.isProjectMember(projectId, member), false);
+
+    const reopened = await store.updateProjectAccessScope(projectId, "open");
+    assert.equal(reopened.accessScope, "open");
+
+    const drawing = createDrawing();
+    drawing.id = `dwg_it_project_${Date.now()}`;
+    drawing.currentRole = "drafter";
+    const auditEntry = {
+      id: `audit_it_project_${Date.now()}`,
+      actorId: "it@test",
+      role: "drafter",
+      action: "drawing.created",
+      targetType: "drawing",
+      targetId: drawing.id,
+      detail: {},
+      createdAt: new Date().toISOString()
+    };
+    await store.createDrawingAtomically(drawing, auditEntry, `idem_it_project_${Date.now()}`, "it@test", "/api/drawings", projectId);
+    assert.equal(await store.getDrawingProjectId(drawing.id), projectId);
+    assert.equal(await store.getDrawingProjectId("dwg_does_not_exist"), null);
+  });
+
   t.after(async () => {
     await closeDataStorePool();
   });
