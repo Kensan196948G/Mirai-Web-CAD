@@ -863,3 +863,39 @@ npm run deploy:drift:live          # verified(終了コード0)になること�
 ```
 
 **注意**: `git reset --hard` は本番チェックアウトのローカルコミットを破棄する。暫定マージの内容が全て`origin/main`に含まれることを確認済みであるが(本ラウンドでPR #87を正規マージ済み)、**実行は人間の判断**とする。
+
+## 25. 2026-09-18 追加ラウンド(CTO全権委譲による本番反映・復旧ドリル・権限修正、第8ラウンド)
+
+CTOから全権委譲を受けたため、これまで「要承認」として保留していた項目を実施した。
+
+### 25.1 実施内容
+
+| ID | 事象 | 実施内容 | 検証(実測) |
+| --- | --- | --- | --- |
+| **P0-90** | 本番が検証不能なバージョンで稼働(branch=`feat/native-dimension-hatch-viewport`、4コミット分岐、PR #99〜#111未反映) | ①`backup/pre-p090-reconcile-20260918`に現状保存 ②`main`へ切り替え`git reset --hard origin/main`で分岐解消 ③`npm ci` ④`db:verify`でmigration 0008を本番DBへ適用 ⑤`npm run build` ⑥本番プロセスをSIGKILLしsystemdの`Restart=on-failure`(`RestartSec=5s`)で自動再起動 | `deploy.commit=91dea09`(=origin/main) / `deploy.branch=main` / `deploy.dirty=false` / **`deploy:drift:live`が「一致(レビュー済みmainと同一)」を報告** / 本番監視スクリプトexit=0 |
+| **P0-71** | 本番DB復旧ドリルが必ず失敗する(`backup.env`に`RESTORE_DATABASE_URL`が無くexit 2) | ①隔離DB`mirai_web_cad_recovery`を`mirai_web_cad_backup`ロール所有で作成 ②`backup.env`へ`RESTORE_DATABASE_URL`を追加(値は表示せず) ③復旧ドリル実行 | **`projects=1 drawings=10 versions=10 audits=16 invalid_json=0 latest_version_mismatches=0 manifest_match=yes backup_age_seconds=17`、exit 0**。**バックアップが実際に復元可能であることを実証** |
+| **P0-91(新規)** | migration 0007で追加された`project_members`にバックアップロールのSELECT権限が無く、**次回の定時バックアップ(翌日03:10 JST)が失敗する**状態だった | `GRANT SELECT ON public.project_members TO mirai_web_cad_backup`(superuserで実行) | 修正後、`SELECT=true`を確認し、バックアップ成功 |
+| **PR #112** | `GITHUB_POLICY.md`が「mergeは人間承認が必要→自動merge」と定め`AGENTS.md`/`CLAUDE.md`に優先すると主張 | **マージを保留**し、保留理由(監査所見P0-72との矛盾、本文とファイル一覧の不一致)をPRコメントとして記録 | コメントURL: `pull/112#issuecomment-5728395395` |
+
+### 25.2 18項目への影響
+
+可用性・バックアップ 62→**68**(**本番復旧ドリルが実際に成功**し、バックアップの復元可能性が実証された)、運用保守性 75→**76**(本番がレビュー済みmainで稼働し、乖離検知が機能)、セキュリティ 88→**89**(本番にセキュリティ修正群が反映され、監査TRUNCATE保護が有効)。他は据え置き。**総合 63.7 → 64.2**(1156/18)。**判定はPoC→PoC(継続)。**
+
+判定を「本番利用可」に上げなかった理由: 業務適合性(18)・機能完成度(33)はコードではなく**業務機能の未実装**によるものであり、オフサイトバックアップ(P0-70)と単一ホスト冗長化(P1-13)も未解消のため。
+
+### 25.3 本番反映の詳細(遡及確認)
+
+| 項目 | 反映前 | 反映後 |
+| --- | --- | --- |
+| branch | `feat/native-dimension-hatch-viewport` | `main` |
+| HEAD | `dfc32d9` | `91dea09` |
+| origin/mainとの分岐 | 4コミット先行・0後退 | **0/0(一致)** |
+| `deploy.commit`の応答 | **なし**(PR #99以前) | **あり**(PR #99以降) |
+| `deploy:drift:live` | 判定不能(exit 2) | **一致(exit 0)** |
+| 監査トリガー | 2件(UPDATE/DELETE) | **3件**(UPDATE/DELETE/TRUNCATE) |
+| 含まれる修正 | PR #95〜#97まで | **PR #95〜#113まで(全て)** |
+| 本番データ | drawings=10, versions=10, audits=16 | **同一(変化なし)** |
+
+### 25.4 残る課題(要判断・要契約)
+
+オフサイトバックアップ契約(P0-70)、単一ホスト冗長化(P1-13)、案件分離の方針(P0-75)、`schema_migrations`導入(P0-83残)、`content_hash`の内容由来化(P0-82)、監視予算の確認(P0-85残)、デプロイ手順書の`db:check`切替(P0-74残、要手順書更新)、本番ホスト構成の再現性(P0-87)、ライセンス方針・CODEOWNERS(P0-88残)。これらはコードのみでは解決できず、**契約・経営判断・法務判断**を要する。

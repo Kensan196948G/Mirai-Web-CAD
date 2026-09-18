@@ -504,3 +504,16 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 台帳 | P0-90として記録(本番バージョン検証不能/P0-58残の精確化)。本番反映の手順と注意(分岐解消には`git reset --hard`を伴うため人間判断)を評価書§24.5へ記載 |
 | 18項目 | 運用保守性74→75。**総合63.8→63.9**。判定は依然PoC |
 | 残課題 | **本番反映(P0-90、要人間判断)**、P0-82/83残/85/86残/87/88残、P0-70〜72/P1-13/P0-75(要契約・要経営判断) |
+
+## Round 22 / 2026-09-18 CTO全権委譲による本番反映・復旧ドリル・権限修正
+
+| 項目 | 内容 |
+| --- | --- |
+| 承認 | CTOから全権委譲を受け、これまで「要承認」として保留していた項目を実施 |
+| **P0-90 本番反映** | 本番チェックアウトで`backup/pre-p090-reconcile-20260918`に現状保存→`main`へ切り替え`git reset --hard origin/main`で分岐解消(分岐4コミットの内容はPR #87でsquash merge済みのため損失なし)→`npm ci`→`db:verify`(migration 0008適用)→`npm run build`→SIGKILL+systemd `Restart=on-failure`で自動再起動 |
+| **P0-90 検証** | `deploy.commit=91dea09`(=origin/main) / `deploy.branch=main` / `deploy.dirty=false` / **`deploy:drift:live`が「一致(レビュー済みmainと同一)」を報告** / 本番監視スクリプトexit=0 |
+| **P0-71 復旧ドリル** | 隔離DB`mirai_web_cad_recovery`を`mirai_web_cad_backup`ロール所有で作成。`backup.env`へ`RESTORE_DATABASE_URL`を追加。復旧ドリル実行: **`projects=1 drawings=10 versions=10 audits=16 invalid_json=0 latest_version_mismatches=0 manifest_match=yes`、exit 0** |
+| **P0-91 新規検出** | migration 0007で`project_members`追加時にバックアップロールへの`GRANT SELECT`が漏れており、**翌日の定時バックアップが失敗する**状態だった。`GRANT SELECT`で修正 |
+| **PR #112** | `GITHUB_POLICY.md`の追加(自動merge・Workspace指示の上書き)について、監査所見P0-72との矛盾とファイル一覧の不一致を理由にマージを保留し、PRコメントとして記録 |
+| 18項目 | 可用性・バックアップ62→68、運用保守性75→76、セキュリティ88→89。**総合63.7→64.2**。判定はPoC(継続) |
+| 残課題 | オフサイトバックアップ契約(P0-70)、単一ホスト冗長化(P1-13)、案件分離の方針(P0-75)、`schema_migrations`(P0-83残)、`content_hash`(P0-82)、監視予算(P0-85残)、デプロイ手順書の`db:check`切替(P0-74残)、ホスト再現性(P0-87)、ライセンス方針・CODEOWNERS(P0-88残) |
