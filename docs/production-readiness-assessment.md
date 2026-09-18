@@ -412,3 +412,30 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 
 - SPAフォールバックにより、存在しないパスも**200 + index.html**を返す(`/definitely-missing.txt`=200)。外形監視が誤ったパスを監視した場合に異常を検知できないため、監視対象パスの設計または404返却の検討が必要。
 - Cloudflare Pages(`mirai-web-cad.pages.dev`)は`main`マージでは更新されない(preview jobは`pull_request`のみ)。**PR #99/#100/#102のコード修正はPages本番へ届かない**ため、公開APIの情報漏洩はCloudflare側の操作まで残る。
+
+## 14. 2026-09-18 追加ラウンド(濫用対策・監査完全性、PR #103)
+
+### 14.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | レート制限がAI提案経路のみで、**図面更新・案件操作・監査出力は無制限**だった。暴走クライアントや連打で全利用者が影響を受ける | Medium | `write`バケットを追加(`POST`/`PATCH`/`PUT`/`DELETE`、既定240回/分、`WRITE_RATE_LIMIT_PER_MINUTE`で変更可)。公開読み取りと`OPTIONS`は対象外 |
+| 2 | レート制限の状態(利用者ごとの配列)が**無制限に増え続けていた** | Low | キー数上限`10_000`を設け、期限切れ→最も古い順に破棄。`resetMemoryStore`でテスト時にも消去 |
+| 3 | `appendAudit`が`on conflict (id) do nothing`のため、**ID衝突時に監査行を黙って落としていた**(戻り値も例外も無し) | High(監査証跡) | 挿入行数を確認し、0行なら例外にして操作を失敗させる(承認判断の根拠が欠けた状態で成功を返さない)。メモリストアも重複IDを検出 |
+| 4 | `_headers`の書式違反行がパーサに**黙って捨てられ**、CSP等が無言で欠落したまま配信され得た | Medium | `findMalformedHeaderLines`を追加し`npm run lint`で検出。実際の`_headers`に違反が無いこともテストで固定 |
+
+### 14.2 検証Evidence
+
+- `tests/abuse-and-audit.test.js`(新規8件): 更新系の429、読み取りが数えられないこと、バケット分離、リセット、監査重複IDの例外、`_headers`の書式検出/非検出
+- `npm run verify:fast`: unit **357件中356 pass・1 skip**、lint/typecheck/a11y/build 成功／E2E 74/74
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 14.3 18項目への影響
+
+セキュリティ 82→83、コード品質 71→72、テスト 85→86。他は据え置き。**総合 60.8 → 61.0**(1098/18)。判定は依然PoC。
+
+### 14.4 未解決(据え置き)
+
+- エッジ(WAF)側のレート制限は未設定(プロセス内制限のみ)。
+- 監査ログの一覧取得(CSV以外)は`audit.exported`を記録しない。監査ログのハッシュチェーン/改ざん検知は未実装。
+- SPAフォールバックの200、ESLint等の静的解析(P0-59)、`/transactions`の1コマンドあたりの配列長検証。

@@ -48,8 +48,12 @@ const MAX_JSON_BYTES = 1_048_576;
 // 1リクエストで適用できるコマンド数の上限。ユーザー経路にはLLM経路(MAX_LLM_COMMANDS)の
 // ような上限が無く、巨大な配列を1回で送ると全利用者の描画・保存が遅くなるため設ける。
 const MAX_TRANSACTION_COMMANDS = 500;
-const AI_RATE_LIMIT_WINDOW_MS = 60_000;
-const aiRateLimitState = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+// 追跡する利用者数(バケット×利用者)の上限。超えた場合は期限切れ→最も古い順に破棄する。
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
+const WRITE_RATE_LIMIT_PER_MINUTE = 240;
+// 利用者ごとのリクエスト時刻。キーは `${bucket}:${actorId}`。
+const rateLimitState = new Map();
 
 export async function handleApiRequest(request, env = {}) {
   const store = createDataStore(env);
@@ -66,6 +70,14 @@ export async function handleApiRequest(request, env = {}) {
   try {
     const actor = await resolveActor(request, env, isPublicReadRoute(request.method, route));
     if (!actor.ok) return json({ ok: false, error: actor.error }, 401, cors);
+
+    // 更新系の濫用対策。AI提案だけが制限されており、図面更新・案件操作・監査出力は
+    // 無制限だった(暴走クライアントや意図的な連打で全利用者が影響を受ける)。
+    // 公開読み取り(health/demo)とOPTIONSは対象外。
+    if (isMutatingMethod(request.method) && !isPublicReadRoute(request.method, route)) {
+      enforceRateLimit("write", actor.actor.id, writeRateLimit(env),
+        "更新リクエストの回数が上限に達しました。しばらくしてから再試行してください。");
+    }
 
     if (request.method === "GET" && route === "/health") {
       const db = await store.probe();
@@ -421,6 +433,9 @@ export async function handleApiRequest(request, env = {}) {
 
 export function resetMemoryStore() {
   resetMemoryStoreData();
+  // レート制限の状態はプロセス内メモリに残るため、テスト用リセットで必ず一緒に消す
+  // (消し忘れるとテスト間で回数が積み上がり、順序依存の失敗になる)。
+  rateLimitState.clear();
 }
 
 async function resolveActor(request, env, allowAnonymous = false) {
@@ -516,15 +531,52 @@ function authMode(env) {
 }
 
 function checkAiRateLimit(env, actorId) {
+  enforceRateLimit("ai", actorId, aiRateLimit(env), "AI提案のリクエスト回数が上限に達しました。しばらくしてから再試行してください。");
+}
+
+function aiRateLimit(env) {
   const configured = Number(env.AI_RATE_LIMIT_PER_MINUTE);
-  const limit = Number.isFinite(configured) && configured > 0 ? configured : 10;
+  return Number.isFinite(configured) && configured > 0 ? configured : 10;
+}
+
+// 更新系(POST/PATCH/DELETE)の既定上限。1リクエストで最大500コマンドを送れるため、
+// 要求数としては粗い。通常操作で引っかからない値にしつつ、暴走を止められる値にする。
+function writeRateLimit(env) {
+  const configured = Number(env.WRITE_RATE_LIMIT_PER_MINUTE);
+  return Number.isFinite(configured) && configured > 0 ? configured : WRITE_RATE_LIMIT_PER_MINUTE;
+}
+
+function isMutatingMethod(method) {
+  return method === "POST" || method === "PATCH" || method === "DELETE" || method === "PUT";
+}
+
+// 利用者ごとの回数制限。状態はプロセス内メモリに持つ(単一プロセス常駐のため)。
+// キー数には上限を設け、上限を超えたら「期限切れのキー」→「最も古いキー」の順に
+// 破棄する。以前は利用者ごとの配列が無制限に増え続けていた。
+function enforceRateLimit(bucket, actorId, limit, message) {
+  if (!Number.isFinite(limit) || limit <= 0) return;
+  const key = `${bucket}:${actorId}`;
   const now = Date.now();
-  const timestamps = (aiRateLimitState.get(actorId) ?? []).filter((at) => now - at < AI_RATE_LIMIT_WINDOW_MS);
+  const timestamps = (rateLimitState.get(key) ?? []).filter((at) => now - at < RATE_LIMIT_WINDOW_MS);
   if (timestamps.length >= limit) {
-    throw httpError("AI提案のリクエスト回数が上限に達しました。しばらくしてから再試行してください。", 429);
+    throw httpError(message, 429);
   }
   timestamps.push(now);
-  aiRateLimitState.set(actorId, timestamps);
+  // Mapは挿入順を保持するため、再挿入して「最近使ったキー」を後ろへ送る。
+  rateLimitState.delete(key);
+  rateLimitState.set(key, timestamps);
+  pruneRateLimitState(now);
+}
+
+function pruneRateLimitState(now) {
+  if (rateLimitState.size <= RATE_LIMIT_MAX_ENTRIES) return;
+  for (const [key, timestamps] of rateLimitState) {
+    if (rateLimitState.size <= RATE_LIMIT_MAX_ENTRIES) return;
+    if (timestamps.every((at) => now - at >= RATE_LIMIT_WINDOW_MS)) rateLimitState.delete(key);
+  }
+  while (rateLimitState.size > RATE_LIMIT_MAX_ENTRIES) {
+    rateLimitState.delete(rateLimitState.keys().next().value);
+  }
 }
 
 function authorize(actor, capability) {

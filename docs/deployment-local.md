@@ -87,6 +87,7 @@ OPENAI_API_KEY=sk-...         # AI_PROVIDER=openaiの場合必須
 ANTHROPIC_API_KEY=sk-ant-...  # AI_PROVIDER=anthropicの場合必須
 AI_MODEL=<現行モデルID>        # AI_PROVIDER設定時は必須。値は各社公式ドキュメントで実装時点の現行版を確認しコードにはハードコードしない
 AI_RATE_LIMIT_PER_MINUTE=10   # 任意、既定10。actor単位でLLM呼び出しのみを制限(ルールベース応答は制限しない)
+WRITE_RATE_LIMIT_PER_MINUTE=240 # 任意、既定240。actor単位で更新系API(POST/PATCH/PUT/DELETE)を制限。公開読み取りとOPTIONSは対象外
 ```
 
 APIキーはサーバーの環境変数のみで管理され、ブラウザには一切保存・送信されない(`GET /api/ai/status`は有効状態・プロバイダ名・モデル名のみを返し、鍵自体は返さない)。設定後は各プロバイダの管理コンソールで「学習利用オフ」等のデータガバナンス設定を人手で確認すること(コード外の運用手順)。

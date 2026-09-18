@@ -81,6 +81,19 @@ API応答(`JSON_HEADERS`)は`src/api-handler.js`の`API_SECURITY_HEADERS`を単�
 - ローカル開発サーバー(`scripts/serve-local.mjs`)はHTTP配信のためHSTSのみ除去し、CSP等は本番と同じものを付与する(E2Eで検証される)。
 - Pages Functionsの`AUTH_MODE!=access`による503応答にも同じヘッダを付与する。
 
+### レート制限
+
+利用者(Cloudflare AccessのJWT email、demo時は`x-demo-actor`)ごとに、60秒窓で回数を数える。超過時は`429`。
+
+| バケット | 対象 | 既定 | 設定 |
+| --- | --- | --- | --- |
+| `write` | `POST`/`PATCH`/`PUT`/`DELETE`(公開読み取りと`OPTIONS`を除く) | 240回/分 | `WRITE_RATE_LIMIT_PER_MINUTE` |
+| `ai` | `POST /api/drawings/:id/agent-runs`のうちLLMフォールバックを使う経路 | 10回/分 | `AI_RATE_LIMIT_PER_MINUTE` |
+
+- 状態はプロセス内メモリに保持し、キー数上限(`10_000`)を超えた場合は期限切れ→最も古い順に破棄する。以前は利用者ごとの配列が無制限に増え続けていた。
+- AI提案経路も更新系に含まれるため`write`バケットも消費する(別バケットのため片方だけでは素通りしない)。
+- 単一プロセス常駐のため、これはプロセス単位の制限である。エッジ(WAF)側の制限は別途の検討事項。
+
 ## Migration
 
 | File | 内容 |

@@ -171,6 +171,11 @@ class MemoryDataStore {
   }
 
   async appendAudit(entry) {
+    // 監査行は「必ず1行記録される」ことを要求する。黙って落ちると承認判断の根拠が
+    // 欠けたことに誰も気づけないため、重複IDは異常として扱う。
+    if (memory.auditLogs.some((item) => item.id === entry.id)) {
+      throw new Error(`監査ログを記録できませんでした(重複ID): ${entry.id}`);
+    }
     memory.auditLogs.push(clone(entry));
   }
 
@@ -547,14 +552,22 @@ class PostgresDataStore {
     };
   }
 
+  // 監査行は「必ず1行記録される」ことを要求する。以前は `on conflict (id) do nothing`
+  // のため、ID衝突時に戻り値も例外も無く黙って記録が落ちていた。衝突は
+  // cryptoSafeId()由来のIDでは事実上起きないため、0行は異常として扱い呼び出し元の
+  // 操作を失敗させる(承認判断の根拠が欠けた状態で成功を返さない)。
   async appendAudit(entry) {
-    await this.sql`
+    const rows = await this.sql`
       insert into audit_logs (id, actor_id, action, target_type, target_id, detail, created_at)
       values (${entry.id}, ${entry.actorId}, ${entry.action}, ${entry.targetType},
               ${entry.targetId}, ${this.sql.json({ role: entry.role, ...entry.detail })},
               ${entry.createdAt})
       on conflict (id) do nothing
+      returning id
     `;
+    if (rows.length !== 1) {
+      throw new Error(`監査ログを記録できませんでした(重複IDまたは未挿入): ${entry.id}`);
+    }
   }
 
   async listAuditLogs(limit = 100, offset = 0) {
