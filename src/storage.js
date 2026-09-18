@@ -35,8 +35,29 @@ export function isStoredDrawing(value) {
   );
 }
 
+// 保存の成否を返す。以前はtry/catchが無く、容量超過(QuotaExceededError)や
+// プライベートモードでsetItemが例外を投げると呼び出し側の後続処理(画面更新・ログ)に
+// 到達せず、「変更は画面に反映されたが何も永続化されていない」無言のデータ喪失になっていた。
+// @returns {{ ok: true } | { ok: false, reason: string }}
 export function saveDrawing(drawing) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(drawing));
+  let serialized;
+  try {
+    serialized = JSON.stringify(drawing);
+  } catch {
+    return { ok: false, reason: "図面データをJSONへ変換できませんでした。" };
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, serialized);
+    return { ok: true };
+  } catch (error) {
+    const quota = error instanceof DOMException && (error.name === "QuotaExceededError" || error.code === 22);
+    return {
+      ok: false,
+      reason: quota
+        ? "ブラウザの保存領域が不足しています。JSON書出しで退避し、不要な図面を整理してください。"
+        : "ブラウザへ保存できませんでした(プライベートモード等)。JSON書出しで退避してください。"
+    };
+  }
 }
 
 export function clearDrawing() {
@@ -61,22 +82,26 @@ export function drawingFilename(name, version, extension) {
   return `${cleaned || "drawing"}_v${Number.isInteger(version) ? version : 1}.${extension}`;
 }
 
-export function exportDrawingFile(drawing) {
-  const blob = new Blob([JSON.stringify(drawing, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
+// ダウンロードを開始する。anchorをDOMへ接続し、ObjectURLのrevokeを次のタスクへ遅らせる。
+// 以前は接続しないままclick直後に同期revokeしていたため、Firefox/WebKitで
+// ダウンロードが失敗し得た(書出しが無言で失敗する経路)。
+function triggerDownload(url, filename) {
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = drawingFilename(drawing.name, drawing.version, "json");
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export function exportDrawingFile(drawing) {
+  const blob = new Blob([JSON.stringify(drawing, null, 2)], { type: "application/json" });
+  triggerDownload(URL.createObjectURL(blob), drawingFilename(drawing.name, drawing.version, "json"));
 }
 
 export function exportDxfFile(drawing, content) {
   const blob = new Blob([content], { type: "application/dxf" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = drawingFilename(drawing.name, drawing.version, "dxf");
-  anchor.click();
-  URL.revokeObjectURL(url);
+  triggerDownload(URL.createObjectURL(blob), drawingFilename(drawing.name, drawing.version, "dxf"));
 }
