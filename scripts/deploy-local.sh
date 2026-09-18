@@ -45,12 +45,18 @@ npm run db:verify
 
 sudo systemctl restart mirai-web-cad.service
 
-echo "health check待機中..."
+echo "health checkと稼働commit確認の待機中..."
 ok=0
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT:-18812}/api/health" | grep -qE '"ok":[[:space:]]*true'; then
-    ok=1
-    break
+  health="$(curl -fsS "http://127.0.0.1:${PORT:-18812}/api/health" 2>/dev/null || true)"
+  if printf '%s' "$health" | grep -qE '"ok":[[:space:]]*true'; then
+    # healthがokでも、応答しているプロセスが今回のデプロイ対象commitを読み込んでいるとは限らない。
+    # 再起動漏れ・別プロセスの応答・未レビューコードの稼働(Issue #98)をここで検出する。
+    if printf '%s' "$health" | grep -qE "\"commit\":[[:space:]]*\"${new_sha}\""; then
+      ok=1
+      break
+    fi
+    echo "healthはokだが稼働commitが ${new_sha} と一致しない" >&2
   fi
   sleep 1
 done

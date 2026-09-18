@@ -28,9 +28,10 @@ done
 trigger_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "
   select count(*) from pg_trigger
   where tgrelid = 'audit_logs'::regclass and not tgisinternal and tgname like 'audit_logs_no_%'
+    and tgenabled = 'O'
 ")"
 if [[ "$trigger_count" != "2" ]]; then
-  echo "database verification failed: audit_logs append-only triggers missing (found=$trigger_count)" >&2
+  echo "database verification failed: audit_logs append-only triggers missing or disabled (found=$trigger_count)" >&2
   exit 1
 fi
 

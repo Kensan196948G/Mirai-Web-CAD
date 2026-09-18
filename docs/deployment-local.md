@@ -136,6 +136,10 @@ sudo install -o root -g root -m 0644 \
   deploy/systemd/mirai-web-cad-backup.timer \
   deploy/systemd/mirai-web-cad-backup-check.service \
   deploy/systemd/mirai-web-cad-backup-check.timer \
+  deploy/systemd/mirai-web-cad-deploy-drift.service \
+  deploy/systemd/mirai-web-cad-deploy-drift.timer \
+  deploy/systemd/mirai-web-cad-restore-drill.service \
+  deploy/systemd/mirai-web-cad-restore-drill.timer \
   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mirai-web-cad.service
@@ -148,7 +152,7 @@ sudo systemctl enable --now mirai-web-cad-backup.timer mirai-web-cad-backup-chec
 
 `mirai-web-cad-cloudflared.service`はCloudflare Tunnel作成後に有効化する(下記)。
 
-`mirai-web-cad-deploy-drift.service`/`.timer`(30分間隔)も同じ要領で配置・有効化する。稼働中のcommitがレビュー済み`origin/main`と乖離していないかを定期検査し、乖離時はユニットが失敗してjournalに理由を残す。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。
+`mirai-web-cad-deploy-drift.service`/`.timer`(30分間隔)も同じ要領で配置・有効化する。稼働中のcommitがレビュー済み`origin/main`と乖離していないかを定期検査し、乖離時はユニットが失敗してjournalに理由を残す。詳細は[運用・復旧メモ](operations.md)の「デプロイ素性(稼働commit)と乖離検知」を参照。`mirai-web-cad-restore-drill.service`/`.timer`(週次)も同様に配置・有効化する(初回準備は「本番DBの復元ドリル」を参照)。この4ユニットは上の配置一覧・有効化一覧にも含めてある。
 
 ### 5. Cloudflare Tunnel作成
 

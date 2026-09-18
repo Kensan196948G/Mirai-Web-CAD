@@ -137,6 +137,18 @@ test("classifyDeployProvenance は commit 不明なら unknown とする", () =>
   assert.equal(result.status, DEPLOY_PROVENANCE.UNKNOWN);
 });
 
+test("classifyDeployProvenance は origin/main未取得(counts=null)を verified と誤報しない", () => {
+  // 「比較できない」を「一致」と報告すると、検知器そのものが見逃しの原因になる(fail-open)。
+  const result = classifyDeployProvenance({ commit: HEAD, dirty: false, counts: null });
+  assert.equal(result.status, DEPLOY_PROVENANCE.UNKNOWN);
+  assert.match(result.reasons.join("\n"), /判定できません/);
+});
+
+test("classifyDeployProvenance は counts未取得でも未コミット変更があれば dirty とする", () => {
+  const result = classifyDeployProvenance({ commit: HEAD, dirty: true, counts: null });
+  assert.equal(result.status, DEPLOY_PROVENANCE.DIRTY);
+});
+
 test("evaluateDeployProvenance は実リポジトリの素性を判定できる", () => {
   const result = evaluateDeployProvenance({ cwd: repoRoot });
   assert.ok(Object.values(DEPLOY_PROVENANCE).includes(result.status));
@@ -145,8 +157,9 @@ test("evaluateDeployProvenance は実リポジトリの素性を判定できる"
 });
 
 test("check-deploy-drift は判定不能(exit 2)にならず、実リポジトリのHEADを報告する", () => {
-  // 作業ブランチがorigin/mainより先行している場合(開発ブランチ)は意図的にexit 1を返すため、
-  // 終了コードは0/1のいずれも許容し、レポートの構造とHEADの一致だけを検証する。
+  // 作業ブランチがorigin/mainより先行している場合(開発ブランチ)は意図的にexit 1、
+  // origin/main参照が無いcheckout(CI等)ではexit 2を返すため、終了コードと
+  // レポートの整合(ok ⇔ exit 0)だけを検証する。
   let stdout;
   let exitCode = 0;
   try {
@@ -158,12 +171,34 @@ test("check-deploy-drift は判定不能(exit 2)にならず、実リポジト�
     exitCode = error.status;
     stdout = error.stdout;
   }
-  assert.ok(exitCode === 0 || exitCode === 1, `unexpected exit code: ${exitCode}`);
+  assert.ok([0, 1, 2].includes(exitCode), `unexpected exit code: ${exitCode}`);
   const report = JSON.parse(stdout);
+  assert.equal(report.ok, exitCode === 0);
   assert.ok(Object.values(DEPLOY_PROVENANCE).includes(report.status));
   assert.equal(typeof report.checkedAt, "string");
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   assert.equal(report.local.commit, head);
+});
+
+test("check-deploy-drift は --url 指定時に稼働commitを取得できないと成功扱いにしない", () => {
+  // 到達不能なポートを指定し、fail-open(exit 0)にならないことを確認する。
+  // 作業ツリー側の判定が既に乖離(exit 1)の場合はそちらが優先されるため、非ゼロであることを検証する。
+  let exitCode = 0;
+  let stdout;
+  try {
+    stdout = execFileSync(
+      process.execPath,
+      ["scripts/check-deploy-drift.mjs", "--json", "--url", "http://127.0.0.1:1"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+  } catch (error) {
+    exitCode = error.status;
+    stdout = error.stdout;
+  }
+  assert.notEqual(exitCode, 0, "稼働commitを検証できない場合は成功扱いにしてはならない");
+  const report = JSON.parse(stdout);
+  assert.equal(report.ok, false);
+  assert.match(report.driftReasons.join("\n"), /稼働API/);
 });
 
 test("health は稼働commitを deploy ブロックで報告し、余分な内部情報を含めない", async () => {

@@ -69,6 +69,10 @@ export function readDeployInfo(options = {}) {
 /**
  * 稼働素性を判定する。`ahead`/`dirty` は「レビューを経ていないコードが稼働している」
  * ことを意味するため、strictな運用ではこれを起動拒否の条件にする。
+ *
+ * 重要: `counts` が `null`(origin/main 参照が未取得)の場合は **verified ではなく
+ * unknown** を返す。比較できないことを「一致」と報告すると、検知器そのものが
+ * 見逃しの原因になる(fail-open)。
  * @param {{ commit: string|null, dirty: boolean|null, counts?: { ahead: number, behind: number }|null }} input
  * @returns {{ status: string, reasons: string[] }}
  */
@@ -87,7 +91,13 @@ export function classifyDeployProvenance(input) {
   if (reasons.length > 0) {
     return { status: input.dirty === true && !counts?.ahead ? DEPLOY_PROVENANCE.DIRTY : DEPLOY_PROVENANCE.AHEAD, reasons };
   }
-  if (counts && Number.isFinite(counts.behind) && counts.behind > 0) {
+  if (!counts) {
+    return {
+      status: DEPLOY_PROVENANCE.UNKNOWN,
+      reasons: ["origin/mainの参照が未取得のため、レビュー済みmainとの一致を判定できません"]
+    };
+  }
+  if (Number.isFinite(counts.behind) && counts.behind > 0) {
     return { status: DEPLOY_PROVENANCE.BEHIND, reasons: [`origin/mainが${counts.behind}件先行しています(デプロイ待ち)`] };
   }
   return { status: DEPLOY_PROVENANCE.VERIFIED, reasons: [] };

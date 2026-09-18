@@ -248,8 +248,6 @@ function requireEnv(name, missing) {
 // 「本番で何が動いているか分からない」状態を検知可能にするのが目的であり、
 // 検知そのものが業務を止めないよう既定は継続とする(docs/operations.md参照)。
 function enforceDeployGuard(deploy) {
-  const drifted = deploy.status === DEPLOY_PROVENANCE.AHEAD || deploy.status === DEPLOY_PROVENANCE.DIRTY;
-  if (!drifted) return;
   const detail = {
     provenance: deploy.status,
     commit: deploy.info.commit,
@@ -258,6 +256,13 @@ function enforceDeployGuard(deploy) {
     ahead: deploy.counts?.ahead ?? null,
     reasons: deploy.reasons
   };
+  if (deploy.status === DEPLOY_PROVENANCE.UNKNOWN) {
+    // 判定できないこと自体は起動を止めないが、「一致」と誤解されないよう必ず記録する。
+    log("warn", "deploy provenance guard: cannot determine provenance (origin/main ref may be missing)", detail);
+    return;
+  }
+  const drifted = deploy.status === DEPLOY_PROVENANCE.AHEAD || deploy.status === DEPLOY_PROVENANCE.DIRTY;
+  if (!drifted) return;
   if (process.env.DEPLOY_GUARD === "strict") {
     log("error", "deploy provenance guard: refusing to start with unreviewed code", detail);
     process.exit(78); // EX_CONFIG

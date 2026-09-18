@@ -68,7 +68,7 @@ curl http://127.0.0.1:4176/api/health
 
 ### 認証モードのfail-closed
 
-`AUTH_MODE`は`access`または`demo`のみ有効で、**未設定・想定外の値は`access`として扱う**。`demo`は認証をリクエストヘッダー(`x-demo-role`)の自己申告で決めるため、公開環境では使用しない。`APP_ENV=production`で`demo`が設定されていた場合は起動せずに拒否する。Cloudflare Pages Functions(`functions/api/[[path]].js`)は`AUTH_MODE=access`以外を503で拒否する。
+`AUTH_MODE`は`access`または`demo`のみ有効で、**未設定・想定外の値は`access`として扱う**。`demo`は認証をリクエストヘッダー(`x-demo-role`)の自己申告で決めるため、公開環境では使用しない。`APP_ENV=production`で`demo`が設定されている場合、`handleApiRequest`はリクエストを401で拒否する(`serve-production.mjs`はそもそも`AUTH_MODE=access`以外での起動を拒否する)。Cloudflare Pages Functions(`functions/api/[[path]].js`)は`AUTH_MODE=access`以外を503で拒否する。
 
 5xxの応答本文は、ローカル開発(`demo`かつ`APP_ENV!=="production"`)以外では`{"ok":false,"error":"internal error"}`へ丸め、DB接続エラー等の内部詳細を未認証クライアントへ返さない(詳細はサーバーログにのみ記録)。
 

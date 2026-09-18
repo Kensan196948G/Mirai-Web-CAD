@@ -104,13 +104,18 @@ DATABASE_URL="postgresql://mirai_web_cad_app:...@127.0.0.1:5432/mirai_web_cad" n
 "deploy": { "commit": "89a25fe...", "branch": "main", "dirty": false }
 ```
 
-`scripts/check-deploy-drift.mjs`(npm script: `deploy:drift`)は、作業ツリーのcommit・`origin/main`・稼働APIの報告値を突き合わせて判定します。
+`scripts/check-deploy-drift.mjs`は、作業ツリーのcommit・`origin/main`・(指定時は)稼働APIの報告値を突き合わせて判定します。
 
 ```bash
-npm run deploy:drift                    # ローカルgit情報のみ(--remoteなし)
-npm run deploy:drift -- --json          # 機械可読
+npm run deploy:drift                    # 作業ツリーのみ(どこでも実行可)
+npm run deploy:drift:live               # 稼働API(http://127.0.0.1:18812)も突き合わせる
+npm run deploy:drift:live -- --json     # 機械可読
 node scripts/check-deploy-drift.mjs --url http://127.0.0.1:18812 --remote
 ```
+
+- **デプロイ後の必須確認は`deploy:drift:live`**です。`deploy:drift`は作業ツリーしか見ないため、再起動漏れ(プロセスが古いコードのまま)を検出できません。
+- `--url`を指定したのに稼働APIから`deploy.commit`を取得できない場合は「判定不能」として扱います。**比較できないことを「一致」とは報告しません。**
+- `--remote`は`git ls-remote`でリモートの`main`を確認します。リモートが進んでいるだけ(ローカルrefが古い)の場合は情報提供に留め、失敗扱いにしません。
 
 判定と終了コード:
 
@@ -120,7 +125,10 @@ node scripts/check-deploy-drift.mjs --url http://127.0.0.1:18812 --remote
 | `behind` | 本番が`origin/main`より遅れている(デプロイ待ち) | 0 |
 | `ahead` | `origin/main`に無いコミットが稼働している(**未レビューコード**) | 1 |
 | `dirty` | 未コミット変更が混ざった状態で稼働している | 1 |
-| `unknown` | git情報が読めない(アーカイブ配信など) | 2 |
+| (乖離要因あり) | 稼働APIのcommit不一致など。`--json`の`ok`が`false` | 1 |
+| `unknown` | `origin/main`未取得・稼働commit取得失敗など、**判定できない** | 2 |
+
+`scripts/deploy-local.sh`も、health確認時に稼働APIが報告する`deploy.commit`が今回のデプロイ対象`$new_sha`と一致することを必須とし、一致しない場合は自動ロールバックします。
 
 定期実行用に`deploy/systemd/mirai-web-cad-deploy-drift.service`と`.timer`(30分間隔)を用意しています。配置手順は[ローカルデプロイ運用メモ](deployment-local.md)の「systemdユニット配置」と同じです。乖離時はユニットが失敗し、journalに理由が残ります(通知連携はIssue #8)。
 
@@ -145,7 +153,7 @@ Cloudflare Tunnel/DNS自体に問題がある場合(Tunnel停止、証明書失�
 
 ただしPages側は**「移行前のコード」ではありません**(2026-09-18に実測して訂正)。`functions/api/[[path]].js`が現行の`src/api-handler.js`を読み込むため、`/api`は現行コードで動作します。接続先が失効済みのNeonを指しているため、実測では`GET /api/health`が500を返して図面データは取得できません。SPA表示のみの緊急避難的な切り戻しであり、APIの代替にはなりません。
 
-なおPages(preview含む)はCloudflare Accessの外側の公開オリジンであるため、本リポジトリでは`functions/api/[[path]].js`が`AUTH_MODE=access`以外を503で拒否するようにし、`wrangler.toml`にも`AUTH_MODE = "access"`を明示しています。5xxの内部エラー詳細も、ローカルdemoモード以外では応答へ含めません。
+なおPages(preview含む)はCloudflare Accessの外側の公開オリジンであるため、本リポジトリでは`functions/api/[[path]].js`が`AUTH_MODE=access`以外を503で拒否するようにし、`wrangler.toml`にも`AUTH_MODE = "access"`を明示しています。`wrangler.toml`の設定が反映されている環境では通常のaccess判定(未認証401、DB接続不可500など)が行われ、503はダッシュボード側の設定漏れでdemoモードになり得る場合のガードとして働きます。5xxの内部エラー詳細も、ローカルdemoモード以外では応答へ含めません(2026-09-18の実測では、Pagesが内部のDB接続ユーザー名を未認証で返していました)。
 
 ## 監査ログの追記専用化(0005)
 
@@ -157,6 +165,19 @@ drop trigger audit_logs_no_delete on audit_logs;
 ```
 
 監査データの棚卸は承認者権限で`GET /api/audit-logs?format=csv`(export操作自体が`audit.exported`として記録されます)。
+
+### 既存の検証用残留行の削除(要承認)
+
+2026-09-18より前の`db:verify`は、検証対象DBへ`audit_trigger_verify_probe`(actor `verify`、action `probe.insert`)をコミットしていました。**本番`mirai_web_cad`および検証用`mirai_web_cad_test`に1件ずつ残留しています**(2026-09-18実測)。現在の`db:verify`は検査をトランザクション内で行い必ずROLLBACKするため、新たな残留は発生しません([改善台帳P0-63](improvement-register.md))。
+
+この行の削除は追記専用保護を一時的に外す操作であり、**本番データを対象とする破壊的操作のため、実施前に承認が必要です**。手順:
+
+1. 対象DBと対象行(`id = 'audit_trigger_verify_probe'`)を確認し、削除対象がこの1行だけであることを記録する。
+2. 上記「トリガーを無効化する場合」の手順で保護を外し、当該行を削除する。
+3. **同一トランザクション内で**migration 0005のトリガー定義を再適用する。再適用後に`pg_trigger`の`tgenabled='O'`が2件であることを確認する。
+4. `npm run db:verify`を実行し、追記専用保護が有効であり、かつ新たな残留が発生しないことを確認する。
+
+削除を実施しない場合でも業務上の実害は限定的ですが、「監査証跡に検証用の合成行が1件残ることを受容する」という判断として記録してください。
 
 ## Backup / Restore
 
