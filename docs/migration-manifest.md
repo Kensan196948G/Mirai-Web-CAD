@@ -1,5 +1,8 @@
 # 独立リポジトリ移行Manifest
 
+> [!NOTE]
+> 本書は2026-08-26時点のリポジトリ移行という一回限りのイベントの記録であり、以後更新しない歴史的スナップショットである。文中のNeon PostgreSQL関連の記述は当時の構成を指し、現行の本番DBはローカルPostgreSQL 16(2026-08-30移行、Issue #22、[README](../README.md)参照)。最新の本番構成は[運用・復旧メモ](operations.md)を参照すること。
+
 移行日: 2026-08-26  
 移行元: `Kensan196948G/Construction-Enterprise-OS`の`Mirai-Web-CAD/`  
 移行先: `Kensan196948G/Mirai-Web-CAD`
