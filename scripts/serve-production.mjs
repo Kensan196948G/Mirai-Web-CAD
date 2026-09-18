@@ -225,12 +225,24 @@ function validateEnv() {
     }
   }
 
+  // ACCESS_DEFAULT_ROLEは、メール個別指定にもEntraグループにも一致しない全利用者へ
+  // 適用されるロール。ACCESS_ROLE_MAP/ENTRA_GROUP_ROLE_MAPと同じ検証を掛けないと、
+  // 「有効だが強すぎるロール」(例: cad_admin)が1行の設定ミスで全社員へ静かに適用される。
+  const accessDefaultRole = process.env.ACCESS_DEFAULT_ROLE;
+  if (accessDefaultRole && !ROLE_POLICIES[accessDefaultRole]) {
+    log("error", "ACCESS_DEFAULT_ROLE is not a known role, refusing to start", { unknownRole: accessDefaultRole });
+    process.exit(78);
+  }
+  if (accessDefaultRole && accessDefaultRole !== "viewer") {
+    log("warn", "ACCESS_DEFAULT_ROLE grants a role above viewer to every unmapped user", { role: accessDefaultRole });
+  }
+
   return {
     AUTH_MODE: authMode,
     APP_ENV: appEnv,
     DATABASE_URL: databaseUrl,
     ACCESS_ROLE_MAP: accessRoleMapRaw,
-    ACCESS_DEFAULT_ROLE: process.env.ACCESS_DEFAULT_ROLE,
+    ACCESS_DEFAULT_ROLE: accessDefaultRole,
     CF_ACCESS_TEAM_DOMAIN: cfAccessTeamDomain,
     CF_ACCESS_AUD: cfAccessAud,
     CORS_ORIGIN: corsOrigin,
@@ -239,6 +251,9 @@ function validateEnv() {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     AI_MODEL: process.env.AI_MODEL,
     AI_RATE_LIMIT_PER_MINUTE: process.env.AI_RATE_LIMIT_PER_MINUTE,
+    // api-handlerはenv.WRITE_RATE_LIMIT_PER_MINUTEを読む実装済みだが、ここで転送して
+    // いなかったため production.env に書いても反映されなかった(docsの記載と不一致)。
+    WRITE_RATE_LIMIT_PER_MINUTE: process.env.WRITE_RATE_LIMIT_PER_MINUTE,
     ENTRA_TENANT_ID: process.env.ENTRA_TENANT_ID,
     ENTRA_CLIENT_ID: process.env.ENTRA_CLIENT_ID,
     ENTRA_CLIENT_SECRET: process.env.ENTRA_CLIENT_SECRET,

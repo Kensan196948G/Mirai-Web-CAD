@@ -344,20 +344,32 @@ export async function handleApiRequest(request, env = {}) {
       const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 100));
       const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
       const auditLogs = await store.listAuditLogs(limit, offset);
-      if (url.searchParams.get("format") === "csv") {
-        await audit(store, actor.actor, "audit.exported", "audit_logs", "bulk", { count: auditLogs.length, limit, offset });
-        return new Response(auditLogsToCsv(auditLogs), {
-          status: 200,
-          headers: {
-            ...cors,
-            "content-type": "text/csv; charset=utf-8",
-            "content-disposition": `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
-            "cache-control": "no-store"
-          }
-        });
-      }
       const total = typeof store.countAuditLogs === "function" ? await store.countAuditLogs() : null;
       return json({ ok: true, auditLogs, limit, offset, total }, 200, cors);
+    }
+
+    // 監査CSVの出力。GETで状態変更(監査行の追記)を行うと、CORSのsimple requestとして
+    // 扱われるためクロスサイトの<img>/<link>から被害者の名前で`audit.exported`を追記でき、
+    // 監査証跡を汚染・誤帰属させ得る。POST+application/jsonを必須にしてpreflightを発生させ、
+    // ブラウザ経由のクロスサイト実行を成立させない。
+    if (request.method === "POST" && route === "/audit-logs/export") {
+      authorize(actor.actor, "canApprove");
+      if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
+        throw httpError("content-type: application/jsonが必要です。", 415);
+      }
+      const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 100));
+      const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+      const auditLogs = await store.listAuditLogs(limit, offset);
+      await audit(store, actor.actor, "audit.exported", "audit_logs", "bulk", { count: auditLogs.length, limit, offset });
+      return new Response(auditLogsToCsv(auditLogs), {
+        status: 200,
+        headers: {
+          ...cors,
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
+          "cache-control": "no-store"
+        }
+      });
     }
 
     if (request.method === "GET" && route === "/ai/status") {
@@ -646,19 +658,27 @@ function requireCadAdmin(actor) {
 //    メンバー登録を要求する。以前は `accessScope !== "restricted"` で許可していたため、
 //    migration 0007未適用などでaccessScopeが取得できない場合に全ロールへ開放され得た。
 // cad_adminは常に全案件へアクセス可能(運用担当が少人数のため管理者ロールを唯一のオーバーライドとする)。
-async function requireProjectAccess(store, actor, projectId) {
+async function requireProjectAccess(store, actor, projectId, options) {
+  // 図面経由の判定では、非会員にも「図面が存在しない」場合と完全に同一の404本文を返す。
+  // 本文が異なると、認証済みの任意ロールが「存在するが権限が無い」と「存在しない」を
+  // 区別でき、案件・図面IDの存在オラクルになる(コード内コメントの意図を実装で満たす)。
+  const deny = () => { throw httpError(options?.notFound ?? "この案件への権限がありません。", 404); };
   if (actor.role === "cad_admin") return;
   const project = await store.getProject(projectId);
-  if (!project) throw httpError("この案件への権限がありません。", 404);
+  if (!project) deny();
   if (project.accessScope === "open") return;
   const isMember = await store.isProjectMember(projectId, actor.id);
-  if (!isMember) throw httpError("この案件への権限がありません。", 404);
+  if (!isMember) deny();
 }
 
 async function requireDrawingAccess(store, actor, drawingId) {
+  // 要求されたIDを本文へ含めない。含めると「存在しないID」と「権限のない案件のID」で
+  // 本文が変わり、応答の差から案件・図面IDの存在を推測できてしまう。定数文言にして
+  // 両経路を完全に同一の応答へ揃える。
+  const notFound = "図面が見つかりません。";
   const projectId = await store.getDrawingProjectId(drawingId);
-  if (projectId === null) throw httpError(`図面が見つかりません: ${drawingId}`, 404);
-  await requireProjectAccess(store, actor, projectId);
+  if (projectId === null) throw httpError(notFound, 404);
+  await requireProjectAccess(store, actor, projectId, { notFound });
 }
 
 async function getDrawing(store, id) {
@@ -733,8 +753,13 @@ function requireTransactionCommands(body) {
       const shown = typeof command.op === "string" ? command.op.slice(0, 40) : typeof command.op;
       throw httpError(`commands[${index}]のopが不正です: ${shown}`, 400);
     }
-    if (Array.isArray(command.points) && command.points.length > MAX_COMMAND_POINTS) {
-      throw httpError(`commands[${index}].pointsが上限(${MAX_COMMAND_POINTS})を超えています。`, 413);
+    // 点列長の上限。`op:"add"`は`command.entity`、`op:"update"`は`command.patch`に
+    // 図形本体が入るため、`command.points`だけを見ても実クライアント経路では一度も
+    // 発動しない(SPAとcad-command.jsが送る形状に合わせて3箇所すべてを検査する)。
+    for (const [label, value] of [["points", command.points], ["entity.points", command.entity?.points], ["patch.points", command.patch?.points]]) {
+      if (Array.isArray(value) && value.length > MAX_COMMAND_POINTS) {
+        throw httpError(`commands[${index}].${label}が上限(${MAX_COMMAND_POINTS})を超えています。`, 413);
+      }
     }
   });
   return commands;

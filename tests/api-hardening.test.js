@@ -183,7 +183,7 @@ test("監査CSVは数式で始まる値を無害化する(到達経路)", async 
   assert.equal(created.status, 201);
 
   const csv = await handleApiRequest(
-    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "approver" } }),
+    new Request("https://example.test/api/audit-logs/export", { method: "POST", headers: { "content-type": "application/json", "x-demo-role": "approver" } }),
     env
   );
   assert.equal(csv.status, 200);
@@ -208,7 +208,7 @@ test("監査CSVの通常の値は従来どおり素通しする", async () => {
   );
   assert.equal(created.status, 201);
   const csv = await handleApiRequest(
-    new Request("https://example.test/api/audit-logs?format=csv", { headers: { "x-demo-role": "approver" } }),
+    new Request("https://example.test/api/audit-logs/export", { method: "POST", headers: { "content-type": "application/json", "x-demo-role": "approver" } }),
     env
   );
   const body = await csv.text();

@@ -13,7 +13,8 @@
 | `POST` | `/api/agent-runs/:runId/approve` | 実装済み。AI提案を人の承認で適用 |
 | `POST` | `/api/drawings/:drawingId/review` | 実装済み。レビュー提出、承認、新版 |
 | `POST` | `/api/drawings/:drawingId/comments` | 実装済み。`canComment`権限(reviewerも可)。コメント追加、監査ログに本文は記録しない |
-| `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ。`limit`/`offset`ページング、`?format=csv`でCSV export(数式注入ガード付き) |
+| `GET` | `/api/audit-logs` | 実装済み。承認系権限のみ。`limit`/`offset`ページング付きの一覧(読取り専用。状態を変更しない) |
+| `POST` | `/api/audit-logs/export` | 実装済み。承認系権限のみ。CSV export(数式注入ガード付き)。`content-type: application/json`必須。export操作自体が`audit.exported`として記録される |
 | `GET` | `/api/ai/status` | 実装済み。`canRunAi`権限。`AI_PROVIDER`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`AI_MODEL`環境変数から有効状態・プロバイダ名・モデル名のみ返す(APIキー自体は返さない)。APIキーはブラウザに一切保存・送信しない |
 | `POST` | `/api/projects` | 実装済み(2026-09-18〜)。`cad_admin`限定。案件を作成し、`accessScope`(`open`既定/`restricted`)を指定 |
 | `GET`/`PATCH` | `/api/projects/:projectId` | 実装済み。`cad_admin`限定。案件情報・メンバー一覧の取得、`accessScope`の変更 |

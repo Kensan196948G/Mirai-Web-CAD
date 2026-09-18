@@ -217,6 +217,25 @@ test("PostgreSQL統合テスト", { skip: skipReason }, async (t) => {
     assert.equal(await store.getDrawingProjectId("dwg_does_not_exist"), null);
   });
 
+  await t.test("保存済みcontentが解釈できない場合はデモ図面で代替せず明示的に失敗する", async () => {
+    // 以前はseedDrawing()へ差し替えて「デモ図面」を返していた。その挙動は利用者に誤った
+    // 図面を見せ、そのまま保存させると同一版を上書きして実データを失う(改善台帳P0-76)。
+    const store = createDataStore({ DATABASE_URL: testDatabaseUrl });
+    const drawingId = `dwg_corrupt_${Date.now()}`;
+    const projectId = "prj_demo_road_001";
+    await store.createProject({ id: projectId, name: "道路拡幅デモ案件", owner: "mirai-demo", accessScope: "open" });
+    const drawing = createDrawing({ id: drawingId, name: "破損検証" });
+    drawing.currentRole = "drafter";
+    await store.createDrawingAtomically(drawing, {
+      id: `audit_corrupt_${Date.now()}`, actorId: "it@test", role: "drafter", action: "drawing.created",
+      targetType: "drawing", targetId: drawingId, detail: {}, createdAt: new Date().toISOString()
+    }, `idem_corrupt_${Date.now()}`, "it@test", "/api/drawings", projectId);
+
+    // layersを配列でない値へ差し替え、CAD図面として解釈できない状態を作る。
+    await store.sql`update drawing_versions set content = ${store.sql.json({ broken: true })} where drawing_id = ${drawingId}`;
+    await assert.rejects(() => store.getDrawing(drawingId), /解釈できません/);
+  });
+
   t.after(async () => {
     await closeDataStorePool();
   });

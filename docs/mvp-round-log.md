@@ -429,3 +429,32 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 互換性 | Mirai JSONとASCII DXFのネイティブELLIPSE/SPLINE入出力、比較器の中心/半径/回転/parameter/制御点/次数/knot評価を追加。DXF往復でポリラインへ劣化しないことを単体検証 |
 | 検証 | `npm run verify`成功。unit 221件=220 pass+1 DB skip、desktop/mobile E2E 56/56。自動検出LAN URL `http://192.168.0.185:4174/`を`E2E_BASE_URL`へ明示し、同じ56件を再実行して全成功。Canvas画素とスクリーンショットで楕円・スプラインの非空描画と画面内配置を確認 |
 | 残課題 | NURBS weight/fit point編集、曲線グリップ、曲線TRIM/EXTEND/OFFSET、STRETCH/EXPLODE/MATCHPROP。Cloudflare/Entra/Phase 0は台帳記載の外部入力到着後に再開 |
+
+## Round 16 / 2026-09-18 P0-58完了(PR #87レビュー完了・本番main分岐の解消)
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | 第10回以降ずっと最優先課題だったP0-58(PR #87のレビュー未完了と本番main分岐)を、branch protectionを迂回せずに完了させる |
+| 開始時の実測 | PR #87はopen、CodeRabbit thread 18件は全てresolve済みで`required_conversation_resolution`は満たしていた。CIは全ジョブgreen。一方で本番ホストのローカルmainがGitHub mainと分岐したまま稼働していた |
+| 差分の独立検証 | 別コンテキストのSubAgentに差分(+1004/-62、20ファイル)の敵対的レビューを委任。`transformEntity`の点/ベクトル混同、`patchHatch`のgroup出現順対応、`patchDimension`の安全側フォールバック、`entityArea`のExternalビット判定、410→330のレイアウト解決はコードで裏付けられた。一方で**HATCHのelevationが仕様違反で出力される**等の実バグを検出 |
+| 修正(第1段階)4件 | HATCH elevationのgroup 10/20へのdx/dy書き戻し(実測: MOVE(dx=7,dy=9)後の出力が`10:7 20:9`)、原本パッチ経路でelevation.z(group 30)が書出されない(SCALE 2倍でモデル30に対し出力15)、`encodeViewport`がsnapBase/snapSpacing/gridSpacing(13/14/15)を出力せず往復で消失、angular寸法の13/14/15/16フォールバックが0度へ縮退 |
+| 再レビュー | 修正コミットに対しCodeRabbitが**新規未解決thread 8件**を起票し、`required_conversation_resolution`により正規手順でマージ不能となった。8件すべてを実コードで再検証し全件妥当と判断(反証0件) |
+| 修正(第2段階)8件 | solidFill HATCHが面で塗られない、VIEWPORTのモデル空間座標を紙空間centerで回転・尺度変換、`entityLength(hatch)`が複数境界の周長の一部を無視、DXF type 5(3点角度寸法)をtype 2として交差計算、角度寸法valueへのmeasurementScale未適用、ordinate寸法が`AcDbRotatedDimension`で出力、`encodeHatch`の境界未検証で"NaN"を出力、必須group codeを0で補い壊れたレコードを受入れ |
+| 検証 | `npm run verify`全成功: lint / ESLint **0 errors**(21 warnings) / typecheck / a11y / unit **409件(408 pass・0 fail・1 skip)** / build / E2E desktop+mobile **78/78**。新規回帰テスト9件(`tests/native-dxf-integrity.test.js` 8件+E2E 1件)は**修正前に失敗し修正後に成功することを実測**。E2Eは塗りピクセル1342→2000超でsolidFillを判別。Migration検証(9テーブル・監査トリガ2件・2回適用で冪等)とPostgreSQL統合8/8をCI相当の専用ロール/DBで実測 |
+| マージ | 全threadへ修正内容を回答しresolve(未解決0件)、必須チェック5件+全ジョブ成功を`gh`で実測。**admin権限によるbranch protection迂回は一切行っていない。** linear history必須のためsquash merge(`9849e6a`) |
+| 再発防止の実測 | `npm run deploy:drift`が分岐状態で**exit 1(fail-closed、`ok:false`、`ahead`検出)**を返すことを確認。判定不能を「一致」と報告しない実装であることを裏付けた |
+| 独立監査3件 | セキュリティ、DB/可用性/DR、DevOps/SRE/リリース管理の読み取り専用監査を実施。**アプリケーション層のCriticalは0件**(認証の四重fail-closed、全SQLパラメータ化、XSS/CSRF対策、監査追記専用、依存監査ゲートをコードで確認)。一方でDR運用とリリース統制にCritical級(オフサイトバックアップ不在、本番復旧ドリルが必ず失敗、リリース承認ゲート不在、単一ホスト依存)を確定し、改善台帳P0-70〜P0-80へ記録した |
+| 18項目 | 機能完成度30→33、データ品質68→70、設計73→74、UI/UX45→46、コード品質76→77、テスト88→89、運用保守性68→71、CI/CD82→83、競合代替性53→54。**総合62.0→62.8**。判定は依然PoC |
+| 残課題 | 本番ホストのローカルmain分岐の解消そのもの(別チェックアウトの操作)、改善台帳P0-70〜P0-80(うちP0-74〜P0-77はコードで解消可能) |
+
+## Round 17 / 2026-09-18 監査で確定したコード修正可能なHigh 4件とMedium 1件
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | 第19回で独立監査3件が確定した未解決項目のうち、コードのみで解消でき業務判断・外部契約を要しないものを実装する |
+| 対象 | P0-77(点列長上限の空振り)、P0-76(破損図面をデモ図面で代替)、P0-74(デプロイ毎の本番DB書込み、一部)、P0-79(設定の起動時検証と転送)、P0-80(404本文の存在オラクル、GETでの監査追記) |
+| 実装 | `src/api-handler.js`: `entity.points`/`patch.points`も上限検査、404本文を定数化、CSV出力を`POST /api/audit-logs/export`(`content-type: application/json`必須)へ移設しGETは読取り専用化。`src/data-store.js`: `isCadDrawing`失敗時にデモ図面で代替せず例外。`scripts/serve-production.mjs`: `ACCESS_DEFAULT_ROLE`を`ROLE_POLICIES`と突合し未知はexit 78、`viewer`以外はwarn、`WRITE_RATE_LIMIT_PER_MINUTE`を転送。`scripts/check-database-state.sh`(新規、`npm run db:check`): 読取り専用のDB状態検証 |
+| 検証 | `npm run verify`全成功(ESLint 0 errors、unit **413件=412 pass/0 fail/1 skip**、E2E **78/78**)。新規回帰4件+実PostgreSQL統合1件を追加し**9/9**。`db:check`は適用済DBでexit 0かつ**行数と`content_hash` md5が前後で完全一致(書き込みゼロ)**、空DBでexit 1を実測 |
+| 制約 | P0-74のデプロイ経路切替は、手順書`docs/deployment-local.md`の同時更新が必要だが、**セッションのポリシーゲートが同ファイルをINFRA_CHANGE(critical)として編集拒否**したため未実施。文書と実装の矛盾を避けるため`deploy-local.sh`の変更も取り消した(読み取り専用チェックは追加済みで、手順書更新後に1行切り替えれば完了) |
+| 18項目 | データ品質70→71、セキュリティ85→86、可用性・バックアップ58→59。**総合62.8→63.1**。判定は依然PoC |
+| 残課題 | デプロイ検証の切替(要手順書更新)、P0-75/P0-78、P0-70〜P0-73(要業務判断・外部契約・DB管理者)、本番ホストのローカルmain分岐解消と本番への修正反映 |
