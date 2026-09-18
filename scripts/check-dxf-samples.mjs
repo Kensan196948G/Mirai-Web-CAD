@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import DxfParser from "dxf-parser";
 import { sourceEntityInventory } from "./lib/dxf-source-inventory.mjs";
 
+const nativeSourceTypes = new Set(["DIMENSION", "HATCH", "VIEWPORT"]);
+
 const input = path.resolve(process.argv[2] ?? "sample/DXF_sample_set");
 const output = path.resolve(process.argv[3] ?? "artifacts/dxf-samples");
 const runner = fileURLToPath(new URL("./compat-report.mjs", import.meta.url));
@@ -42,7 +44,8 @@ try {
       result.sourceChildRecords = inventory.children;
       result.parserTypes = {};
       for (const entity of parsed.entities) result.parserTypes[entity.type] = (result.parserTypes[entity.type] ?? 0) + 1;
-      result.parserDroppedTypes = Object.fromEntries(Object.entries(inventory.types).filter(([type, count]) => (result.parserTypes[type] ?? 0) < count));
+      result.nativeSourceTypes = Object.fromEntries(Object.entries(inventory.types).filter(([type]) => nativeSourceTypes.has(type)));
+      result.parserDroppedTypes = Object.fromEntries(Object.entries(inventory.types).filter(([type, count]) => !nativeSourceTypes.has(type) && (result.parserTypes[type] ?? 0) < count));
       result.sourceLayers = Object.keys(parsed.tables?.layer?.layers ?? {}).length;
       result.sourceBlocks = Object.keys(parsed.blocks ?? {}).length;
       const run = spawnSync(process.execPath, [runner, "--mode=dxf-roundtrip", `--file=${path.join(input, file)}`], { encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 });

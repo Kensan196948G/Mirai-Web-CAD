@@ -1,4 +1,4 @@
-const TYPES = new Set(["aligned", "horizontal", "vertical", "radius", "diameter"]);
+const TYPES = new Set(["aligned", "horizontal", "vertical", "rotated", "angular", "ordinate", "radius", "diameter"]);
 const finitePoint = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y);
 
 export function dimensionOptions(options = {}) {
@@ -60,6 +60,47 @@ export function dimensionGeometry(entity) {
   const length = Math.hypot(dx, dy);
   const unit = length > 1e-9 ? { x: dx / length, y: dy / length } : { x: 1, y: 0 };
   let start, end, value;
+  if (options.dimensionType === "angular") {
+    const definitions = entity.definitionPoints ?? {};
+    // DXFの角度寸法は2種類ある。type 2(2線角度)はgroup 13/14と15/16がそれぞれ角度線の
+    // 両端点で、両直線の交点が中心になる。type 5(3点角度)はgroup 15が頂点、13と14が各
+    // 延長線上の点で、頂点から見た2方向の角が測定対象になる。type 5をtype 2として交差
+    // 計算すると中心と掃引角を誤るため、頂点基準の分岐に切り替える。
+    const threePoint = (Number(entity.dxfDimensionType) & 7) === 5;
+    let center, firstAngle, secondAngleRaw;
+    if (threePoint) {
+      center = definitions["15"] ?? a;
+      const firstPoint = definitions["13"] ?? a, secondPoint = definitions["14"] ?? b;
+      firstAngle = Math.atan2(firstPoint.y - center.y, firstPoint.x - center.x);
+      secondAngleRaw = Math.atan2(secondPoint.y - center.y, secondPoint.x - center.x);
+    } else {
+      const firstStart = definitions["13"] ?? a, firstEnd = definitions["14"] ?? b;
+      const secondStart = definitions["15"] ?? a, secondEnd = definitions["16"] ?? b;
+      center = lineIntersection(firstStart, firstEnd, secondStart, secondEnd) ?? a;
+      firstAngle = Math.atan2(firstEnd.y - center.y, firstEnd.x - center.x);
+      secondAngleRaw = Math.atan2(secondEnd.y - center.y, secondEnd.x - center.x);
+    }
+    const anchor = entity.dimensionLinePoint ?? entity.textPoint ?? b;
+    const twoPi = Math.PI * 2;
+    // firstAngleからCCW方向にsecondAngleへ達するまでの掃引角(0〜2πの範囲)。
+    const ccwSweep = ((secondAngleRaw - firstAngle) % twoPi + twoPi) % twoPi;
+    // dimensionLinePoint(なければtextPoint、それも無ければ計測線の終点)がCCW側の弧
+    // (0〜ccwSweep)に含まれるかどうかで、実際に表示すべき弧(鋭角側/劣角側)を選ぶ。
+    // 含まれない場合は補角側(CW方向、負の掃引)を採用する。
+    const anchorOffset = ((Math.atan2(anchor.y - center.y, anchor.x - center.x) - firstAngle) % twoPi + twoPi) % twoPi;
+    const sweep = anchorOffset <= ccwSweep ? ccwSweep : ccwSweep - twoPi;
+    const radius = Math.max(1e-9, Math.hypot(anchor.x - center.x, anchor.y - center.y));
+    const arcPoints = Array.from({ length: 17 }, (_unused, index) => {
+      const current = firstAngle + sweep * index / 16;
+      return { x: center.x + radius * Math.cos(current), y: center.y + radius * Math.sin(current) };
+    });
+    const value = Math.abs(sweep) * 180 / Math.PI;
+    const numeric = (value * options.measurementScale).toFixed(options.precision);
+    const label = entity.associationStatus === "broken" ? "[?]" : entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", numeric) : `${options.prefix}${numeric}${options.suffix}`;
+    // 戻り値のvalueも他の寸法分岐と同様にmeasurementScale適用後を返し、返却契約を揃える。
+    return { segments: [[center, arcPoints[0]], ...arcPoints.slice(1).map((point, index) => [arcPoints[index], point]), [center, arcPoints.at(-1)]], start: arcPoints[0], end: arcPoints.at(-1),
+      textPoint: entity.textPoint ?? arcPoints[Math.floor(arcPoints.length / 2)], label, value: value * options.measurementScale, ...options };
+  }
   if (options.dimensionType === "horizontal") {
     start = { x: a.x, y: a.y + options.offset }; end = { x: b.x, y: start.y }; value = Math.abs(dx);
   } else if (options.dimensionType === "vertical") {
@@ -67,15 +108,42 @@ export function dimensionGeometry(entity) {
   } else if (["radius", "diameter"].includes(options.dimensionType)) {
     start = options.dimensionType === "diameter" ? { x: a.x - dx, y: a.y - dy } : a;
     end = b; value = length * (options.dimensionType === "diameter" ? 2 : 1);
+  } else if (options.dimensionType === "rotated") {
+    const radians = Number(entity.dimensionLineAngle ?? 0) * Math.PI / 180;
+    const axis = { x: Math.cos(radians), y: Math.sin(radians) }, normal = { x: -axis.y, y: axis.x };
+    const projection = (point) => point.x * axis.x + point.y * axis.y;
+    const anchor = entity.dimensionLinePoint ?? { x: a.x + normal.x * options.offset, y: a.y + normal.y * options.offset };
+    start = { x: anchor.x + axis.x * (projection(a) - projection(anchor)), y: anchor.y + axis.y * (projection(a) - projection(anchor)) };
+    end = { x: anchor.x + axis.x * (projection(b) - projection(anchor)), y: anchor.y + axis.y * (projection(b) - projection(anchor)) };
+    value = Math.abs(projection(b) - projection(a));
+  } else if (options.dimensionType === "ordinate") {
+    // DXF: 13=feature location(=a)、14=leader endpoint(=b)、10=作成時のUCS原点
+    // (entity.dimensionLinePointとして保持)。70のbit 64(0x40)がX軸かY軸かを示す
+    // (未設定時はa/bの変位が大きい軸を推定、DXF由来でない場合の防御)。測定値は
+    // 選択軸についてfeature locationと原点の差の絶対値(leader endpointの絶対座標
+    // ではない)。
+    const origin = entity.dimensionLinePoint ?? { x: 0, y: 0 };
+    const xAxis = Number.isInteger(entity.dxfDimensionType) ? Boolean(entity.dxfDimensionType & 64) : Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+    start = a; end = b;
+    value = xAxis ? Math.abs(a.x - origin.x) : Math.abs(a.y - origin.y);
   } else {
     start = { x: a.x - unit.y * options.offset, y: a.y + unit.x * options.offset };
     end = { x: b.x - unit.y * options.offset, y: b.y + unit.x * options.offset }; value = length;
   }
   const radial = ["radius", "diameter"].includes(options.dimensionType);
   const segments = radial ? [[start, end]] : [[a, start], [start, end], [b, end]];
-  const textPoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - options.textSize * 0.25 };
+  const textPoint = entity.textPoint ?? { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - options.textSize * 0.25 };
   const numeric = (value * options.measurementScale).toFixed(options.precision);
   const symbol = options.dimensionType === "radius" ? "R" : options.dimensionType === "diameter" ? "DIA " : "";
-  const label = entity.associationStatus === "broken" ? "[?]" : `${options.prefix}${symbol}${numeric}${options.suffix}`;
+  const generated = `${options.prefix}${symbol}${numeric}${options.suffix}`;
+  const label = entity.associationStatus === "broken" ? "[?]" : entity.textOverride && entity.textOverride !== "<>" ? entity.textOverride.replace("<>", generated) : generated;
   return { segments, start, end, textPoint, label, value: value * options.measurementScale, ...options };
+}
+
+function lineIntersection(a, b, c, d) {
+  const ab = { x: b.x - a.x, y: b.y - a.y }, cd = { x: d.x - c.x, y: d.y - c.y };
+  const denominator = ab.x * cd.y - ab.y * cd.x;
+  if (Math.abs(denominator) < 1e-9) return null;
+  const t = ((c.x - a.x) * cd.y - (c.y - a.y) * cd.x) / denominator;
+  return { x: a.x + ab.x * t, y: a.y + ab.y * t };
 }

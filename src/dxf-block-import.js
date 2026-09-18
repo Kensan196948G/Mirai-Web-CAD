@@ -1,4 +1,5 @@
 import { createDxfSourceDocument, inspectDxfSourceDocument, inspectDxfBlocks, dxfGroup } from "./dxf-source-document.js";
+import { buildLayoutNameResolver } from "./dxf-native-entities.js";
 import { blockReference } from "./cad-block.js";
 import { affineText, blockAffine, inverseAffine } from "./cad-affine.js";
 
@@ -12,6 +13,7 @@ function textOptions(record) {
 
 export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive) {
   const document = createDxfSourceDocument(content);
+  const resolveLayoutName = buildLayoutNameResolver(document);
   const { records } = inspectDxfSourceDocument(document);
   const view = inspectDxfBlocks(document);
   if (view.diagnostics.length) throw new Error(view.diagnostics.join(" / "));
@@ -40,8 +42,13 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
   const definitionIds = new Map(sourceDefinitions.map((source, index) => [source.recordId, definitions[index].id]));
   const references = new Map(view.references.map((reference) => [reference.recordId, reference]));
   function checkPlanar(record) {
-    for (const code of [30, 31, 38, 39, 210, 220]) if (Number(dxfGroup(record, code, 0)) !== 0) throw new Error(`${record.type}: 3D/OCS/厚さは未対応です。`);
-    if (Number(dxfGroup(record, 230, 1)) !== 1 || Number(dxfGroup(record, 67, 0)) !== 0) throw new Error(`${record.type}: OCS/紙空間は未対応です。`);
+    // HATCHのgroup 30は図形のZ座標ではなく「elevation point(OCS標高点)のZ」で、2D平面の
+    // 標高を表す正規の値であり、elevationとして取込・保持する(3D非対応の判定対象外)。
+    // これを一律0と要求すると、INSERTを含むDXFではelevation付きHATCHが「3D/OCS/厚さは
+    // 未対応」で取込全体を中止する一方、INSERTが無ければ同じHATCHを正常に取り込めていた。
+    const planarityCodes = record.type === "HATCH" ? [31, 38, 39, 210, 220] : [30, 31, 38, 39, 210, 220];
+    for (const code of planarityCodes) if (Number(dxfGroup(record, code, 0)) !== 0) throw new Error(`${record.type}: 3D/OCS/厚さは未対応です。`);
+    if (Number(dxfGroup(record, 230, 1)) !== 1) throw new Error(`${record.type}: OCSは未対応です。`);
   }
   function attribute(source) {
     const record = recordsById.get(source.recordId);
@@ -64,7 +71,8 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
       const uniform = source.scale.x > 0 && source.scale.x === source.scale.y;
       const reference = blockReference(layerId, definitionIds.get(source.definitionRecordId), source.position, { rotation: source.rotation, scale: uniform ? source.scale.x : 1,
         axisScale: uniform ? { x: 1, y: 1 } : { x: source.scale.x, y: source.scale.y }, scaleZ: source.scale.z });
-      reference.dxfRecordId = record.id;
+      Object.assign(reference, { dxfRecordId: record.id, paperSpace: source.paperSpace === 1,
+        layoutName: source.layout ?? resolveLayoutName(dxfGroup(record, 330), source.paperSpace === 1) });
       if (!reference.definitionId) throw new Error(`INSERT定義が未対応です: ${source.name}`);
       reference.attributeReferences = source.attributes.map((sourceAttribute) => {
         const value = attribute(sourceAttribute);
@@ -72,7 +80,7 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
       });
       return reference;
     }
-    if (!["LINE", "CIRCLE", "ARC", "LWPOLYLINE", "TEXT"].includes(record.type)) throw new Error(`BLOCK図面内の${record.type}は未対応です。`);
+    if (!["LINE", "CIRCLE", "ARC", "ELLIPSE", "SPLINE", "LWPOLYLINE", "TEXT", "MTEXT", "DIMENSION", "HATCH", "VIEWPORT"].includes(record.type)) throw new Error(`BLOCK図面内の${record.type}は未対応です。`);
     if (record.type === "LWPOLYLINE" && record.groups.some((group) => [40, 41, 42, 43].includes(group.code) && Number(group.value) !== 0)) {
       throw new Error("BLOCK内の幅・bulge付きポリラインは未対応です。");
     }
@@ -81,6 +89,8 @@ export function prepareDxfBlocks(content, drawing, createLayers, parsePrimitive)
     }
     const normalized = parsePrimitive(record, layerId);
     normalized.dxfRecordId = record.id;
+    normalized.paperSpace = Number(dxfGroup(record, 67, 0)) === 1;
+    normalized.layoutName = dxfGroup(record, 410) ?? resolveLayoutName(dxfGroup(record, 330), normalized.paperSpace);
     if (normalized.type === "text") {
       normalized.rotation = Number(dxfGroup(record, 50, 0));
       normalized.value = decodeDxfText(normalized.value);

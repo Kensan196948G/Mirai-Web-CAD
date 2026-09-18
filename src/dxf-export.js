@@ -6,9 +6,8 @@
 // - 対象entity: line→LINE, circle→CIRCLE, arc→ARC, ellipse→ELLIPSE, spline→SPLINE、
 //   polyline→LWPOLYLINE(閉鎖フラグ70=1)、
 //   text→TEXT(高さ40)。rectは閉鎖LWPOLYLINE(4頂点)として書出す(DXFにrect概念がないため)。
-//   dimension / hatch / 旧children型block は現PhaseではDXFへ安全に写像できないため「黙って捨てず」、
-//   構造化されたskippedリストとして返す(未対応entity非破棄ポリシーの書出し側適用)。
-//   definitionId付きblockは通常2D BLOCK/INSERT/属性として限定再生成する。
+//   dimension / hatch / viewport とdefinitionId付きblockはネイティブEntityとして生成する。
+//   旧children型blockなど安全に写像できないものは構造化されたskippedリストで報告する。
 // - 書出し座標は1e-9単位へ丸める(絶対許容差0.01mmのTOLERANCE_V0に対して十分な精度)。
 //   レイヤ色は近傍ACI(代表16色)へ近似する(真色420・CTB/STB対応は後続Phase)。
 // - dxf-parserで再importした際、importers.jsが生成するDrawingと比較器(compareDrawings)の
@@ -20,6 +19,7 @@
 import { resolveBlocks, blockAttributeText } from "./cad-block.js";
 import { affineText, blockAffine } from "./cad-affine.js";
 import { exportDxfFromSource } from "./dxf-source-export.js";
+import { dimensionGeometry } from "./cad-dimension.js";
 
 /** 色相の近傍ACI探索に使う代表色(RGB)。AutoCAD標準色(1〜9)とグレー(250〜255)の近似値。 */
 const ACI_ANCHORS = [
@@ -75,7 +75,7 @@ export function exportDxf(drawing) {
   let exported = 0;
   lines.push("0", "SECTION", "2", "ENTITIES");
   for (const entity of drawing.entities ?? []) {
-    const encoded = encodeEntity(entity, layerNameById, warnings, skipped, definitions);
+    const encoded = encodeEntity(entity, layerNameById, warnings, skipped, definitions, true);
     if (!encoded) continue;
     lines.push(...encoded);
     exported += 1;
@@ -108,6 +108,13 @@ function appendLayerTable(lines, drawing, layerNameById) {
     );
   }
   lines.push("0", "ENDTAB");
+  const dimensionStyles = drawing.dimensionStyles?.length ? drawing.dimensionStyles : [{ name: "STANDARD", textSize: 180, arrowSize: 120, precision: 0 }];
+  lines.push("0", "TABLE", "2", "DIMSTYLE", "5", "F03", "100", "AcDbSymbolTable", "70", String(dimensionStyles.length));
+  dimensionStyles.forEach((style, index) => lines.push("0", "DIMSTYLE", "105", (61696 + index).toString(16).toUpperCase(), "100", "AcDbSymbolTableRecord", "100", "AcDbDimStyleTableRecord",
+    "2", dxfText(style.name ?? "STANDARD"), "70", "0", "40", num(style.scale ?? 1), "41", num(style.arrowSize ?? 120), "42", num(style.extensionOffset ?? 0), "44", num(style.extensionBeyond ?? 0),
+    "140", num(style.textSize ?? 180), "144", num(style.measurementScale ?? 1), "147", num(style.textGap ?? 0), "271", String(style.precision ?? 0), "272", String(style.tolerancePrecision ?? 0),
+    "71", style.tolerance ? "1" : "0", "72", style.limits ? "1" : "0", "47", num(style.upperTolerance ?? 0), "48", num(style.lowerTolerance ?? 0)));
+  lines.push("0", "ENDTAB");
   if (drawing.blockDefinitions?.length) {
     const names = ["*Model_Space", "*Paper_Space", ...drawing.blockDefinitions.map((definition) => definition.name)];
     lines.push("0", "TABLE", "2", "BLOCK_RECORD", "5", "F01", "100", "AcDbSymbolTable", "70", String(names.length));
@@ -133,7 +140,7 @@ function appendBlocks(lines, drawing, layers, warnings, skipped, definitions) {
     const owner = (4096 + index).toString(16);
     lines.push("0", "BLOCK", "330", owner, "100", "AcDbEntity", "8", "0", "100", "AcDbBlockBegin", "2", sanitizeName(definition.name), "70", definition.attributeDefinitions.length ? "2" : "0", ...point(definition.basePoint, 10), "3", sanitizeName(definition.name), "1", "");
     for (const entity of definition.entities) {
-      const encoded = encodeEntity(entity, layers, warnings, skipped, definitions);
+      const encoded = encodeEntity(entity, layers, warnings, skipped, definitions, true);
       if (encoded) lines.push(...encoded);
     }
     for (const attribute of definition.attributeDefinitions) lines.push(...encodeAttribute(attribute, "ATTDEF", layers));
@@ -165,10 +172,10 @@ function textTransformGroups(entity) {
  * @param skipped
  * @returns {string[] | null}
  */
-function encodeEntity(entity, layerNameById, warnings, skipped, definitions = new Map()) {
-  const encoded = encodeEntityBody(entity, layerNameById, warnings, skipped, definitions);
+function encodeEntity(entity, layerNameById, warnings, skipped, definitions = new Map(), limitedRegeneration = false) {
+  const encoded = encodeEntityBody(entity, layerNameById, warnings, skipped, definitions, limitedRegeneration);
   if (!encoded || !definitions.size || entity.type === "block") return encoded;
-  const subclass = { LINE: "AcDbLine", CIRCLE: "AcDbCircle", ARC: "AcDbCircle", LWPOLYLINE: "AcDbPolyline", TEXT: "AcDbText", ELLIPSE: "AcDbEllipse", SPLINE: "AcDbSpline" }[encoded[1]];
+  const subclass = { LINE: "AcDbLine", CIRCLE: "AcDbCircle", ARC: "AcDbCircle", LWPOLYLINE: "AcDbPolyline", TEXT: "AcDbText", ELLIPSE: "AcDbEllipse", SPLINE: "AcDbSpline", DIMENSION: "AcDbDimension", HATCH: "AcDbHatch", VIEWPORT: "AcDbViewport" }[encoded[1]];
   if (!subclass) return encoded;
   const result = [...encoded.slice(0, 2), "100", "AcDbEntity", ...encoded.slice(2, 4), "100", subclass, ...encoded.slice(4)];
   if (entity.type === "arc") {
@@ -203,7 +210,7 @@ export function encodeDxfBlockDefinition(definition, drawing, owner) {
   return lines.map(dxfText).join("\n") + "\n";
 }
 
-function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions) {
+function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions, limitedRegeneration = false) {
   if (!entity || typeof entity !== "object" || typeof entity.id !== "string" || typeof entity.type !== "string") {
     return null;
   }
@@ -334,9 +341,134 @@ function encodeEntityBody(entity, layerNameById, warnings, skipped, definitions)
       return ["0", "TEXT", ...base, ...point(at, 10), "40", num(size), "1", definitions.size ? dxfText(value) : value, "50", num(entity.rotation ?? 0), "7", dxfText(entity.styleName ?? "STANDARD"),
         ...textTransformGroups({ ...entity, widthFactor, oblique, generationFlags })];
     }
+    case "dimension":
+      return encodeDimension(entity, base, skipped);
+    case "hatch":
+      return encodeHatch(entity, base, skipped, limitedRegeneration);
+    case "viewport":
+      return encodeViewport(entity, base, skipped, limitedRegeneration);
     default:
-      return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です(現Phase: dimension/hatch/block)");
+      return skipEntity(entity, skipped, "DXF書出し未対応のentity種別です");
   }
+}
+
+function encodeDimension(entity, base, skipped) {
+  if (!Array.isArray(entity.points) || entity.points.length !== 2 || entity.points.some((value) => !finitePoint(value))) return skipEntity(entity, skipped, "寸法の定義点が不正です");
+  let geometry;
+  try { geometry = dimensionGeometry(entity); } catch { return skipEntity(entity, skipped, "寸法設定が不正です"); }
+  const kind = entity.dimensionType ?? "aligned";
+  const type = entity.dxfDimensionType ?? ({ horizontal: 32, vertical: 32, rotated: 32, aligned: 33, angular: 34, diameter: 35, radius: 36, ordinate: 38 }[kind] ?? 33);
+  const definitionPoint = kind === "diameter" ? { x: 2 * entity.points[0].x - entity.points[1].x, y: 2 * entity.points[0].y - entity.points[1].y } : entity.dimensionLinePoint ?? geometry.start;
+  const groups = ["0", "DIMENSION", ...base, "2", "", ...point(definitionPoint, 10), ...point(entity.textPoint ?? geometry.textPoint, 11),
+    "70", String(type), "71", String(entity.attachmentPoint ?? 5), "1", dxfText(entity.textOverride ?? "<>"), "3", dxfText(entity.dimensionStyleName ?? "STANDARD")];
+  const definitions = entity.definitionPoints ?? {};
+  if (kind === "angular") {
+    // angular寸法はDXF上、2本の角度線をgroup code 13/14と15/16の4点で表す
+    // (AcDb2LineAngularDimension)。definitionPointsが欠けている場合、points(2点)からは
+    // 2本目の角度線を復元できないため、13/14の複製を作ると0度の縮退した寸法を出力して
+    // しまう。黙って壊れた図形を書出さず、理由付きでスキップする(未対応entity非破棄
+    // ポリシーの書出し側適用)。
+    if (![13, 14, 15, 16].every((code) => finitePoint(definitions[String(code)]))) return skipEntity(entity, skipped, "角度寸法の角度線定義点(13/14/15/16)が不足しています");
+    groups.push("100", "AcDb2LineAngularDimension");
+    for (const code of [13, 14, 15, 16]) groups.push(...point(definitions[String(code)], code));
+  } else if (["radius", "diameter"].includes(kind)) {
+    groups.push("100", kind === "radius" ? "AcDbRadialDimension" : "AcDbDiametricDimension", ...point(entity.points[1], 15));
+  } else if (kind === "ordinate") {
+    // 座標寸法は他種別と別のサブクラス(AcDbOrdinateDimension)を持ち、13=フィーチャ位置、
+    // 14=引出線端点で表す。X軸(type flag bit 64)なら両点のYを、Y軸ならXを一致させる。
+    // aligned/rotated用のサブクラスを流用するとAutoCAD側で寸法が解釈できない。
+    const feature = entity.points[0];
+    const xAxis = Number.isInteger(entity.dxfDimensionType) ? Boolean(entity.dxfDimensionType & 64) : Math.abs(entity.points[1].x - feature.x) >= Math.abs(entity.points[1].y - feature.y);
+    const leader = xAxis ? { x: entity.points[1].x, y: feature.y } : { x: feature.x, y: entity.points[1].y };
+    groups.push("100", "AcDbOrdinateDimension", ...point(feature, 13), ...point(leader, 14));
+  } else {
+    groups.push("100", kind === "aligned" ? "AcDbAlignedDimension" : "AcDbRotatedDimension", ...point(entity.points[0], 13), ...point(entity.points[1], 14), "50", num(entity.dimensionLineAngle ?? (kind === "vertical" ? 90 : 0)));
+  }
+  return groups;
+}
+
+function encodeHatch(entity, base, skipped, limitedRegeneration = false) {
+  if (!Array.isArray(entity.points) || entity.points.length < 3 || entity.points.some((value) => !finitePoint(value))) return skipEntity(entity, skipped, "ハッチ境界が不正です");
+  const boundaries = Array.isArray(entity.boundaries) && entity.boundaries.length ? entity.boundaries : [{ type: "polyline", flags: 3, closed: true, vertices: entity.points }];
+  // 限定再生成(原本のTABLES/OBJECTSを保持しない再構成)では、boundaryのsourceHandles(330参照)や
+  // 関連付け(71)が指す原本ハンドルが新しい文書中で解決不能になる。無効な参照を出力しないよう、
+  // 限定再生成時は関連付けを0、boundaryのsourceHandles件数を0として書出す。
+  const associative = limitedRegeneration ? false : entity.associative;
+  const groups = ["0", "HATCH", ...base, "10", "0", "20", "0", "30", num(entity.elevation?.z ?? 0), "210", "0", "220", "0", "230", "1",
+    "2", dxfText(entity.pattern ?? "SOLID"), "70", entity.solidFill || entity.pattern === "SOLID" ? "1" : "0", "71", associative ? "1" : "0", "91", String(boundaries.length)];
+  try {
+    for (const boundary of boundaries) encodeHatchBoundary(groups, boundary, limitedRegeneration);
+  } catch (error) {
+    return skipEntity(entity, skipped, error instanceof Error ? error.message : "ハッチ境界を書出せません");
+  }
+  groups.push("75", String(entity.hatchStyle ?? 0), "76", String(entity.patternType ?? 1), "52", num(entity.patternAngle ?? entity.angle ?? 0), "41", num(entity.patternScale ?? 1), "77", entity.patternDouble ? "1" : "0");
+  if (!(entity.solidFill || entity.pattern === "SOLID")) groups.push("78", "1", "53", num(entity.patternAngle ?? entity.angle ?? 45), "43", "0", "44", "0", "45", num(entity.patternScale ?? 1), "46", "0", "79", "0");
+  const seeds = Array.isArray(entity.seedPoints) ? entity.seedPoints.filter((seed) => finitePoint(seed)) : [];
+  groups.push("98", String(seeds.length));
+  for (const seed of seeds) groups.push("10", num(seed.x), "20", num(seed.y));
+  return groups;
+}
+
+function encodeHatchBoundary(groups, boundary, limitedRegeneration = false) {
+  // boundaryの座標はencodeHatch側では検証されないため、ここで有限値を強制する。
+  // 検証しないとnum()が非有限値を文字列"NaN"として出力し、例外も起きないため
+  // skippedにも載らず、壊れたDXFが「成功」として書き出される。
+  const required = (value, label) => {
+    if (!finitePoint(value)) throw new Error(`HATCH境界の${label}が不正です`);
+    return value;
+  };
+  const requiredNumber = (value, label, { positive = false } = {}) => {
+    if (!Number.isFinite(value) || (positive && !(value > 0))) throw new Error(`HATCH境界の${label}が不正です`);
+    return value;
+  };
+  if (boundary.type === "polyline") {
+    const vertices = boundary.vertices ?? boundary.points;
+    if (!Array.isArray(vertices) || vertices.length < 3) throw new Error("ポリラインハッチ境界が不正です");
+    vertices.forEach((vertex) => { required(vertex, "頂点座標"); if (vertex.bulge !== undefined) requiredNumber(vertex.bulge, "bulge"); });
+    groups.push("92", String(boundary.flags ?? 3), "72", vertices.some((vertex) => vertex.bulge) ? "1" : "0", "73", boundary.closed === false ? "0" : "1", "93", String(vertices.length));
+    for (const vertex of vertices) {
+      groups.push(...point(vertex, 10));
+      if (vertex.bulge) groups.push("42", num(vertex.bulge));
+    }
+  } else if (boundary.type === "edges") {
+    if (!Array.isArray(boundary.edges) || !boundary.edges.length) throw new Error("edgeハッチ境界が不正です");
+    groups.push("92", String(boundary.flags ?? 1), "93", String(boundary.edges.length));
+    for (const edge of boundary.edges) {
+      if (edge.type === "line") {
+        groups.push("72", "1", ...point(required(edge.start, "線分始点"), 10), ...point(required(edge.end, "線分終点"), 11));
+      } else if (edge.type === "arc") {
+        groups.push("72", "2", ...point(required(edge.center, "円弧中心"), 10), "40", num(requiredNumber(edge.radius, "円弧半径", { positive: true })),
+          "50", num(requiredNumber(edge.startAngle, "円弧開始角")), "51", num(requiredNumber(edge.endAngle, "円弧終了角")), "73", edge.ccw === false ? "0" : "1");
+      } else if (edge.type === "ellipse") {
+        groups.push("72", "3", ...point(required(edge.center, "楕円中心"), 10), ...point(required(edge.majorAxis, "楕円長軸")), "40", num(requiredNumber(edge.ratio, "楕円比率", { positive: true })),
+          "50", num(requiredNumber(edge.startParameter, "楕円開始パラメータ")), "51", num(requiredNumber(edge.endParameter, "楕円終了パラメータ")), "73", edge.ccw === false ? "0" : "1");
+      } else throw new Error(`HATCH edge ${edge.type}は書出せません`);
+    }
+  } else throw new Error("不明なHATCH境界です");
+  const handles = limitedRegeneration ? [] : (boundary.sourceHandles ?? []);
+  groups.push("97", String(handles.length));
+  for (const handle of handles) groups.push("330", String(handle));
+}
+
+function encodeViewport(entity, base, skipped, limitedRegeneration = false) {
+  const center = finitePoint(entity.center);
+  if (!center || !Number.isFinite(entity.width) || entity.width <= 0 || !Number.isFinite(entity.height) || entity.height <= 0) return skipEntity(entity, skipped, "VIEWPORTの位置または寸法が不正です");
+  const groups = ["0", "VIEWPORT", ...base, "67", "1", "410", dxfText(entity.layoutName ?? "Layout1"), ...point(center, 10), "40", num(entity.width), "41", num(entity.height),
+    "68", String(entity.status ?? 1), "69", String(entity.viewportId ?? 1), ...point(entity.viewCenter ?? { x: 0, y: 0 }, 12)];
+  // snapBase(13)/snapSpacing(14)/gridSpacing(15)はモデル空間側(DCS)のスナップ設定。
+  // パーサは原本に存在する場合だけ保持するため、未指定なら出力もしない(存在しない設定を
+  // 0で作らない)。これらを落とすと、原本アーカイブが無い図面や限定再生成へフォールバック
+  // した図面でスナップ設定が往復のたびに消える(実測で確認済み)。
+  if (finitePoint(entity.snapBase)) groups.push(...point(entity.snapBase, 13));
+  if (finitePoint(entity.snapSpacing)) groups.push(...point(entity.snapSpacing, 14));
+  if (finitePoint(entity.gridSpacing)) groups.push(...point(entity.gridSpacing, 15));
+  groups.push(...point(entity.viewTarget ?? { x: 0, y: 0 }, 17),
+    "16", num(entity.viewDirection?.x ?? 0), "26", num(entity.viewDirection?.y ?? 0), "36", num(entity.viewDirection?.z ?? 1), "42", num(entity.lensLength ?? 50), "43", num(entity.frontClip ?? 0), "44", num(entity.rearClip ?? 0),
+    "45", num(entity.viewHeight ?? entity.height), "50", num(entity.snapAngle ?? 0), "51", num(entity.twistAngle ?? 0), "90", String(entity.locked ? Number(entity.flags ?? 0) | 16384 : Number(entity.flags ?? 0) & ~16384));
+  // 限定再生成では原本のLAYERテーブルのハンドルが新しい文書と一致する保証がないため、
+  // frozenLayerHandles(331参照)は出力しない(entityArea等と異なりgroup 331自体を省略する)。
+  if (!limitedRegeneration) for (const handle of entity.frozenLayerHandles ?? []) groups.push("331", String(handle));
+  return groups;
 }
 
 function skipEntity(entity, skipped, reason) {

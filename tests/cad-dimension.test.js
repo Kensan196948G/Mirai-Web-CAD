@@ -103,3 +103,30 @@ test("copying source and dimension binds the copy to the copied source", () => {
   assert.equal(dimensionGeometry(changed.entities[1]).value, 1000);
   assert.equal(dimensionGeometry(changed.entities[3]).value, 1500);
 });
+
+test("angular dimensionGeometry selects the sweep containing dimensionLinePoint (not always the CCW default)", () => {
+  const entity = {
+    type: "dimension", dimensionType: "angular",
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    definitionPoints: { 13: { x: 0, y: 0 }, 14: { x: 10, y: 0 }, 15: { x: 0, y: 0 }, 16: { x: 0, y: -10 } },
+    dimensionLinePoint: { x: 10, y: -10 } // 第4象限(-45度)
+  };
+  const geometry = dimensionGeometry(entity);
+  assert.ok(Math.abs(geometry.value - 90) < 1e-6, `dimensionLinePointが第4象限にある場合は補角側(90度)を選ぶべきだが実際は${geometry.value}`);
+
+  const oppositeAnchor = { ...entity, dimensionLinePoint: { x: -10, y: -10 } }; // 第3象限、CCW側の弧(0〜270度)に含まれる
+  assert.ok(Math.abs(dimensionGeometry(oppositeAnchor).value - 270) < 1e-6, "dimensionLinePointがCCW側の弧に含まれる場合は270度のまま");
+});
+
+test("ordinate dimensionGeometry measures feature-location-to-origin distance along the DXF-specified axis, not the leader endpoint's absolute coordinate", () => {
+  const xTypeEntity = {
+    type: "dimension", dimensionType: "ordinate",
+    points: [{ x: 150, y: 80 }, { x: 200, y: 40 }], // a=feature location(13), b=leader endpoint(14)
+    dimensionLinePoint: { x: 100, y: 50 }, // UCS origin(10)
+    dxfDimensionType: 6 | 64 // baseType=6(ordinate) + bit64(X-type)
+  };
+  assert.equal(dimensionGeometry(xTypeEntity).value, 50, "X軸: |150-100|=50であり、leader endpointの絶対x座標200ではない");
+
+  const yTypeEntity = { ...xTypeEntity, dxfDimensionType: 6 }; // bit64未設定 = Y-type
+  assert.equal(dimensionGeometry(yTypeEntity).value, 30, "Y軸: |80-50|=30");
+});

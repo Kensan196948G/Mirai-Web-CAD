@@ -20,6 +20,15 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
       y: base.y + x * Math.sin(radians) + y * Math.cos(radians) + dy
     };
   };
+  // VIEWPORTのviewCenter/snapBase/snapSpacing/gridSpacing/viewTarget/viewHeightは、紙空間の枠
+  // (center)とは別の、モデル空間(DCS)側のカメラ・スナップ設定(DXF group 12/13/14/15/17/45)。
+  // 紙面上で枠を移動・回転・尺度変更しても表示中のモデル範囲やスナップ設定は変わらないため、
+  // 対話編集(MOVE/COPY/ROTATE/SCALE)ではこれらを一切変更しない。紙空間のcenterを基準(base)に
+  // 回転・倍率を適用すると、モデル空間の座標を別空間の原点で動かすことになり不正な値になる
+  // (その値はpatchViewport経由で原本DXFへ書き戻される)。
+  // 一方、単位変換は scale factor / angle=0 / base=原点 で呼ばれる図面全体の座標系変換なので、
+  // モデル空間の値も同じ倍率で一貫して換算する必要がある。
+  const documentScale = angle === 0 && scale !== 1 && base.x === 0 && base.y === 0;
   if (next.type === "block") {
     next.insertion = transform(next.insertion);
     next.rotation = (next.rotation ?? 0) + angle;
@@ -30,20 +39,62 @@ export function transformEntity(entity, { dx = 0, dy = 0, angle = 0, scale = 1, 
   for (const key of ["origin", "center", "at", "insertion"]) {
     if (next[key]) next[key] = transform(next[key]);
   }
+  // HATCHのelevationはDXFのgroup code 10/20/30で、仕様上x/yは常に0でZのみが標高を表す
+  // (Autodesk DXF Reference: "X and Y always equal 0, Z represents the elevation")。
+  // したがってx/yは平面内の平行移動・回転の対象外とし、Zだけを倍率換算する。
+  // ここでx/yを他の点と同様に変換すると、原本パッチ(patchHatch)がその値をgroup 10/20へ
+  // 書き戻し、「常に0」という仕様に反するDXFを出力してしまう(実測で確認済み)。
+  if (next.elevation) next.elevation = { x: next.elevation.x ?? 0, y: next.elevation.y ?? 0, z: (next.elevation.z ?? 0) * scale };
   if (next.points) next.points = next.points.map(transform);
   if (next.controlPoints) next.controlPoints = next.controlPoints.map(transform);
+  for (const key of ["dimensionLinePoint", "textPoint"]) {
+    if (next[key]) next[key] = transform(next[key]);
+  }
+  if (documentScale) {
+    const scaleOnly = (value) => ({ x: value.x * scale, y: value.y * scale });
+    for (const key of ["viewCenter", "snapBase", "snapSpacing", "gridSpacing"]) {
+      if (next[key]) next[key] = scaleOnly(next[key]);
+    }
+    if (next.viewTarget) next.viewTarget = { ...next.viewTarget, x: next.viewTarget.x * scale, y: next.viewTarget.y * scale };
+  }
+  if (next.definitionPoints) next.definitionPoints = Object.fromEntries(Object.entries(next.definitionPoints).map(([key, value]) => [key, transform(value)]));
+  if (next.seedPoints) next.seedPoints = next.seedPoints.map(transform);
+  if (next.boundaries) next.boundaries = next.boundaries.map((boundary) => ({
+    ...boundary,
+    points: boundary.points?.map(transform),
+    vertices: boundary.vertices?.map((vertex) => ({ ...vertex, ...transform(vertex) })),
+    edges: boundary.edges?.map((edge) => {
+      if (edge.type === "line") return { ...edge, start: transform(edge.start), end: transform(edge.end) };
+      if (edge.type === "arc") return { ...edge, center: transform(edge.center), radius: Math.abs(edge.radius * scale), startAngle: edge.startAngle + angle, endAngle: edge.endAngle + angle };
+      if (edge.type === "ellipse") return { ...edge, center: transform(edge.center), majorAxis: rotateScaleVector(edge.majorAxis, angle, scale), startParameter: edge.startParameter, endParameter: edge.endParameter };
+      return edge;
+    })
+  }));
   if (next.children) next.children = next.children.map((child) => transformEntity(child, { dx, dy, angle, scale, base }));
   if (typeof next.radius === "number") next.radius = Math.abs(next.radius * scale);
   if (typeof next.radiusX === "number") next.radiusX = Math.abs(next.radiusX * scale);
   if (typeof next.radiusY === "number") next.radiusY = Math.abs(next.radiusY * scale);
   if (typeof next.width === "number") next.width *= scale;
   if (typeof next.height === "number") next.height *= scale;
+  // viewHeightはviewCenter等と同じモデル空間(DCS)の量なので、対話編集では変更せず
+  // 単位変換(documentScale)のときだけ換算する。
+  if (documentScale && typeof next.viewHeight === "number") next.viewHeight = Math.abs(next.viewHeight * scale);
+  if (typeof next.patternScale === "number") next.patternScale = Math.abs(next.patternScale * scale);
+  if (typeof next.spacing === "number") next.spacing = Math.abs(next.spacing * scale);
   if (typeof next.size === "number") next.size = Math.abs(next.size * scale);
   if (typeof next.offset === "number") next.offset *= scale;
   if (typeof next.rotation === "number") next.rotation += angle;
   if (typeof next.startAngle === "number") next.startAngle += angle;
   if (typeof next.endAngle === "number") next.endAngle += angle;
+  if (typeof next.dimensionLineAngle === "number") next.dimensionLineAngle += angle;
+  if (typeof next.patternAngle === "number") next.patternAngle += angle;
+  if (typeof next.twistAngle === "number") next.twistAngle += angle;
   return next;
+}
+
+function rotateScaleVector(vector, angle, scale) {
+  const radians = angle * Math.PI / 180;
+  return { x: scale * (vector.x * Math.cos(radians) - vector.y * Math.sin(radians)), y: scale * (vector.x * Math.sin(radians) + vector.y * Math.cos(radians)) };
 }
 
 export function offsetEntity(entity, distance) {
