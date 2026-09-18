@@ -248,3 +248,73 @@ test("Pages Functionsの503応答にもセキュリティヘッダが付く", as
     assert.equal(response.headers.get(name), API_SECURITY_HEADERS[name], `${name} が欠落`);
   }
 });
+
+// applyTransactionは未知のopを黙って無視するため、綴り間違いでも200が返り
+// 「何も起きていないのに成功した」状態になっていた。入力境界で拒否する。
+test("未知のopは400で拒否する(黙って無視して成功を返さない)", async () => {
+  resetMemoryStore();
+  await createBlankDrawing("dwg_op1");
+  const response = await handleApiRequest(
+    transactionRequest("dwg_op1", { commands: [{ op: "add_line", type: "line" }], expectedVersion: "1", key: "tx-op1" }),
+    env
+  );
+  const body = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(body.error, /opが不正です: add_line/);
+});
+
+test("コマンドがオブジェクトでない場合は400で拒否する", async () => {
+  resetMemoryStore();
+  await createBlankDrawing("dwg_op2");
+  const cases = ["delete", null, ["add"]];
+  for (const [index, command] of cases.entries()) {
+    const response = await handleApiRequest(
+      transactionRequest("dwg_op2", { commands: [command], expectedVersion: "1", key: `tx-op2-${index}` }),
+      env
+    );
+    assert.equal(response.status, 400, `${JSON.stringify(command)} は拒否されるべき`);
+  }
+});
+
+test("opが文字列でない場合も400で拒否する", async () => {
+  resetMemoryStore();
+  await createBlankDrawing("dwg_op3");
+  const response = await handleApiRequest(
+    transactionRequest("dwg_op3", { commands: [{ op: { nested: "add" } }], expectedVersion: "1", key: "tx-op3" }),
+    env
+  );
+  assert.equal(response.status, 400);
+});
+
+test("pointsが上限を超えるコマンドは413で拒否する", async () => {
+  resetMemoryStore();
+  await createBlankDrawing("dwg_op4");
+  const points = Array.from({ length: 10_001 }, (_, index) => ({ x: index, y: 0 }));
+  const response = await handleApiRequest(
+    transactionRequest("dwg_op4", {
+      commands: [{ op: "add", type: "polyline", layerId: "layer-structure", points }],
+      expectedVersion: "1",
+      key: "tx-op4"
+    }),
+    env
+  );
+  assert.equal(response.status, 413);
+});
+
+test("許可されたop(SPAが送る13種)は引き続き適用できる", async () => {
+  resetMemoryStore();
+  await createBlankDrawing("dwg_op5");
+  const response = await handleApiRequest(
+    transactionRequest("dwg_op5", {
+      commands: [
+        { op: "add_layer", layer: { id: "layer-op-check", name: "検証", color: "#123456", visible: true, locked: false, printable: true } },
+        { op: "update_layout", layout: { paper: "A4", orientation: "landscape" } },
+        { op: "update_drawing_meta", name: "検証図面" }
+      ],
+      expectedVersion: "1",
+      key: "tx-op5"
+    }),
+    env
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+});

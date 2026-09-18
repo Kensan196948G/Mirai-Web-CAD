@@ -48,6 +48,26 @@ const MAX_JSON_BYTES = 1_048_576;
 // 1リクエストで適用できるコマンド数の上限。ユーザー経路にはLLM経路(MAX_LLM_COMMANDS)の
 // ような上限が無く、巨大な配列を1回で送ると全利用者の描画・保存が遅くなるため設ける。
 const MAX_TRANSACTION_COMMANDS = 500;
+// applyTransaction(cad-core.js)が解釈するopの一覧。ここに無いopは「未知の操作として
+// 黙って無視される」ため、入力境界で拒否する(200を返しつつ何も起きない状態を防ぐ)。
+const ALLOWED_TRANSACTION_OPS = new Set([
+  "add",
+  "add_comment",
+  "add_layer",
+  "delete",
+  "delete_layer",
+  "delete_selection",
+  "save_selection",
+  "set_block_resources",
+  "set_empty_drawing_unit",
+  "update",
+  "update_drawing_meta",
+  "update_layer",
+  "update_layout"
+]);
+// 1コマンドあたりの点列長の上限。全体はMAX_JSON_BYTESでも抑えているが、
+// 巨大な点列による計算量増大を入力境界で止める。
+const MAX_COMMAND_POINTS = 10_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 // 追跡する利用者数(バケット×利用者)の上限。超えた場合は期限切れ→最も古い順に破棄する。
 const RATE_LIMIT_MAX_ENTRIES = 10_000;
@@ -663,6 +683,8 @@ function requireExpectedVersion(request, drawing) {
 
 // 図面更新コマンドの入力検証。配列以外を受け取るとapplyTransaction内の
 // commands.every()が例外を投げて500になるため、ここで400として拒否する。
+// あわせて op を許可リストで検証する: applyTransactionは未知のopを黙って無視するため、
+// 綴り間違いでも200(成功)が返り「何も起きていないのに成功した」状態になっていた。
 function requireTransactionCommands(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw httpError("JSON本文はオブジェクトである必要があります。", 400);
@@ -674,6 +696,18 @@ function requireTransactionCommands(body) {
   if (commands.length > MAX_TRANSACTION_COMMANDS) {
     throw httpError(`1回の更新で送信できるコマンドは${MAX_TRANSACTION_COMMANDS}件までです。`, 413);
   }
+  commands.forEach((command, index) => {
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+      throw httpError(`commands[${index}]はオブジェクトである必要があります。`, 400);
+    }
+    if (typeof command.op !== "string" || !ALLOWED_TRANSACTION_OPS.has(command.op)) {
+      const shown = typeof command.op === "string" ? command.op.slice(0, 40) : typeof command.op;
+      throw httpError(`commands[${index}]のopが不正です: ${shown}`, 400);
+    }
+    if (Array.isArray(command.points) && command.points.length > MAX_COMMAND_POINTS) {
+      throw httpError(`commands[${index}].pointsが上限(${MAX_COMMAND_POINTS})を超えています。`, 413);
+    }
+  });
   return commands;
 }
 
