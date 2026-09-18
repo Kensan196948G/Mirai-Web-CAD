@@ -458,3 +458,15 @@ Goal Round 6として、方針文書Phase 1「精密編集CAD Core」のうち�
 | 制約 | P0-74のデプロイ経路切替は、手順書`docs/deployment-local.md`の同時更新が必要だが、**セッションのポリシーゲートが同ファイルをINFRA_CHANGE(critical)として編集拒否**したため未実施。文書と実装の矛盾を避けるため`deploy-local.sh`の変更も取り消した(読み取り専用チェックは追加済みで、手順書更新後に1行切り替えれば完了) |
 | 18項目 | データ品質70→71、セキュリティ85→86、可用性・バックアップ58→59。**総合62.8→63.1**。判定は依然PoC |
 | 残課題 | デプロイ検証の切替(要手順書更新)、P0-75/P0-78、P0-70〜P0-73(要業務判断・外部契約・DB管理者)、本番ホストのローカルmain分岐解消と本番への修正反映 |
+
+## Round 18 / 2026-09-18 監査の追記専用保護をTRUNCATEまで拡張(P0-78)
+
+| 項目 | 内容 |
+| --- | --- |
+| 目標 | 2026-09-18の独立監査で確定したP0-78(監査の追記専用保護の穴)を実装する |
+| 実装 | `migrations/0008_audit_truncate_guard.sql`(TRUNCATE拒否トリガ+UPDATE/DELETEトリガの冪等再作成)、`scripts/verify-database.sh`と`scripts/check-database-state.sh`の期待値を3トリガへ、`scripts/sql/verify-audit-append-only.sql`にTRUNCATE検査を追加、`scripts/sql/harden-audit-role.sql`(所有権分離、DB管理者が実行)、`scripts/lint.mjs`の必須ファイルへ0008を追加 |
+| 検証 | トリガ3件が有効。**所有者ロールでもスーパーユーザでも**TRUNCATE/UPDATE/DELETEが`audit_logs is append-only`で拒否。所有権分離後はアプリ用ロールで権限拒否、SELECT/INSERTは成功。分離スクリプトは冪等(2回適用exit 0)。`db:verify`・`db:check`は両postureで成功。`npm run verify`全成功(ESLint 0 errors、unit 413件=412 pass/0 fail/1 skip、E2E 78/78) |
+| 検出した誤判定 | 所有権分離後は**権限**が先に拒否するため、`verify-audit-append-only.sql`が「トリガによる拒否」のみを要求していると正しい状態を「保護が無効」と誤判定した。拒否理由を「トリガ」または「権限不足」のいずれでも成立するよう修正(成功した場合のみ失敗とする不変条件は維持) |
+| 運用帰結 | 所有権分離後は`db:verify`をアプリ用ロールで実行できない(`must be owner of table audit_logs`)。migration適用は所有者ロールまたは管理者で行う |
+| 制約 | 本番DBへの所有権分離の適用はDB管理者の承認が必要。`0006`の自己完結トランザクション化は履歴migrationを避け0008の再作成で代替(手動中断時はdb:checkの検知に依存) |
+| 18項目 | セキュリティ86→87、データ品質71→72、運用保守性71→72。**総合63.1→63.3**。判定は依然PoC |
