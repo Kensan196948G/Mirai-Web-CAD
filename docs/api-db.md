@@ -74,11 +74,12 @@ curl http://127.0.0.1:4176/api/health
 
 ### API応答のセキュリティヘッダ
 
-`scripts/serve-production.mjs`は、`/api/*`の応答にも`_headers`の`/*`ルール(CSP・`X-Frame-Options`・`Referrer-Policy`・`Permissions-Policy`等)と`Strict-Transport-Security`を付与する。以前は静的応答にしか適用されておらず、**API応答にはCSP/HSTSが付いていなかった**(2026-09-18の追加ラウンドで修正)。
+API応答(`JSON_HEADERS`)は`src/api-handler.js`の`API_SECURITY_HEADERS`を単一の出所とし、CSP・`Strict-Transport-Security`・`X-Frame-Options`・`X-Content-Type-Options`・`Referrer-Policy`・`Permissions-Policy`を付与する。
 
-- アプリが自前で設定したヘッダ(`src/api-handler.js`の`JSON_HEADERS`・CORS)が優先され、`_headers`側で上書きされない。
+- **Cloudflare Pages Functionsの応答には`_headers`のルールが適用されない**(2026-09-18の実測: `pr-102`の`/api/health`にCSP/HSTSが付かない)。そのためヘッダは`_headers`ではなくAPI側に持たせ、`_headers`との値の一致をテスト(`tests/api-hardening.test.js`)で固定してドリフトを防ぐ。
+- `scripts/serve-production.mjs`は、これに加えて`_headers`の`/*`ルールのうち不足しているものを`applyEdgeHeaders`で補う(アプリが設定したヘッダは上書きしない)。404/413/500のエラー応答にもHSTSを付与する。
 - ローカル開発サーバー(`scripts/serve-local.mjs`)はHTTP配信のためHSTSのみ除去し、CSP等は本番と同じものを付与する(E2Eで検証される)。
-- 404/413/500等のエラー応答にもHSTSを付与する。
+- Pages Functionsの`AUTH_MODE!=access`による503応答にも同じヘッダを付与する。
 
 ## Migration
 

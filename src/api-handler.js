@@ -21,13 +21,27 @@ import { createEntraGroupResolver } from "./entra-graph.js";
 // ACCESS_ROLE_MAPによる個別メール指定は常にこれより優先される(resolveActor参照)。
 const ROLE_PRECEDENCE = ["cad_admin", "approver", "reviewer", "drafter", "viewer"];
 
-const JSON_HEADERS = {
-  "content-type": "application/json; charset=utf-8",
-  "cache-control": "no-store",
+// API応答でも使うセキュリティヘッダ。Cloudflare Pages Functionsの応答には
+// `_headers`のルールが適用されない(実測: pr-102の/api/healthにCSP/HSTSが付かない)ため、
+// API側でも同じ値を持つ必要がある。`_headers`との値の一致はテストで検証する
+// (tests/api-hardening.test.js)。
+export const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
+
+export const API_SECURITY_HEADERS = {
+  "content-security-policy": CONTENT_SECURITY_POLICY,
+  "strict-transport-security": STRICT_TRANSPORT_SECURITY,
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
   "x-frame-options": "DENY"
+};
+
+const JSON_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  "cache-control": "no-store",
+  ...API_SECURITY_HEADERS
 };
 
 const MAX_JSON_BYTES = 1_048_576;

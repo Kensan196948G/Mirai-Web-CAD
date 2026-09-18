@@ -1,6 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { csvEscape, handleApiRequest, resetMemoryStore } from "../src/api-handler.js";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  API_SECURITY_HEADERS,
+  CONTENT_SECURITY_POLICY,
+  STRICT_TRANSPORT_SECURITY as API_HSTS,
+  csvEscape,
+  handleApiRequest,
+  resetMemoryStore
+} from "../src/api-handler.js";
+import { STRICT_TRANSPORT_SECURITY as BRIDGE_HSTS, loadHeaderRules, makeHeadersResolver } from "../scripts/lib/http-bridge.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pagesFunction = await import("../functions/api/[[path]].js");
 
 // 2026-09-18の追加セキュリティ精査で検出した、API入力検証・冪等キー・CSV出力の
 // 弱点に対する回帰テスト。いずれも「機能が動く」ことではなく「不正入力で
@@ -201,4 +214,37 @@ test("監査CSVの通常の値は従来どおり素通しする", async () => {
   const body = await csv.text();
   assert.ok(body.includes("cad-admin@example.com"));
   assert.equal(body.includes("'cad-admin@example.com"), false);
+});
+
+// Cloudflare Pages Functionsの応答には`_headers`が適用されないため、API側でも
+// 同じセキュリティヘッダを持つ必要がある。3箇所(_headers / API / http-bridge)の
+// 値がずれると片方だけ無防備になるので、一致をテストで固定する。
+test("_headersとAPIのCSP/HSTSは一致する(ドリフト防止)", async () => {
+  const rules = await loadHeaderRules(path.join(__dirname, "..", "_headers"));
+  const headersForPath = makeHeadersResolver(rules);
+  assert.equal(headersForPath("/")["Content-Security-Policy"], CONTENT_SECURITY_POLICY);
+  assert.equal(headersForPath("/")["Strict-Transport-Security"], API_HSTS);
+  assert.equal(API_SECURITY_HEADERS["content-security-policy"], CONTENT_SECURITY_POLICY);
+  assert.equal(API_SECURITY_HEADERS["strict-transport-security"], API_HSTS);
+  assert.equal(BRIDGE_HSTS, API_HSTS);
+});
+
+test("API応答(JSON)にセキュリティヘッダが付く", async () => {
+  resetMemoryStore();
+  const response = await handleApiRequest(new Request("https://example.test/api/health"), env);
+  for (const name of Object.keys(API_SECURITY_HEADERS)) {
+    assert.equal(response.headers.get(name), API_SECURITY_HEADERS[name], `${name} が欠落`);
+  }
+  assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+});
+
+test("Pages Functionsの503応答にもセキュリティヘッダが付く", async () => {
+  const response = await pagesFunction.onRequest({
+    request: new Request("https://mirai-web-cad.pages.dev/api/health"),
+    env: { AUTH_MODE: "demo" }
+  });
+  assert.equal(response.status, 503);
+  for (const name of Object.keys(API_SECURITY_HEADERS)) {
+    assert.equal(response.headers.get(name), API_SECURITY_HEADERS[name], `${name} が欠落`);
+  }
 });
