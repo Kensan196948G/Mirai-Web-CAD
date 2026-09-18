@@ -130,8 +130,12 @@ export function makeHeadersResolver(headerRules) {
 }
 
 /**
- * distディレクトリ配下から実ファイルを解決する。存在しないパスはSPAフォールバック
- * としてindex.htmlを返す。戻り値のpathはstaticRootからの絶対パス。
+ * distディレクトリ配下から実ファイルを解決する。戻り値のpathはstaticRootからの絶対パス。
+ *
+ * SPAフォールバック(index.html)は**拡張子の無いパス**に限る。以前はどのパスでも
+ * index.htmlを返していたため、`/assets/missing.js`のような欠落アセットや
+ * `/typo/path.txt`まで200(text/html)になり、読み込み失敗の検知も外形監視も
+ * 成立しなかった(2026-09-18の実測: 存在しないパスが200)。
  * @param {string} staticRoot
  * @param {string} pathname
  */
@@ -140,7 +144,9 @@ export async function resolveStaticFile(staticRoot, pathname) {
     .normalize(decodeURIComponent(pathname))
     .replace(/^(\.\.[/\\])+/, "")
     .replace(/^[/\\]+/, "");
-  const candidates = [safePath || "index.html", path.join(safePath, "index.html"), "index.html"];
+  const candidates = [safePath || "index.html", path.join(safePath, "index.html")];
+  const looksLikeFileRequest = path.extname(safePath) !== "";
+  if (!looksLikeFileRequest) candidates.push("index.html");
   for (const candidate of candidates) {
     const full = path.join(staticRoot, candidate);
     if (!full.startsWith(staticRoot)) continue;

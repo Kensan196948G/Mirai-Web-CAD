@@ -465,3 +465,32 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 
 - `require-atomic-updates`の21件は「ブラウザUIでは誤検知」と判断してwarnに留めている。将来、状態管理を見直す際の確認対象として残る。
 - 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限、SPAフォールバックの200、`/transactions`の1コマンドあたりの配列長検証。
+
+## 16. 2026-09-18 追加ラウンド(コマンド検証とSPAフォールバック、PR #105)
+
+### 16.1 修正
+
+| # | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `POST /drawings/:id/transactions` の`op`が無検証で、**未知のopは`applyTransaction`に黙って無視され200(成功)が返っていた**。綴り間違いや将来の誤実装が「何も起きないのに成功」になる | High(誤判定) | `applyTransaction`が解釈する13種のopを許可リスト化し、未知のopは400で拒否(該当opを応答に含める)。コマンドが非オブジェクトの場合も400 |
+| 2 | 1コマンドあたりの`points`長に上限が無く、巨大な点列で計算量が増大し得た | Medium | `MAX_COMMAND_POINTS = 10_000`を追加(超過は413) |
+| 3 | **SPAフォールバックが拡張子の有無を問わずindex.htmlを返していた**ため、`/missing.js`のような欠落アセットや誤ったパスが**200(text/html)**になり、読み込み失敗の検知も外形監視も成立しなかった(実測: `/definitely-missing.txt`=200) | Medium(監視) | フォールバックを**拡張子の無いパスに限定**。`/missing.js`等は404、`/deep/client/route`は従来どおりindex.html |
+
+### 16.2 検証Evidence
+
+- `tests/api-hardening.test.js`に5件追加(未知opの400、非オブジェクトコマンドの400、op非文字列の400、`points`超過の413、SPAが送る13 opの正常適用)
+- `tests/http-bridge.test.js`に4件追加(既存ファイル解決、欠落ファイルはnull=404、拡張子無しパスはindex.html、上位ディレクトリへ抜けるパスは不解決)
+- **実行時検証**(`serve-local`を一時ポートで起動): `/`=200 html、`/index.html`=200 html、**`/missing.js`=404**、**`/missing.txt`=404**、`/deep/client/route`=200 html(フォールバック維持)、`/src/app.js`=200 js
+- **Preview実測の限界**: `pr-105.mirai-web-cad.pages.dev`では`/missing.js`が**依然200(text/html)**である。これはCloudflare Pages側のSPAフォールバック(404.htmlが無い場合に未一致パスを`/index.html`へ返す挙動)であり、本修正が対象とするのは**自ホストの本番サーバー(`serve-production.mjs`、実際の本番ドメイン)**である。Pages経路はCloudflare側の設定であり、本ラウンドの修正対象外(下記16.4)。
+- `npm run verify:fast`: unit **366件中365 pass・1 skip**、ESLint 0 errors、lint/typecheck/a11y/build 成功／E2E **74/74**
+- CI全ジョブ、Preview実測、マージ後main CI/Production verify
+
+### 16.3 18項目への影響
+
+データ品質 64→65、監視・障害対応 66→67、コード品質 73→74。他は据え置き。**総合 61.1 → 61.3**(1103/18)。判定は依然PoC。
+
+### 16.4 未解決(据え置き)
+
+- MVPドメインはCloudflare Accessで保護されているため、**欠落アセットの404を外形監視へ組み込むにはAccess経由の監視設計が必要**(現状の`check-mvp-health.sh`は`/`の302を検査している)。
+- **Cloudflare Pages側のSPAフォールバックは未解消**。`pr-105.mirai-web-cad.pages.dev`の実測で`/missing.js`=200(text/html)。Pagesは404.htmlが無い場合に未一致パスを`/index.html`へ返すため、404を返させるには`404.html`の追加等が必要だが、それは`/deep/client/route`のようなSPA側のパスも404にしてしまう。ローカル常駐サーバー(実際の本番ドメイン)は本ラウンドで404化済みであり、Pagesは「参考・ロールバック用」の位置づけであるため、対応は方針判断とする。
+- 監査ログのハッシュチェーン/改ざん検知、監査一覧取得の監査記録、エッジ(WAF)のレート制限。
