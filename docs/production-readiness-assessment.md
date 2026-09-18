@@ -727,3 +727,46 @@ Cloudflare Pagesは`_headers`で静的応答のCSP等を設定できるがFuncti
 
 - 本番DBへの**所有権分離の適用**(`scripts/sql/harden-audit-role.sql`)はDB管理者の承認が必要。適用後は`db:verify`をアプリ用ロールで実行できなくなるため、migration適用主体の見直しが伴う
 - `0006`の自己完結トランザクション化は、履歴migrationの変更を避け`0008`の再作成で代替した。手動適用時の中断状態は`db:check`の検知に依存する(残余リスクとして明記)
+
+## 22. 2026-09-18 追加ラウンド(CIの恒常的な赤信号の除去・文書同期・所見台帳の補完、第5ラウンド)
+
+第3ラウンドまでで**コードのみで解消できるCritical/Highは出し切った**ため、本ラウンドは「少人数のIT・DX部門が運用を回すうえで効く」領域(CIの信号品質、文書の正確性、所見の永続記録)を対象とした。
+
+### 22.1 修正
+
+| ID | 事象 | 重大度 | 修正 |
+| --- | --- | --- | --- |
+| P0-81 | `Deploy Preview`が**Dependabot起点のPRで常に失敗**していた。Dependabot起点のワークフローにはリポジトリのシークレットが渡らない(GitHubの仕様)ため`CLOUDFLARE_API_TOKEN`が空になり、`wrangler`がエラー終了する。必須チェックではないが**常に赤いジョブが1つあり、真の異常との判別を妨げる**(改善台帳P0-21と同種) | Medium(CI信号品質) | `Check Cloudflare credentials`ステップで資格情報の有無を判定し、無い実行では配信と検証をスキップして`notice`で理由を残すようにした。**実測**: PR #89/#90の`Deploy Preview`失敗ログが`CLOUDFLARE_API_TOKEN`空による`wrangler`エラーであることを確認 |
+
+### 22.2 文書の事実誤りを訂正(実装と突合)
+
+| 文書 | 誤 | 正(実測根拠) |
+| --- | --- | --- |
+| `README.md` | `db:verify`は`0001`〜`0006`を適用し**8テーブル**、監査トリガーは**UPDATE/DELETE**を検証 | `scripts/verify-database.sh`は`0001`〜**`0008`**を適用し**9テーブル**、トリガー**3件**(UPDATE/DELETE/**TRUNCATE**)を検証。読み取り専用の`db:check`にも言及 |
+| `docs/testing.md` | 監査トリガーの検証はUPDATE/DELETE。**PostgreSQL 18**空DBでPASS | トリガー3件(TRUNCATE含む)。CIは**`postgres:16-alpine`**(本番もPostgreSQL 16) |
+
+### 22.3 所見台帳の補完(独立監査の未記録分8件)
+
+第2〜3ラウンドで修正した項目以外に、独立監査が指摘したまま台帳へ記録されていなかったものを**P0-82〜P0-88**として追加した(未着手・根拠・完了基準付き)。これにより、監査所見が会話ログではなくリポジトリ内の台帳から追跡可能になった。
+
+- **P0-82**(High): `content_hash`が内容由来でなく(layers/用紙/尺度/単位の変更や論理破損を検出できない)、復元署名が論理破損を検出できない
+- **P0-83**(High): migration版管理が無く`verify-database.sh`が`table_count == 9`固定のため、**テーブルを追加した時点で全デプロイが恒久失敗**する
+- **P0-84**(Medium-High): backup/restoreに「対象DB名」のアサーションが無く、env取り違えを検出できない
+- **P0-85**(High): 監視がGitHub Actionsの分数予算に100%依存し、超過時に監視・CI・Dependabotが同時に沈黙する。本番`18812`の常時監視unitが無く、全unitに`OnFailure=`も無い
+- **P0-86**(High): `rollback()`がDBを戻さず、`npm ci`が`node_modules`を先に消すためNW断で復旧不能になり得る。`curl`に`--max-time`が無い
+- **P0-87**(High): 本番ホスト構成(ロール/権限/cloudflared/env/backups)がコードで再現できず、新規ホスト復旧Runbookが無い。systemd unitの`WorkingDirectory`は別チェックアウトを指す
+- **P0-88**(Medium): SBOM/ライセンス検査/CODEOWNERS不在、ActionsがSHA固定されていない
+
+### 22.4 検証Evidence
+
+- `npm run verify` 全成功: `lint` / ESLint **0 errors** / `typecheck` / `a11y` / unit **413件(412 pass・0 fail・1 skip)** / `build` / E2E **78/78**
+- `.github/workflows/ci.yml` の構文検証と、`preview`ジョブの各ステップの`if`条件をYAMLパースで確認
+- 文書の訂正値は`scripts/verify-database.sh`(9テーブル・3トリガ)と`.github/workflows/ci.yml`(`postgres:16-alpine`)の実装から採取
+
+### 22.5 18項目への影響
+
+CI/CD・リリース 83→**84**(常時赤の除去)、運用保守性 72→**73**(誤警報の削減)、文書 81→**82**(実装との不一致2件を訂正し、監査所見8件を台帳へ補完)。他は据え置き。**総合 63.3 → 63.4**(1142/18)。**判定は依然PoC。**
+
+### 22.6 未実施(承認・判断待ち)
+
+P0-82〜P0-88の実装は、いずれもmigrationの版管理導入、保存済みハッシュの段階移行、デプロイ手順書の更新(ポリシーゲートで編集不可)、契約プランの確認、DB管理者作業を伴うため**人間の判断が必要**である。コードのみで完結する残項目は本ラウンドで尽きた。

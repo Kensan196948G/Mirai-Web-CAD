@@ -11,7 +11,8 @@
 | A11y static | `npm run a11y` | lang、ARIA、focus-visible、Responsive規則 |
 | Build | `npm run build` | Cloudflare Pages配信物生成 |
 | E2E | `npm run test:e2e` | desktop/mobile UI、新規作成、CLI、Undo/Redo、Import、Canvas、API同期、AI承認、Keyboard、axe |
-| DB | `npm run db:verify` | 空PostgreSQLへMigration/Seedを2回適用、監査追記専用トリガー存在とUPDATE/DELETE拒否を検証 |
+| DB | `npm run db:verify` | 空PostgreSQLへMigration 0001〜0008/Seedを2回適用、監査追記専用トリガー**3件**(UPDATE/DELETE/TRUNCATE)の存在と各操作の拒否を検証 |
+| DB(読み取り専用) | `npm run db:check` | 書き込みを行わず、migration作成物・監査トリガー3件と拒否・JSONB形状を検証(デプロイ時の検証)。未適用ならexit 1 |
 | Recovery | `npm run db:backup` / `db:restore` | custom archive検証、空DB復元、主要件数確認 |
 | Secret | GitHub Actions | Gitleaksで独立リポジトリ全体を走査 |
 
@@ -48,7 +49,7 @@ E2E_BASE_URL=https://mvp-round-5.mirai-web-cad.pages.dev npm run test:e2e
 | 検証 | 結果 |
 | --- | --- |
 | `npm run verify:fast` | PASS。Lint、Type、static A11y、34 Unit/API/性能baseline、Build |
-| PostgreSQL 18空DB | PASS。Migration 0001-0005/Seedを2回適用、監査追記専用トリガー検証込み |
+| PostgreSQL 16空DB(CIは`postgres:16-alpine`) | PASS。Migration 0001-0008/Seedを2回適用、監査追記専用トリガー3件の検証込み |
 | Neon Preview原子更新 | PASS。revision 2、audit 2、idempotency 2を別queryで確認後、試験レコード削除 |
 | backup/restore drill | PASS。custom archiveを空DBへ復元、SHA-256・取得時刻、backup manifestとの4表件数・最新版署名一致、JSONB形状、全図面の最新版参照を検証 |
 | 未実施 | Production実データbackup/restore、100k図形負荷、障害注入、SSO実利用者E2E |

@@ -142,7 +142,7 @@ npm run verify
 DATABASE_URL="postgresql://..." npm run db:verify
 ```
 
-`db:verify`は`0001_initial.sql`から`0006_normalize_jsonb_columns.sql`と`seeds/demo.sql`を2回適用し、8テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー(UPDATE/DELETE拒否)、JSONBの二重保存がないことを検証します。ローカルPostgreSQL 16での適用を確認済みです。
+`db:verify`は`0001_initial.sql`から`0008_audit_truncate_guard.sql`と`seeds/demo.sql`を2回適用し、9テーブル、公開デモ属性、Seed重複なし、監査ログの追記専用トリガー**3件**(UPDATE/DELETE/TRUNCATEを拒否)、JSONBの二重保存がないことを検証します。ローカルPostgreSQL 16での適用を確認済みです。読み取り専用で同じ状態を確認したい場合は`npm run db:check`を使います(デプロイ時の検証はこちら)。
 
 バックアップ/復元ドリル:
 
