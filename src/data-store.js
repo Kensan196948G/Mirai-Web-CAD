@@ -1,8 +1,13 @@
 import postgres from "postgres";
 import { seedDrawing } from "./cad-core.js";
 
+export const LEGACY_PROJECT_ID = "prj_demo_road_001";
+
 const memory = {
   drawings: new Map(),
+  drawingProjects: new Map(),
+  projects: new Map(),
+  projectMembers: new Map(),
   agentRuns: new Map(),
   auditLogs: [],
   idempotencyKeys: new Set()
@@ -47,6 +52,9 @@ export async function closeDataStorePool() {
 
 export function resetMemoryStoreData() {
   memory.drawings.clear();
+  memory.drawingProjects.clear();
+  memory.projects.clear();
+  memory.projectMembers.clear();
   memory.agentRuns.clear();
   memory.auditLogs.splice(0, memory.auditLogs.length);
   memory.idempotencyKeys.clear();
@@ -70,6 +78,53 @@ class MemoryDataStore {
     return id === "dwg_demo_001" ? clone(memory.drawings.get(id)) : null;
   }
 
+  async getDrawingProjectId(id) {
+    if (!memory.drawings.has(id)) return null;
+    return memory.drawingProjects.get(id) ?? LEGACY_PROJECT_ID;
+  }
+
+  async getProject(id) {
+    return clone(memory.projects.get(id)) ?? null;
+  }
+
+  async createProject(project) {
+    if (memory.projects.has(project.id)) return null;
+    const stored = clone({
+      id: project.id,
+      name: project.name,
+      owner: project.owner,
+      status: "active",
+      accessScope: project.accessScope
+    });
+    memory.projects.set(project.id, stored);
+    memory.projectMembers.set(project.id, new Set());
+    return clone(stored);
+  }
+
+  async updateProjectAccessScope(id, accessScope) {
+    const project = memory.projects.get(id);
+    if (!project) return null;
+    project.accessScope = accessScope;
+    return clone(project);
+  }
+
+  async listProjectMembers(projectId) {
+    return [...(memory.projectMembers.get(projectId) ?? [])].sort();
+  }
+
+  async isProjectMember(projectId, member) {
+    return memory.projectMembers.get(projectId)?.has(member.toLowerCase()) ?? false;
+  }
+
+  async addProjectMember(projectId, member) {
+    if (!memory.projectMembers.has(projectId)) memory.projectMembers.set(projectId, new Set());
+    memory.projectMembers.get(projectId).add(member.toLowerCase());
+  }
+
+  async removeProjectMember(projectId, member) {
+    memory.projectMembers.get(projectId)?.delete(member.toLowerCase());
+  }
+
   async saveDrawing(drawing) {
     const current = memory.drawings.get(drawing.id);
     if (current && drawing.revision !== current.revision + 1) {
@@ -79,11 +134,12 @@ class MemoryDataStore {
     return drawing;
   }
 
-  async createDrawingAtomically(drawing, auditEntry, idempotencyKey) {
+  async createDrawingAtomically(drawing, auditEntry, idempotencyKey, _actorId, _route, projectId = LEGACY_PROJECT_ID) {
     if (memory.idempotencyKeys.has(idempotencyKey) || memory.drawings.has(drawing.id)) return false;
     const storedDrawing = clone(drawing);
     const storedAudit = clone(auditEntry);
     memory.drawings.set(drawing.id, storedDrawing);
+    memory.drawingProjects.set(drawing.id, projectId);
     memory.auditLogs.push(storedAudit);
     memory.idempotencyKeys.add(idempotencyKey);
     return true;
@@ -217,6 +273,74 @@ class PostgresDataStore {
     return this.getDrawing(id, true);
   }
 
+  async getDrawingProjectId(id) {
+    const rows = await this.sql`select project_id from drawings where id = ${id} limit 1`;
+    return rows.length === 0 ? null : rows[0].project_id;
+  }
+
+  async getProject(id) {
+    const rows = await this.sql`
+      select id, name, owner, status, access_scope
+      from projects
+      where id = ${id}
+      limit 1
+    `;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return { id: row.id, name: row.name, owner: row.owner, status: row.status, accessScope: row.access_scope };
+  }
+
+  async createProject(project) {
+    const rows = await this.sql`
+      insert into projects (id, name, owner, status, access_scope)
+      values (${project.id}, ${project.name}, ${project.owner}, 'active', ${project.accessScope})
+      on conflict (id) do nothing
+      returning id, name, owner, status, access_scope
+    `;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return { id: row.id, name: row.name, owner: row.owner, status: row.status, accessScope: row.access_scope };
+  }
+
+  async updateProjectAccessScope(id, accessScope) {
+    const rows = await this.sql`
+      update projects set access_scope = ${accessScope}, updated_at = now()
+      where id = ${id}
+      returning id, name, owner, status, access_scope
+    `;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return { id: row.id, name: row.name, owner: row.owner, status: row.status, accessScope: row.access_scope };
+  }
+
+  async listProjectMembers(projectId) {
+    const rows = await this.sql`
+      select member from project_members where project_id = ${projectId} order by member
+    `;
+    return rows.map((row) => row.member);
+  }
+
+  async isProjectMember(projectId, member) {
+    const rows = await this.sql`
+      select 1 from project_members where project_id = ${projectId} and member = ${member.toLowerCase()} limit 1
+    `;
+    return rows.length === 1;
+  }
+
+  async addProjectMember(projectId, member, addedBy) {
+    await this.sql`
+      insert into project_members (project_id, member, added_by)
+      values (${projectId}, ${member.toLowerCase()}, ${addedBy})
+      on conflict (project_id, member) do nothing
+    `;
+  }
+
+  async removeProjectMember(projectId, member) {
+    await this.sql`
+      delete from project_members where project_id = ${projectId} and member = ${member.toLowerCase()}
+    `;
+  }
+
   async saveDrawing(drawing) {
     const content = this.sql.json(drawing);
     const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
@@ -256,7 +380,7 @@ class PostgresDataStore {
     return drawing;
   }
 
-  async createDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route) {
+  async createDrawingAtomically(drawing, auditEntry, idempotencyKey, actorId, route, projectId = LEGACY_PROJECT_ID) {
     const contentHash = drawing.commandEvents?.at(-1)?.afterHash ?? `version-${drawing.version}`;
     const versionId = `ver_${drawing.id}_${String(drawing.version).padStart(3, "0")}`;
     const actor = drawing.auditLog?.at(-1)?.actor ?? drawing.currentRole ?? "system";
@@ -269,7 +393,7 @@ class PostgresDataStore {
         await tx`
           insert into drawings (id, project_id, name, unit, current_version, revision, state)
           values (
-            ${drawing.id}, 'prj_demo_road_001', ${drawing.name}, ${drawing.unit},
+            ${drawing.id}, ${projectId}, ${drawing.name}, ${drawing.unit},
             ${drawing.version}, ${drawing.revision}, ${drawing.state}
           )
         `;
@@ -476,7 +600,20 @@ class PostgresDataStore {
 }
 
 function ensureMemorySeed() {
-  if (!memory.drawings.has("dwg_demo_001")) memory.drawings.set("dwg_demo_001", seedDrawing());
+  if (!memory.projects.has(LEGACY_PROJECT_ID)) {
+    memory.projects.set(LEGACY_PROJECT_ID, {
+      id: LEGACY_PROJECT_ID,
+      name: "道路拡幅デモ案件",
+      owner: "mirai-demo",
+      status: "active",
+      accessScope: "open"
+    });
+    memory.projectMembers.set(LEGACY_PROJECT_ID, new Set());
+  }
+  if (!memory.drawings.has("dwg_demo_001")) {
+    memory.drawings.set("dwg_demo_001", seedDrawing());
+    memory.drawingProjects.set("dwg_demo_001", LEGACY_PROJECT_ID);
+  }
 }
 
 function isCadDrawing(value) {
